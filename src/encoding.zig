@@ -30,6 +30,8 @@ pub const EncodeError = error{
 	HashMismatch,
 	IndexOutOfBounds,
 	InvalidMagic,
+	CompressionFailed,
+	DecompressionFailed,
 };
 
 // ---------------------------------------------------------------------------
@@ -184,7 +186,20 @@ pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult) EncodeE
 	const top_elements = [_][]const u8{ magic_raw, metadata_raw, instr_array };
 	const top_array = try blip.array_mod.serializeArray(allocator, &top_elements);
 
-	return top_array;
+	// 6. Try LZMA2 compression — keep whichever is smaller.
+	// Random binary insert data is incompressible; structured data benefits.
+	const compressed = blip.lzma2_mod.compressContainer(allocator, top_array) catch |e| switch (e) {
+		error.OutOfMemory => return error.OutOfMemory,
+		else => return top_array, // compression failed, return uncompressed
+	};
+
+	if (compressed.len < top_array.len) {
+		allocator.free(top_array);
+		return compressed;
+	} else {
+		allocator.free(compressed);
+		return top_array;
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -192,9 +207,22 @@ pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult) EncodeE
 // ---------------------------------------------------------------------------
 
 /// Deserialize BLIP bytes back into a DecodeResult.
+/// Accepts both LZMA2-compressed and uncompressed (legacy) ARRAY containers.
 pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!DecodeResult {
+	// Check for LZMA2 container (sentinel 0x81 0x09) and decompress if present
+	var decompressed: ?[]u8 = null;
+	defer if (decompressed) |d| allocator.free(d);
+
+	const inner_data: []const u8 = if (data.len >= 2 and data[0] == 0x81 and data[1] == 0x09) blk: {
+		decompressed = blip.lzma2_mod.decompressContainer(allocator, data) catch |e| switch (e) {
+			error.OutOfMemory => return error.OutOfMemory,
+			else => return error.InvalidMagic,
+		};
+		break :blk decompressed.?;
+	} else data;
+
 	// Parse outer ARRAY
-	const outer = blip.array_mod.ArrayReader.init(data) catch |e| switch (e) {
+	const outer = blip.array_mod.ArrayReader.init(inner_data) catch |e| switch (e) {
 		error.InvalidContainerType => return error.InvalidMagic,
 		error.UnexpectedEndOfInput => return error.InvalidMagic,
 		error.InvalidLength => return error.InvalidMagic,
@@ -366,7 +394,7 @@ test "encode then decode produces identical ops" {
 	}
 }
 
-test "encoded diff starts with valid BLIP array" {
+test "encoded diff starts with valid BLIP container" {
 	var ops_buf = [_]DiffOp{
 		.{ .tag = .copy, .offset = 0, .length = 10, .data = null },
 	};
@@ -379,9 +407,10 @@ test "encoded diff starts with valid BLIP array" {
 	const encoded = try encode(testing.allocator, result);
 	defer testing.allocator.free(encoded);
 
-	// First 2 bytes should be ARRAY sentinel
+	// First byte should be 0x81 (BLIP container), second byte is either
+	// 0x01 (ARRAY, uncompressed) or 0x09 (LZMA2, compressed) — whichever is smaller
 	try testing.expectEqual(@as(u8, 0x81), encoded[0]);
-	try testing.expectEqual(@as(u8, 0x01), encoded[1]);
+	try testing.expect(encoded[1] == 0x01 or encoded[1] == 0x09);
 }
 
 test "decode rejects invalid magic" {
@@ -486,4 +515,58 @@ test "seed and metadata preserved across encode/decode" {
 	try testing.expectEqual(@as(usize, 8192), decoded.target_chunk_size);
 	try testing.expectEqual(@as(usize, 1_000_000), decoded.size_a);
 	try testing.expectEqual(@as(usize, 1_000_001), decoded.size_b);
+}
+
+test "LZMA2 compressed encoding is smaller than uncompressed for repetitive data" {
+	// Build a diff with a large repetitive Insert payload — highly compressible.
+	const insert_data = "ABCDEFGHIJ" ** 200; // 2000 bytes of repetitive data
+	var ops_buf = [_]DiffOp{
+		.{ .tag = .copy, .offset = 0, .length = 100, .data = null },
+		.{ .tag = .insert, .offset = 0, .length = 2000, .data = insert_data },
+	};
+	const result = diff_mod.DiffResult{
+		.ops = &ops_buf,
+		.options = .{ .seed = [_]u8{0} ** 32, .target_chunk_size = 1024 },
+		.size_a = 100,
+		.size_b = 2100,
+	};
+	const encoded = try encode(testing.allocator, result);
+	defer testing.allocator.free(encoded);
+
+	// Encoded output should start with LZMA2 sentinel (0x81 0x09)
+	try testing.expectEqual(@as(u8, 0x81), encoded[0]);
+	try testing.expectEqual(@as(u8, 0x09), encoded[1]);
+
+	// Compressed should be smaller than the uncompressed insert data
+	try testing.expect(encoded.len < 2000);
+
+	// Must still decode correctly
+	const decoded = try decode(testing.allocator, encoded);
+	defer freeDecoded(testing.allocator, decoded);
+	try testing.expectEqual(@as(usize, 2), decoded.ops.len);
+	try testing.expectEqual(DiffOp.Tag.copy, decoded.ops[0].tag);
+	try testing.expectEqual(DiffOp.Tag.insert, decoded.ops[1].tag);
+	try testing.expectEqualStrings(insert_data, decoded.ops[1].data.?);
+}
+
+test "LZMA2 decode handles both compressed and uncompressed input" {
+	// A small diff that may not benefit from compression — but encode always
+	// compresses now. Either way, decode must handle it.
+	var ops_buf = [_]DiffOp{
+		.{ .tag = .copy, .offset = 0, .length = 10, .data = null },
+	};
+	const result = diff_mod.DiffResult{
+		.ops = &ops_buf,
+		.options = .{ .seed = [_]u8{0} ** 32, .target_chunk_size = 256 },
+		.size_a = 10,
+		.size_b = 10,
+	};
+	const encoded = try encode(testing.allocator, result);
+	defer testing.allocator.free(encoded);
+
+	const decoded = try decode(testing.allocator, encoded);
+	defer freeDecoded(testing.allocator, decoded);
+	try testing.expectEqual(@as(usize, 1), decoded.ops.len);
+	try testing.expectEqual(DiffOp.Tag.copy, decoded.ops[0].tag);
+	try testing.expectEqual(@as(usize, 10), decoded.ops[0].length);
 }
