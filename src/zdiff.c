@@ -281,8 +281,8 @@ int main(int argc, char *argv[]) {
 			continue;
 		}
 
-		/* Unknown option */
-		if (argv[i][0] == '-' && argv[i][1] == '-') {
+		/* Unknown option (single-dash or double-dash, but not bare "-") */
+		if (argv[i][0] == '-' && argv[i][1] != '\0') {
 			fprintf(stderr, "zdiff: unknown option '%s'\n", argv[i]);
 			return 1;
 		}
