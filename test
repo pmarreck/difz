@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+# Run all zdiff tests in Debug mode
+nix develop -c zig build test -Doptimize=Debug
+exit $?

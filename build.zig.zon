@@ -1,0 +1,17 @@
+.{
+	.fingerprint = 0x117497c4acd2bfb7,
+	.name = .zdiff,
+	.version = "0.1.0",
+	.minimum_zig_version = "0.15.0",
+	.dependencies = .{
+		.blip = .{
+			.url = "https://github.com/pmarreck/BLIP/archive/refs/heads/yolo.tar.gz",
+			.hash = "blip-0.1.0-rcNuGAhwCQCvORT4pXvHiuvPe3xp9xUpMQtadM4eZYMw",
+		},
+	},
+	.paths = .{
+		"build.zig",
+		"build.zig.zon",
+		"src",
+	},
+}

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+# Benchmark suite for zdiff
+echo "Benchmark suite not yet implemented"
+exit 0

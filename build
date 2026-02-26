@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+# Build script for zdiff
+# Default: ReleaseFast. Use --test or --debug for Debug builds.
+
+args=()
+for arg in "$@"; do
+	case "$arg" in
+		--test)
+			args+=("-Doptimize=Debug")
+			;;
+		--debug)
+			args+=("-Doptimize=Debug")
+			;;
+		*)
+			args+=("$arg")
+			;;
+	esac
+done
+
+exec nix develop -c zig build "${args[@]}"
