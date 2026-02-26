@@ -1,16 +1,25 @@
 # ZDiff Implementation Plan
 
-## Tasks
+## Completed Tasks
 
-- [x] Task 1: Project Scaffolding — flake.nix, build.zig, build.zig.zon, src/lib.zig, shell scripts, .gitignore (completed 2026-02-25 ~10:30pm EST)
-- [ ] Task 2: Gear Hash — rolling hash with BLAKE3-seeded 256-entry u64 lookup table
-- [ ] Task 3: CDC (Content-Defined Chunking) — Gear hash CDC with configurable average chunk size
-- [ ] Task 4: Chunk Matching — BLAKE3 fingerprinting of CDC chunks, match identical chunks between files
-- [ ] Task 5: Elder/Myers O(ND) Byte Diff — fine-grained byte-level diffing for unmatched regions
-- [ ] Task 6: Two-Stage Diff Orchestrator — CDC for coarse matching, Elder diff for gap refinement
-- [ ] Task 7: BLIP Encoding of Diff Output — encode diff instructions as BLIP ARRAY container
-- [ ] Task 8: Patch (Apply Diff) — apply a zdiff patch to reconstruct file B from file A
-- [ ] Task 9: C FFI Layer — expose zdiff core through C-callable API with header
-- [ ] Task 10: C CLI — C program that dogfoods the FFI for diff and patch operations
-- [ ] Task 11: Benchmark Suite — hyperfine benchmarks comparing zdiff vs bsdiff vs xdelta
-- [ ] Task 12: Documentation and Final Polish — CODE_MINIMAP.md, README, CLI help, --about
+- [x] Task 1: Project Scaffolding — flake.nix, build.zig, build.zig.zon, src/lib.zig, shell scripts, .gitignore (2026-02-25 ~10:30pm EST)
+- [x] Task 2: Gear Hash — rolling hash with BLAKE3-seeded 256-entry u64 lookup table (2026-02-25 ~10:45pm EST)
+- [x] Task 3: CDC — Content-Defined Chunking using Gear hash (2026-02-25 ~11:00pm EST)
+- [x] Task 4: Chunk Matching — BLAKE3 fingerprinting, HashMap-based match finding (2026-02-25 ~11:15pm EST)
+- [x] Task 5: Elder/Myers O(ND) Byte Diff — fine-grained byte-level diffing (2026-02-25 ~11:30pm EST)
+- [x] Task 6: Two-Stage Diff Orchestrator — CDC coarse matching + Elder gap refinement (2026-02-25 ~11:45pm EST)
+- [x] Task 7: BLIP Encoding — serialize diff instructions as BLIP ARRAY container (2026-02-26 ~12:00am EST)
+- [x] Task 8: Patch — apply BLIP-encoded diff to reconstruct target (2026-02-26 ~12:15am EST)
+- [x] Task 9: C FFI Layer — zdiff_diff, zdiff_patch, zdiff_free exports + zdiff.h (2026-02-26 ~12:30am EST)
+- [x] Task 10: C CLI — C program dogfooding the FFI, 46 CLI integration tests (2026-02-26 ~12:45am EST)
+- [x] Task 11: Benchmark Suite — hyperfine stats, zdiff vs bsdiff vs xdelta3 (2026-02-26 ~1:00am EST)
+- [x] Task 12: Documentation — CODE_MINIMAP.md, PLAN.md, PROJECT_SPEC.md updates (2026-02-26 ~1:15am EST)
+
+## Next Steps
+
+- [ ] Performance optimization: Elder/Myers O(ND) is O(n*d) which is very slow for large dissimilar regions — need to cap edit distance or use a faster algorithm for large gaps
+- [ ] Diff size optimization: currently 3x larger than bsdiff/xdelta3 — investigate compression of insert data and more efficient encoding
+- [ ] Progress indication: the Zig core currently provides no progress callbacks; need to add a callback mechanism for the C CLI to display stage progress
+- [ ] Translation groundwork: lay foundation for 30-language support per AGENTS.md CLI guidelines
+- [ ] Fuzzing suite: fuzz the encoder/decoder for robustness
+- [ ] Cross-platform CI: test on Linux x86_64/aarch64 and Windows
