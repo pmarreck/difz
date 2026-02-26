@@ -13,4 +13,5 @@ test "blip dependency works" {
 test {
 	_ = @import("gear_hash.zig");
 	_ = @import("cdc.zig");
+	_ = @import("chunk_match.zig");
 }
