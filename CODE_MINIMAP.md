@@ -52,13 +52,13 @@ All business logic lives in Zig. The C CLI dogfoods the FFI. The Zig core perfor
 - `blake3Hash128(data)` — 128-bit BLAKE3 digest for chunk fingerprinting
 - 5 tests: identical, different, gap inversion, no matches, shared prefix
 
-### `src/elder_diff.zig` — O(ND) byte-level diff (Myers algorithm)
+### `src/elder_diff.zig` — O(ND) byte-level diff (Myers algorithm) with edit distance cap
 - `DiffOp` — struct: `{ tag: .copy|.insert, offset, length, data }`
-- `diff(allocator, a, b)` — full Myers O(ND) with V-array history and traceback
+- `diff(allocator, a, b)` — Myers O(ND) with V-array history and traceback; edit distance capped at `min(sqrt(N+M)*2+16, 8192)` — bails to raw Insert when exceeded (~170x speedup on dissimilar data)
 - `freeOps(allocator, ops)` — free DiffOp slice
 - `applyOps(allocator, a, ops)` — apply ops to A, produce B
 - `editsToDiffOps(allocator, edits, a, b)` — convert edit list to Copy/Insert ops
-- 9 tests: identical, empty, insertion, deletion, replacement, random round-trip, edge changes
+- 11 tests: identical, empty, insertion, deletion, replacement, random round-trip, edge changes, large dissimilar (cap timing), fine-grained (cap doesn't over-trigger)
 
 ### `src/diff.zig` — Two-stage orchestrator: CDC -> Elder -> instruction list
 - `DiffOptions` — struct: `{ seed: [32]u8, target_chunk_size: usize }`
@@ -66,7 +66,7 @@ All business logic lives in Zig. The C CLI dogfoods the FFI. The Zig core perfor
 - `computeDiff(allocator, a, b, options)` — Stage 1: CDC chunk matching, Stage 2: Elder diff on gaps, offset adjustment for absolute positioning
 - `freeDiffResult(allocator, result)` — free the ops array
 - `applyDiff(allocator, a, ops)` — convenience wrapper around elder_diff.applyOps
-- 6 tests: identical, different round-trip, shared regions, empty A/B, metadata
+- 7 tests: identical, different round-trip, shared regions, empty A/B, metadata, multiple scattered edits
 
 ### `src/encoding.zig` — BLIP serialization of diff instructions
 - `DecodeResult` — struct: `{ ops, seed, target_chunk_size, size_a, size_b }`

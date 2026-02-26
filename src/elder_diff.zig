@@ -59,10 +59,14 @@ pub fn diff(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]DiffO
 		return allocator.alloc(DiffOp, 0);
 	}
 
-	// Myers O(ND) algorithm
-	// We find the shortest edit script, then trace back to get operations.
+	// Myers O(ND) algorithm with edit distance cap.
+	// When the edit distance exceeds d_cap, bail out and emit a single Insert
+	// of B's data. This prevents O(N*D) blowup on large dissimilar regions
+	// where fine-grained byte-level diffing is both slow and produces bloated output.
 	const max_d = n + m;
-	const v_size = 2 * max_d + 1;
+	const d_cap: usize = @min(std.math.sqrt(n + m) * 2 + 16, 8192);
+	const effective_max_d = @min(max_d, d_cap);
+	const v_size = 2 * effective_max_d + 1;
 
 	// Store V arrays for each d to enable traceback.
 	// v_history[d] = copy of V after processing edit distance d.
@@ -88,22 +92,23 @@ pub fn diff(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]DiffO
 
 	// V[1] = 0 means: on diagonal k=1, the furthest x is 0
 	// which represents the starting point.
-	v[intToIndex(1, max_d)] = 0;
+	v[intToIndex(1, effective_max_d)] = 0;
 
 	var final_d: usize = 0;
+	var found_path = false;
 
-	outer: for (0..max_d + 1) |d| {
+	outer: for (0..effective_max_d + 1) |d| {
 		const d_signed: isize = @intCast(d);
 		var k: isize = -d_signed;
 		while (k <= d_signed) : (k += 2) {
 			// Choose whether to move down (insert) or right (delete)
 			var x: isize = undefined;
-			if (k == -d_signed or (k != d_signed and v[intToIndex(k - 1, max_d)] < v[intToIndex(k + 1, max_d)])) {
+			if (k == -d_signed or (k != d_signed and v[intToIndex(k - 1, effective_max_d)] < v[intToIndex(k + 1, effective_max_d)])) {
 				// Move down: take x from diagonal k+1 (insert from B)
-				x = v[intToIndex(k + 1, max_d)];
+				x = v[intToIndex(k + 1, effective_max_d)];
 			} else {
 				// Move right: take x from diagonal k-1 and add 1 (delete from A)
-				x = v[intToIndex(k - 1, max_d)] + 1;
+				x = v[intToIndex(k - 1, effective_max_d)] + 1;
 			}
 
 			var y: isize = x - k;
@@ -114,7 +119,7 @@ pub fn diff(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]DiffO
 				y += 1;
 			}
 
-			v[intToIndex(k, max_d)] = x;
+			v[intToIndex(k, effective_max_d)] = x;
 
 			// Check if we've reached the end
 			if (x == @as(isize, @intCast(n)) and y == @as(isize, @intCast(m))) {
@@ -123,6 +128,7 @@ pub fn diff(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]DiffO
 				@memcpy(v_copy, v);
 				try appendVHistory(allocator, &v_history_buf, &v_history_len, &v_history_cap, v_copy);
 				final_d = d;
+				found_path = true;
 				break :outer;
 			}
 		}
@@ -131,6 +137,22 @@ pub fn diff(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]DiffO
 		const v_copy = try allocator.alloc(isize, v_size);
 		@memcpy(v_copy, v);
 		try appendVHistory(allocator, &v_history_buf, &v_history_len, &v_history_cap, v_copy);
+	}
+
+	// Edit distance cap exceeded — bail out with a raw Insert of B.
+	// This is correct: "delete all of A, insert all of B."
+	if (!found_path) {
+		if (m == 0) {
+			return allocator.alloc(DiffOp, 0);
+		}
+		const ops = try allocator.alloc(DiffOp, 1);
+		ops[0] = .{
+			.tag = .insert,
+			.offset = 0,
+			.length = m,
+			.data = b,
+		};
+		return ops;
 	}
 
 	// Traceback: walk from d=final_d back to d=0 to recover the edit script
@@ -149,7 +171,7 @@ pub fn diff(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]DiffO
 		// Determine which move got us to this k
 		const d_signed: isize = @intCast(d_usize);
 		var prev_k: isize = undefined;
-		if (k == -d_signed or (k != d_signed and v_prev[intToIndex(k - 1, max_d)] < v_prev[intToIndex(k + 1, max_d)])) {
+		if (k == -d_signed or (k != d_signed and v_prev[intToIndex(k - 1, effective_max_d)] < v_prev[intToIndex(k + 1, effective_max_d)])) {
 			// We got here by moving down (insert)
 			prev_k = k + 1;
 		} else {
@@ -157,7 +179,7 @@ pub fn diff(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]DiffO
 			prev_k = k - 1;
 		}
 
-		const prev_x = v_prev[intToIndex(prev_k, max_d)];
+		const prev_x = v_prev[intToIndex(prev_k, effective_max_d)];
 		const prev_y = prev_x - prev_k;
 
 		// Add diagonal (equal) edits from the snake
@@ -417,4 +439,53 @@ test "diff single byte change at end" {
 	const result = try applyOps(testing.allocator, "helloA", ops);
 	defer testing.allocator.free(result);
 	try testing.expectEqualStrings("helloB", result);
+}
+
+test "large dissimilar diff completes quickly via edit distance cap" {
+	// 16KB of completely random data — worst case for Myers O(ND).
+	// Without a cap this would take many seconds. With a cap it should bail
+	// to a raw Insert and complete in well under 1 second.
+	var prng_a = std.Random.DefaultPrng.init(1000);
+	var prng_b = std.Random.DefaultPrng.init(2000);
+	var a: [16384]u8 = undefined;
+	var b: [16384]u8 = undefined;
+	prng_a.random().bytes(&a);
+	prng_b.random().bytes(&b);
+
+	var timer = try std.time.Timer.start();
+	const ops = try diff(testing.allocator, &a, &b);
+	const elapsed_ms = timer.read() / 1_000_000;
+	defer testing.allocator.free(ops);
+
+	// Must complete in under 500ms (Debug build). Without cap this takes 30+ seconds.
+	try testing.expect(elapsed_ms < 500);
+
+	// Must still round-trip correctly
+	const result = try applyOps(testing.allocator, &a, ops);
+	defer testing.allocator.free(result);
+	try testing.expectEqualSlices(u8, &b, result);
+}
+
+test "edit distance cap still produces fine-grained ops for similar data" {
+	// Small, mostly-similar data should still get fine-grained Copy/Insert ops,
+	// NOT a single big Insert (cap shouldn't trigger on easy cases).
+	const a = "the quick brown fox jumps over the lazy dog";
+	const b = "the quick red fox jumps over the lazy cat";
+	const ops = try diff(testing.allocator, a, b);
+	defer testing.allocator.free(ops);
+
+	// Should have multiple ops (Copy+Insert interleaved), not just 1 Insert
+	try testing.expect(ops.len > 1);
+
+	// Should have at least one Copy op (preserving shared content)
+	var has_copy = false;
+	for (ops) |op| {
+		if (op.tag == .copy) has_copy = true;
+	}
+	try testing.expect(has_copy);
+
+	// Must round-trip
+	const result = try applyOps(testing.allocator, a, ops);
+	defer testing.allocator.free(result);
+	try testing.expectEqualStrings(b, result);
 }

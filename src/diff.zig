@@ -173,6 +173,21 @@ test "diff A empty" {
 	try testing.expectEqualStrings("hello", reconstructed);
 }
 
+test "round-trip: multiple edits scattered across file" {
+	// File with several distinct edit regions separated by shared content.
+	const shared = "SHARED_BLOCK_" ** 20;
+	const a = shared ++ "old-part-1" ++ shared ++ "old-part-2" ++ shared ++ "old-part-3" ++ shared;
+	const b = shared ++ "NEW-PART-1" ++ shared ++ "NEW-PART-TWO" ++ shared ++ "NP3" ++ shared;
+	const result = try computeDiff(testing.allocator, a, b, .{
+		.seed = [_]u8{0} ** 32,
+		.target_chunk_size = 64,
+	});
+	defer freeDiffResult(testing.allocator, result);
+	const reconstructed = try applyDiff(testing.allocator, a, result.ops);
+	defer testing.allocator.free(reconstructed);
+	try testing.expectEqualStrings(b, reconstructed);
+}
+
 test "diff stores correct metadata" {
 	const result = try computeDiff(testing.allocator, "abc", "xyz", .{
 		.seed = [_]u8{42} ** 32,
