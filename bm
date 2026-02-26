@@ -65,18 +65,18 @@ human_bytes() {
 }
 
 # Generate a test file pair with a given similarity percentage.
-# The first $keep bytes of _b are copied from _a; the rest are random.
+# The first $keep bytes of _b are copied from _a; the rest are different (seeded).
 # This isn't perfectly scattered similarity, but it's deterministic and fast.
 generate_test_pair() {
 	local name="$1" size="$2" similarity="$3" seed="$4"
 	local file_a="$TMPDIR_BM/${name}_a"
 	local file_b="$TMPDIR_BM/${name}_b"
 
-	# Create file_a from urandom
-	dd if=/dev/urandom of="$file_a" bs="$size" count=1 2>/dev/null
+	# Create file_a from deterministic seeded random bytes
+	random --seed "$seed" 0 255 -c "$size" -b > "$file_a" 2>/dev/null
 
-	# Create file_b: all random first
-	dd if=/dev/urandom of="$file_b" bs="$size" count=1 2>/dev/null
+	# Create file_b: deterministic but different (seed + 10000)
+	random --seed "$(( seed + 10000 ))" 0 255 -c "$size" -b > "$file_b" 2>/dev/null
 
 	# Then overwrite the first (similarity)% of _b with bytes from _a
 	local keep=$(( size * similarity / 100 ))
@@ -84,7 +84,7 @@ generate_test_pair() {
 		dd if="$file_a" of="$file_b" bs=1 count="$keep" conv=notrunc 2>/dev/null
 	fi
 
-	info "  ${name}: $(human_bytes "$size"), ${similarity}% similar"
+	info "  ${name}: $(human_bytes "$size"), ${similarity}% similar (seed=$seed)"
 }
 
 # macOS date doesn't support %N. Detect and use a fallback.
