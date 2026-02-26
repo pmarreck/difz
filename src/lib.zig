@@ -1,7 +1,87 @@
 const blip = @import("blip");
 const std = @import("std");
+const diff_mod = @import("diff.zig");
+const encoding = @import("encoding.zig");
+const patch_mod = @import("patch.zig");
 
 pub const version = "0.1.0";
+
+// ============================================================================
+// C FFI exports
+// ============================================================================
+
+/// Compute a binary diff between buffers A and B.
+/// If seed is null, a random seed is generated.
+/// On success: sets out_ptr/out_len and returns 0.
+/// On error: returns -1.
+export fn zdiff_diff(
+	a_ptr: [*]const u8,
+	a_len: usize,
+	b_ptr: [*]const u8,
+	b_len: usize,
+	seed: ?*const [32]u8,
+	target_chunk_size: usize,
+	out_ptr: *[*]u8,
+	out_len: *usize,
+) callconv(.c) i32 {
+	const allocator = std.heap.page_allocator;
+
+	// Resolve seed: use provided or generate random
+	var seed_buf: [32]u8 = undefined;
+	if (seed) |s| {
+		seed_buf = s.*;
+	} else {
+		std.crypto.random.bytes(&seed_buf);
+	}
+
+	const a = a_ptr[0..a_len];
+	const b = b_ptr[0..b_len];
+
+	const options = diff_mod.DiffOptions{
+		.seed = seed_buf,
+		.target_chunk_size = target_chunk_size,
+	};
+
+	// Compute diff
+	const result = diff_mod.computeDiff(allocator, a, b, options) catch return -1;
+	defer diff_mod.freeDiffResult(allocator, result);
+
+	// Encode to BLIP bytes
+	const encoded = encoding.encode(allocator, result) catch return -1;
+
+	out_ptr.* = encoded.ptr;
+	out_len.* = encoded.len;
+	return 0;
+}
+
+/// Apply a diff to buffer A to reconstruct buffer B.
+/// On success: sets out_ptr/out_len and returns 0.
+/// On error: returns -1.
+export fn zdiff_patch(
+	a_ptr: [*]const u8,
+	a_len: usize,
+	diff_ptr: [*]const u8,
+	diff_len: usize,
+	out_ptr: *[*]u8,
+	out_len: *usize,
+) callconv(.c) i32 {
+	const allocator = std.heap.page_allocator;
+
+	const a = a_ptr[0..a_len];
+	const diff_blob = diff_ptr[0..diff_len];
+
+	const reconstructed = patch_mod.patch(allocator, a, diff_blob) catch return -1;
+
+	out_ptr.* = reconstructed.ptr;
+	out_len.* = reconstructed.len;
+	return 0;
+}
+
+/// Free memory returned by zdiff_diff or zdiff_patch.
+export fn zdiff_free(ptr: [*]u8, len: usize) callconv(.c) void {
+	const allocator = std.heap.page_allocator;
+	allocator.free(ptr[0..len]);
+}
 
 test "blip dependency works" {
 	var buf: [16]u8 = undefined;
@@ -18,4 +98,50 @@ test {
 	_ = @import("diff.zig");
 	_ = @import("encoding.zig");
 	_ = @import("patch.zig");
+}
+
+test "C FFI: zdiff_diff and zdiff_patch round-trip" {
+	const a = "the quick brown fox " ** 50;
+	const b = "the quick red fox " ** 50;
+	var diff_out: [*]u8 = undefined;
+	var diff_len: usize = undefined;
+	const rc = zdiff_diff(a.ptr, a.len, b.ptr, b.len, null, 64, &diff_out, &diff_len);
+	try std.testing.expectEqual(@as(i32, 0), rc);
+	defer zdiff_free(diff_out, diff_len);
+
+	var patch_out: [*]u8 = undefined;
+	var patch_len: usize = undefined;
+	const rc2 = zdiff_patch(a.ptr, a.len, diff_out, diff_len, &patch_out, &patch_len);
+	try std.testing.expectEqual(@as(i32, 0), rc2);
+	defer zdiff_free(patch_out, patch_len);
+
+	try std.testing.expectEqualStrings(b, patch_out[0..patch_len]);
+}
+
+test "C FFI: zdiff_diff with explicit seed" {
+	const a = "hello world test data " ** 30;
+	const b = "hello earth test data " ** 30;
+	const seed = [_]u8{42} ** 32;
+	var diff_out: [*]u8 = undefined;
+	var diff_len: usize = undefined;
+	const rc = zdiff_diff(a.ptr, a.len, b.ptr, b.len, &seed, 128, &diff_out, &diff_len);
+	try std.testing.expectEqual(@as(i32, 0), rc);
+	defer zdiff_free(diff_out, diff_len);
+
+	var patch_out: [*]u8 = undefined;
+	var patch_len: usize = undefined;
+	const rc2 = zdiff_patch(a.ptr, a.len, diff_out, diff_len, &patch_out, &patch_len);
+	try std.testing.expectEqual(@as(i32, 0), rc2);
+	defer zdiff_free(patch_out, patch_len);
+
+	try std.testing.expectEqualStrings(b, patch_out[0..patch_len]);
+}
+
+test "C FFI: zdiff_patch with invalid diff returns error" {
+	const a = "hello";
+	const bad_diff = "not a valid diff";
+	var patch_out: [*]u8 = undefined;
+	var patch_len: usize = undefined;
+	const rc = zdiff_patch(a.ptr, a.len, bad_diff.ptr, bad_diff.len, &patch_out, &patch_len);
+	try std.testing.expectEqual(@as(i32, -1), rc);
 }

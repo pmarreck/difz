@@ -25,6 +25,26 @@ pub fn build(b: *std.Build) void {
 		},
 	});
 
+	// Static library (needs its own module instance)
+	const lib_module = b.createModule(.{
+		.root_source_file = b.path("src/lib.zig"),
+		.target = target,
+		.optimize = optimize,
+		.imports = &.{
+			.{ .name = "blip", .module = blip_module },
+		},
+	});
+
+	const lib = b.addLibrary(.{
+		.linkage = .static,
+		.name = "zdiff",
+		.root_module = lib_module,
+	});
+	b.installArtifact(lib);
+
+	// Install C header
+	lib.installHeader(b.path("src/zdiff.h"), "zdiff.h");
+
 	// Tests
 	const unit_tests = b.addTest(.{
 		.root_module = zdiff_module,
