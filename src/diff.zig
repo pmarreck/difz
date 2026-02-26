@@ -19,36 +19,82 @@ pub const DiffResult = struct {
 
 /// Two-stage diff: CDC chunk matching (Stage 1) + Elder byte diff on gaps (Stage 2).
 /// Returns a DiffResult whose ops, when applied to A, produce B.
+///
+/// Matches are walked in B-order (sorted by offset_b) so that moved/rearranged
+/// blocks are handled correctly. For gaps between matched regions in B:
+/// - If the surrounding matches are also monotonic in A, the corresponding
+///   A-gap is paired for Elder byte-level diffing (compact output).
+/// - Otherwise, the B-gap is emitted as a raw Insert (correct for moved blocks).
 pub fn computeDiff(allocator: std.mem.Allocator, a: []const u8, b: []const u8, options: DiffOptions) !DiffResult {
 	// Stage 1: Find matching chunks between A and B via CDC + BLAKE3
 	const matches = try chunk_match.findMatches(allocator, a, b, options.seed, options.target_chunk_size);
 	defer allocator.free(matches);
 
-	// Build final ops by walking matches in offset_a order,
-	// computing paired gaps in A and B between consecutive matches.
+	// Re-sort matches by offset_b for B-ordered reconstruction.
+	// findMatches returns them sorted by offset_a, but we need B-order
+	// to correctly handle moved/rearranged blocks.
+	std.mem.sortUnstable(chunk_match.Match, matches, {}, struct {
+		fn lessThan(_: void, lhs: chunk_match.Match, rhs: chunk_match.Match) bool {
+			if (lhs.offset_b != rhs.offset_b) return lhs.offset_b < rhs.offset_b;
+			return lhs.offset_a < rhs.offset_a;
+		}
+	}.lessThan);
+
+	// Filter overlapping matches in B-space (greedy: keep non-overlapping).
+	// This handles cases where multiple A-chunks match the same B-chunk.
+	var filtered_len: usize = 0;
+	{
+		var b_cursor: usize = 0;
+		for (matches) |m| {
+			if (m.offset_b >= b_cursor) {
+				matches[filtered_len] = m;
+				filtered_len += 1;
+				b_cursor = m.offset_b + m.length;
+			}
+		}
+	}
+	const filtered = matches[0..filtered_len];
+
+	// Build ops by walking filtered matches in B-order.
 	var ops_list: std.ArrayList(DiffOp) = .{};
 	defer ops_list.deinit(allocator);
 
-	var pos_a: usize = 0;
 	var pos_b: usize = 0;
+	var prev_a_end: usize = 0; // tracks A-cursor for Elder-diff gap pairing
 
-	for (matches) |m| {
-		// Gap before this match
-		if (m.offset_a > pos_a or m.offset_b > pos_b) {
-			const gap_a_slice = a[pos_a..m.offset_a];
+	for (filtered) |m| {
+		if (m.offset_b > pos_b) {
+			// B-gap: need to produce b[pos_b..m.offset_b]
 			const gap_b_slice = b[pos_b..m.offset_b];
 
-			// Stage 2: Elder diff on the gap
-			const gap_ops = try elder_diff.diff(allocator, gap_a_slice, gap_b_slice);
-			defer elder_diff.freeOps(allocator, gap_ops);
+			// If matches are locally monotonic in A (this match's A-region
+			// starts at or after where the previous one ended), we can pair
+			// the corresponding A-gap for fine-grained Elder diffing.
+			if (m.offset_a >= prev_a_end) {
+				const gap_a_slice = a[prev_a_end..m.offset_a];
 
-			// Adjust offsets and append
-			for (gap_ops) |op| {
-				var adjusted = op;
-				if (op.tag == .copy) {
-					adjusted.offset = op.offset + pos_a;
+				// Stage 2: Elder diff on the paired gap
+				const gap_ops = try elder_diff.diff(allocator, gap_a_slice, gap_b_slice);
+				defer elder_diff.freeOps(allocator, gap_ops);
+
+				for (gap_ops) |op| {
+					var adjusted = op;
+					if (op.tag == .copy) {
+						adjusted.offset = op.offset + prev_a_end;
+					}
+					try ops_list.append(allocator, adjusted);
 				}
-				try ops_list.append(allocator, adjusted);
+			} else {
+				// Non-monotonic (moved block): no natural A-gap to pair.
+				// Emit raw Insert of the B-gap bytes.
+				if (gap_b_slice.len > 0) {
+					try ops_list.append(allocator, .{
+						.tag = .insert,
+						.offset = 0,
+						.length = gap_b_slice.len,
+						.data = gap_b_slice,
+					});
+				}
 			}
 		}
 
@@ -60,24 +106,34 @@ pub fn computeDiff(allocator: std.mem.Allocator, a: []const u8, b: []const u8, o
 			.data = null,
 		});
 
-		pos_a = m.offset_a + m.length;
 		pos_b = m.offset_b + m.length;
+		prev_a_end = m.offset_a + m.length;
 	}
 
 	// Remaining gap after the last match
-	if (pos_a < a.len or pos_b < b.len) {
-		const gap_a_slice = a[pos_a..];
+	if (pos_b < b.len) {
 		const gap_b_slice = b[pos_b..];
 
-		const gap_ops = try elder_diff.diff(allocator, gap_a_slice, gap_b_slice);
-		defer elder_diff.freeOps(allocator, gap_ops);
+		if (prev_a_end <= a.len) {
+			const gap_a_slice = a[prev_a_end..];
 
-		for (gap_ops) |op| {
-			var adjusted = op;
-			if (op.tag == .copy) {
-				adjusted.offset = op.offset + pos_a;
+			const gap_ops = try elder_diff.diff(allocator, gap_a_slice, gap_b_slice);
+			defer elder_diff.freeOps(allocator, gap_ops);
+
+			for (gap_ops) |op| {
+				var adjusted = op;
+				if (op.tag == .copy) {
+					adjusted.offset = op.offset + prev_a_end;
+				}
+				try ops_list.append(allocator, adjusted);
 			}
-			try ops_list.append(allocator, adjusted);
+		} else {
+			try ops_list.append(allocator, .{
+				.tag = .insert,
+				.offset = 0,
+				.length = gap_b_slice.len,
+				.data = gap_b_slice,
+			});
 		}
 	}
 
@@ -178,6 +234,25 @@ test "round-trip: multiple edits scattered across file" {
 	const shared = "SHARED_BLOCK_" ** 20;
 	const a = shared ++ "old-part-1" ++ shared ++ "old-part-2" ++ shared ++ "old-part-3" ++ shared;
 	const b = shared ++ "NEW-PART-1" ++ shared ++ "NEW-PART-TWO" ++ shared ++ "NP3" ++ shared;
+	const result = try computeDiff(testing.allocator, a, b, .{
+		.seed = [_]u8{0} ** 32,
+		.target_chunk_size = 64,
+	});
+	defer freeDiffResult(testing.allocator, result);
+	const reconstructed = try applyDiff(testing.allocator, a, result.ops);
+	defer testing.allocator.free(reconstructed);
+	try testing.expectEqualStrings(b, reconstructed);
+}
+
+test "round-trip: moved/rearranged sections" {
+	// Sections of A appear in a different order in B.
+	// CDC should detect the moved chunks; computeDiff must handle non-monotonic
+	// B-offsets in the match list by sorting matches in B-order.
+	const section1 = "AAAAAAAAAA section-one data AAAAAAAAAA" ** 5;
+	const section2 = "BBBBBBBBBB section-two data BBBBBBBBBB" ** 5;
+	const section3 = "CCCCCCCCCC section-three data CCCCCCCCCC" ** 5;
+	const a = section1 ++ section2 ++ section3;
+	const b = section3 ++ section1 ++ section2; // rotated
 	const result = try computeDiff(testing.allocator, a, b, .{
 		.seed = [_]u8{0} ** 32,
 		.target_chunk_size = 64,

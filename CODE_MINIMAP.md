@@ -63,10 +63,10 @@ All business logic lives in Zig. The C CLI dogfoods the FFI. The Zig core perfor
 ### `src/diff.zig` — Two-stage orchestrator: CDC -> Elder -> instruction list
 - `DiffOptions` — struct: `{ seed: [32]u8, target_chunk_size: usize }`
 - `DiffResult` — struct: `{ ops, options, size_a, size_b }`
-- `computeDiff(allocator, a, b, options)` — Stage 1: CDC chunk matching, Stage 2: Elder diff on gaps, offset adjustment for absolute positioning
+- `computeDiff(allocator, a, b, options)` — Stage 1: CDC chunk matching, Stage 2: Elder diff on gaps; matches walked in B-order to support moved/rearranged blocks (monotonic gaps get Elder diff, non-monotonic gaps get raw Insert)
 - `freeDiffResult(allocator, result)` — free the ops array
 - `applyDiff(allocator, a, ops)` — convenience wrapper around elder_diff.applyOps
-- 7 tests: identical, different round-trip, shared regions, empty A/B, metadata, multiple scattered edits
+- 8 tests: identical, different round-trip, shared regions, empty A/B, metadata, multiple scattered edits, moved/rearranged sections
 
 ### `src/encoding.zig` — BLIP serialization of diff instructions
 - `DecodeResult` — struct: `{ ops, seed, target_chunk_size, size_a, size_b }`
