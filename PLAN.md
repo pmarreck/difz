@@ -2,7 +2,7 @@
 
 ## Tasks
 
-- [ ] Task 1: Project Scaffolding — flake.nix, build.zig, build.zig.zon, src/lib.zig, shell scripts, .gitignore
+- [x] Task 1: Project Scaffolding — flake.nix, build.zig, build.zig.zon, src/lib.zig, shell scripts, .gitignore (completed 2026-02-25 ~10:30pm EST)
 - [ ] Task 2: Gear Hash — rolling hash with BLAKE3-seeded 256-entry u64 lookup table
 - [ ] Task 3: CDC (Content-Defined Chunking) — Gear hash CDC with configurable average chunk size
 - [ ] Task 4: Chunk Matching — BLAKE3 fingerprinting of CDC chunks, match identical chunks between files
