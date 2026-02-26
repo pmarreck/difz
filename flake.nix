@@ -26,6 +26,7 @@
 						export XDG_CACHE_HOME="$TMPDIR/zig-cache"
 						mkdir -p "$XDG_CACHE_HOME"
 						zig build -Doptimize=ReleaseFast --prefix $out
+						mkdir -p $out
 					'';
 				};
 
