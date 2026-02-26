@@ -16,4 +16,5 @@ test {
 	_ = @import("chunk_match.zig");
 	_ = @import("elder_diff.zig");
 	_ = @import("diff.zig");
+	_ = @import("encoding.zig");
 }
