@@ -9,3 +9,7 @@ test "blip dependency works" {
 	const result = try blip.decode(buf[0..n]);
 	try std.testing.expectEqual(@as(u64, 42), result.value);
 }
+
+test {
+	_ = @import("gear_hash.zig");
+}
