@@ -3,3 +3,6 @@ zig-cache/
 .zig-cache/
 .cache/
 result
+comprehensive_offset_test
+libtest_offset_logic.a
+test_pow2

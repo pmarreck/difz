@@ -45,6 +45,29 @@ pub fn build(b: *std.Build) void {
 	// Install C header
 	lib.installHeader(b.path("src/zdiff.h"), "zdiff.h");
 
+	// C CLI executable — dogfoods the FFI
+	const c_flags: []const []const u8 = if (optimize == .Debug)
+		&.{ "-std=c11", "-Wall", "-Wextra", "-Wpedantic", "-DZDIFF_DEBUG" }
+	else
+		&.{ "-std=c11", "-Wall", "-Wextra", "-Wpedantic", "-DNDEBUG" };
+
+	const exe = b.addExecutable(.{
+		.name = "zdiff",
+		.root_module = b.createModule(.{
+			.root_source_file = null,
+			.target = target,
+			.optimize = optimize,
+			.link_libc = true,
+		}),
+	});
+	exe.addCSourceFile(.{
+		.file = b.path("src/zdiff.c"),
+		.flags = c_flags,
+	});
+	exe.linkLibrary(lib);
+	exe.root_module.addIncludePath(b.path("src"));
+	b.installArtifact(exe);
+
 	// Tests
 	const unit_tests = b.addTest(.{
 		.root_module = zdiff_module,
