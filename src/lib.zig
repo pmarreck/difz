@@ -17,4 +17,5 @@ test {
 	_ = @import("elder_diff.zig");
 	_ = @import("diff.zig");
 	_ = @import("encoding.zig");
+	_ = @import("patch.zig");
 }
