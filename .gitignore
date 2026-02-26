@@ -6,3 +6,4 @@ result
 comprehensive_offset_test
 libtest_offset_logic.a
 test_pow2
+tests/benchmark/benchmark_log.csv

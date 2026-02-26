@@ -1,5 +1,528 @@
 #!/usr/bin/env bash
+# Benchmark suite for zdiff — compares speed and diff size against bsdiff and xdelta3.
+# Usage: nix develop -c bash bm
+#
+# Generates deterministic test data at various sizes and similarity levels,
+# then benchmarks diff/patch operations and logs results for regression tracking.
 
-# Benchmark suite for zdiff
-echo "Benchmark suite not yet implemented"
-exit 0
+set -u
+
+# ── Colors ────────────────────────────────────────────────────────────
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ── Paths ─────────────────────────────────────────────────────────────
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ZDIFF="$SCRIPT_DIR/zig-out/bin/zdiff"
+TMPDIR_BM="${TMPDIR:-/tmp}/zdiff-bench-$$"
+LOG_DIR="$SCRIPT_DIR/tests/benchmark"
+LOG_FILE="$LOG_DIR/benchmark_log.csv"
+
+mkdir -p "$TMPDIR_BM" "$LOG_DIR"
+trap 'rm -rf "$TMPDIR_BM"' EXIT
+
+# ── Helper functions ──────────────────────────────────────────────────
+
+header() {
+	echo ""
+	echo -e "${BOLD}${BLUE}━━━ $1 ━━━${NC}"
+}
+
+info() {
+	echo -e "  ${DIM}$1${NC}"
+}
+
+ok() {
+	echo -e "  ${GREEN}OK${NC} $1"
+}
+
+warn() {
+	echo -e "  ${YELLOW}WARN${NC} $1"
+}
+
+err() {
+	echo -e "  ${RED}ERROR${NC} $1"
+}
+
+# Format bytes in human-readable form
+human_bytes() {
+	local bytes="$1"
+	if [ "$bytes" -ge 1048576 ]; then
+		echo "$(( bytes / 1048576 )).$(( (bytes % 1048576) * 10 / 1048576 ))MB"
+	elif [ "$bytes" -ge 1024 ]; then
+		echo "$(( bytes / 1024 )).$(( (bytes % 1024) * 10 / 1024 ))KB"
+	else
+		echo "${bytes}B"
+	fi
+}
+
+# Generate a test file pair with a given similarity percentage.
+# The first $keep bytes of _b are copied from _a; the rest are random.
+# This isn't perfectly scattered similarity, but it's deterministic and fast.
+generate_test_pair() {
+	local name="$1" size="$2" similarity="$3" seed="$4"
+	local file_a="$TMPDIR_BM/${name}_a"
+	local file_b="$TMPDIR_BM/${name}_b"
+
+	# Create file_a from urandom
+	dd if=/dev/urandom of="$file_a" bs="$size" count=1 2>/dev/null
+
+	# Create file_b: all random first
+	dd if=/dev/urandom of="$file_b" bs="$size" count=1 2>/dev/null
+
+	# Then overwrite the first (similarity)% of _b with bytes from _a
+	local keep=$(( size * similarity / 100 ))
+	if [ "$keep" -gt 0 ]; then
+		dd if="$file_a" of="$file_b" bs=1 count="$keep" conv=notrunc 2>/dev/null
+	fi
+
+	info "  ${name}: $(human_bytes "$size"), ${similarity}% similar"
+}
+
+# macOS date doesn't support %N. Detect and use a fallback.
+has_date_ns() {
+	local test_val
+	test_val=$(date +%s%N 2>/dev/null)
+	# On macOS, date +%s%N outputs the epoch followed by literal "N"
+	if echo "$test_val" | grep -q 'N'; then
+		return 1
+	fi
+	return 0
+}
+
+# Portable nanosecond timestamp
+now_ns() {
+	if has_date_ns; then
+		date +%s%N
+	else
+		# macOS fallback using perl (always available)
+		perl -MTime::HiRes=time -e 'printf "%d\n", time()*1e9'
+	fi
+}
+
+# Run a single timed command and capture wall-clock time in milliseconds.
+# Outputs: <milliseconds> <exit_code>
+time_cmd() {
+	local start end elapsed rc
+	start=$(now_ns)
+	"$@" > /dev/null 2>&1
+	rc=$?
+	end=$(now_ns)
+	elapsed=$(( (end - start) / 1000000 ))
+	echo "$elapsed $rc"
+}
+
+# Format a time value: append "ms" only for numeric values
+fmt_time() {
+	local val="$1"
+	if echo "$val" | grep -qE '^[0-9]+$'; then
+		echo "${val}ms"
+	else
+		echo "$val"
+	fi
+}
+
+# ── 1. Build ──────────────────────────────────────────────────────────
+
+header "Building zdiff (ReleaseFast)"
+
+if ! zig build 2>&1; then
+	err "Build failed!"
+	exit 1
+fi
+
+if [ ! -x "$ZDIFF" ]; then
+	err "zdiff binary not found at $ZDIFF"
+	exit 1
+fi
+ok "Build succeeded"
+
+# ── 2. Assert not a debug build ──────────────────────────────────────
+
+about_output=$("$ZDIFF" --about 2>&1 || true)
+if echo "$about_output" | grep -q "DEBUG BUILD"; then
+	err "zdiff appears to be a DEBUG BUILD! Benchmarks require ReleaseFast."
+	err "Output: $about_output"
+	exit 1
+fi
+ok "Confirmed ReleaseFast build"
+info "$about_output"
+
+# ── 3. Generate test data ────────────────────────────────────────────
+
+header "Generating test data"
+
+# Name              Size       Similarity  Seed
+generate_test_pair "small_90"  1024       90          42
+generate_test_pair "med_90"    102400     90          43
+generate_test_pair "large_90"  1048576    90          44
+generate_test_pair "med_99"    102400     99          45
+generate_test_pair "med_10"    102400     10          46
+
+ok "Test data generated in $TMPDIR_BM"
+
+# ── 4. Benchmark functions ────────────────────────────────────────────
+
+# Arrays to accumulate results for summary table
+declare -a BM_NAMES=()
+declare -a BM_ZDIFF_DIFF_MS=()
+declare -a BM_BSDIFF_DIFF_MS=()
+declare -a BM_XDELTA_DIFF_MS=()
+declare -a BM_ZDIFF_PATCH_MS=()
+declare -a BM_BSPATCH_PATCH_MS=()
+declare -a BM_XDELTA_PATCH_MS=()
+declare -a BM_ZDIFF_SIZE=()
+declare -a BM_BSDIFF_SIZE=()
+declare -a BM_XDELTA_SIZE=()
+declare -a BM_FILE_SIZE=()
+
+run_benchmark() {
+	local name="$1"
+	local file_a="$TMPDIR_BM/${name}_a"
+	local file_b="$TMPDIR_BM/${name}_b"
+	local file_size
+	file_size=$(wc -c < "$file_a" | tr -d ' ')
+
+	local zdiff_diff="$TMPDIR_BM/${name}_zdiff.diff"
+	local bsdiff_diff="$TMPDIR_BM/${name}_bsdiff.diff"
+	local xdelta_diff="$TMPDIR_BM/${name}_xdelta.diff"
+
+	local zdiff_recon="$TMPDIR_BM/${name}_zdiff_recon"
+	local bsdiff_recon="$TMPDIR_BM/${name}_bsdiff_recon"
+	local xdelta_recon="$TMPDIR_BM/${name}_xdelta_recon"
+
+	header "Benchmark: $name ($(human_bytes "$file_size"))"
+
+	# ── Diff benchmarks ──
+	echo -e "  ${CYAN}Diff speed:${NC}"
+
+	local result rc ms
+
+	# zdiff diff
+	result=$(time_cmd "$ZDIFF" --no-progress "$file_a" "$file_b" -o "$zdiff_diff")
+	ms=$(echo "$result" | cut -d' ' -f1)
+	rc=$(echo "$result" | cut -d' ' -f2)
+	if [ "$rc" -ne 0 ]; then
+		warn "zdiff diff failed (rc=$rc)"
+		ms="FAIL"
+	fi
+	local zdiff_diff_ms="$ms"
+	info "  zdiff:   $(fmt_time "$zdiff_diff_ms")"
+
+	# bsdiff diff
+	result=$(time_cmd bsdiff "$file_a" "$file_b" "$bsdiff_diff")
+	ms=$(echo "$result" | cut -d' ' -f1)
+	rc=$(echo "$result" | cut -d' ' -f2)
+	if [ "$rc" -ne 0 ]; then
+		warn "bsdiff failed (rc=$rc)"
+		ms="FAIL"
+	fi
+	local bsdiff_diff_ms="$ms"
+	info "  bsdiff:  $(fmt_time "$bsdiff_diff_ms")"
+
+	# xdelta3 diff
+	result=$(time_cmd xdelta3 -f -e -s "$file_a" "$file_b" "$xdelta_diff")
+	ms=$(echo "$result" | cut -d' ' -f1)
+	rc=$(echo "$result" | cut -d' ' -f2)
+	if [ "$rc" -ne 0 ]; then
+		warn "xdelta3 failed (rc=$rc)"
+		ms="FAIL"
+	fi
+	local xdelta_diff_ms="$ms"
+	info "  xdelta3: $(fmt_time "$xdelta_diff_ms")"
+
+	# ── Patch benchmarks ──
+	echo -e "  ${CYAN}Patch speed:${NC}"
+
+	# zdiff patch
+	if [ -f "$zdiff_diff" ]; then
+		result=$(time_cmd "$ZDIFF" --patch --no-progress "$file_a" "$zdiff_diff" -o "$zdiff_recon")
+		ms=$(echo "$result" | cut -d' ' -f1)
+		rc=$(echo "$result" | cut -d' ' -f2)
+		if [ "$rc" -ne 0 ]; then
+			warn "zdiff patch failed (rc=$rc)"
+			ms="FAIL"
+		else
+			# Verify correctness
+			if ! cmp -s "$file_b" "$zdiff_recon"; then
+				warn "zdiff patch produced incorrect output!"
+				ms="WRONG"
+			fi
+		fi
+	else
+		ms="SKIP"
+	fi
+	local zdiff_patch_ms="$ms"
+	info "  zdiff:   $(fmt_time "$zdiff_patch_ms")"
+
+	# bspatch
+	if [ -f "$bsdiff_diff" ]; then
+		result=$(time_cmd bspatch "$file_a" "$bsdiff_recon" "$bsdiff_diff")
+		ms=$(echo "$result" | cut -d' ' -f1)
+		rc=$(echo "$result" | cut -d' ' -f2)
+		if [ "$rc" -ne 0 ]; then
+			warn "bspatch failed (rc=$rc)"
+			ms="FAIL"
+		else
+			if ! cmp -s "$file_b" "$bsdiff_recon"; then
+				warn "bspatch produced incorrect output!"
+				ms="WRONG"
+			fi
+		fi
+	else
+		ms="SKIP"
+	fi
+	local bspatch_patch_ms="$ms"
+	info "  bspatch: $(fmt_time "$bspatch_patch_ms")"
+
+	# xdelta3 decode
+	if [ -f "$xdelta_diff" ]; then
+		result=$(time_cmd xdelta3 -f -d -s "$file_a" "$xdelta_diff" "$xdelta_recon")
+		ms=$(echo "$result" | cut -d' ' -f1)
+		rc=$(echo "$result" | cut -d' ' -f2)
+		if [ "$rc" -ne 0 ]; then
+			warn "xdelta3 decode failed (rc=$rc)"
+			ms="FAIL"
+		else
+			if ! cmp -s "$file_b" "$xdelta_recon"; then
+				warn "xdelta3 decode produced incorrect output!"
+				ms="WRONG"
+			fi
+		fi
+	else
+		ms="SKIP"
+	fi
+	local xdelta_patch_ms="$ms"
+	info "  xdelta3: $(fmt_time "$xdelta_patch_ms")"
+
+	# ── Diff sizes ──
+	echo -e "  ${CYAN}Diff sizes:${NC}"
+
+	local zdiff_sz=0 bsdiff_sz=0 xdelta_sz=0
+	if [ -f "$zdiff_diff" ]; then
+		zdiff_sz=$(wc -c < "$zdiff_diff" | tr -d ' ')
+		info "  zdiff:   $(human_bytes "$zdiff_sz") ($zdiff_sz bytes)"
+	else
+		info "  zdiff:   N/A"
+	fi
+	if [ -f "$bsdiff_diff" ]; then
+		bsdiff_sz=$(wc -c < "$bsdiff_diff" | tr -d ' ')
+		info "  bsdiff:  $(human_bytes "$bsdiff_sz") ($bsdiff_sz bytes)"
+	else
+		info "  bsdiff:  N/A"
+	fi
+	if [ -f "$xdelta_diff" ]; then
+		xdelta_sz=$(wc -c < "$xdelta_diff" | tr -d ' ')
+		info "  xdelta3: $(human_bytes "$xdelta_sz") ($xdelta_sz bytes)"
+	else
+		info "  xdelta3: N/A"
+	fi
+
+	# Accumulate results
+	BM_NAMES+=("$name")
+	BM_FILE_SIZE+=("$file_size")
+	BM_ZDIFF_DIFF_MS+=("$zdiff_diff_ms")
+	BM_BSDIFF_DIFF_MS+=("$bsdiff_diff_ms")
+	BM_XDELTA_DIFF_MS+=("$xdelta_diff_ms")
+	BM_ZDIFF_PATCH_MS+=("$zdiff_patch_ms")
+	BM_BSPATCH_PATCH_MS+=("$bspatch_patch_ms")
+	BM_XDELTA_PATCH_MS+=("$xdelta_patch_ms")
+	BM_ZDIFF_SIZE+=("$zdiff_sz")
+	BM_BSDIFF_SIZE+=("$bsdiff_sz")
+	BM_XDELTA_SIZE+=("$xdelta_sz")
+}
+
+# ── 5. Run hyperfine for the medium 90% case (detailed stats) ────────
+
+header "Hyperfine statistical benchmark (medium, 90% similar)"
+
+# Pre-generate files for hyperfine (they already exist from generate_test_pair)
+HF_A="$TMPDIR_BM/med_90_a"
+HF_B="$TMPDIR_BM/med_90_b"
+HF_ZDIFF_D="$TMPDIR_BM/hf_zdiff.diff"
+HF_BSDIFF_D="$TMPDIR_BM/hf_bsdiff.diff"
+HF_XDELTA_D="$TMPDIR_BM/hf_xdelta.diff"
+HF_JSON="$TMPDIR_BM/hyperfine_results.json"
+
+info "Running hyperfine diff comparison (this may take a moment)..."
+
+# Run hyperfine for diff operations
+hyperfine \
+	--warmup 3 \
+	--min-runs 10 \
+	--ignore-failure \
+	--export-json "$HF_JSON" \
+	--command-name "zdiff" \
+	"$ZDIFF --no-progress '$HF_A' '$HF_B' -o '$HF_ZDIFF_D'" \
+	--command-name "bsdiff" \
+	"bsdiff '$HF_A' '$HF_B' '$HF_BSDIFF_D'" \
+	--command-name "xdelta3" \
+	"xdelta3 -f -e -s '$HF_A' '$HF_B' '$HF_XDELTA_D'" \
+	2>&1 || warn "hyperfine diff benchmark had issues"
+
+echo ""
+
+# Now run hyperfine for patch operations (need diff files to exist first)
+"$ZDIFF" --no-progress "$HF_A" "$HF_B" -o "$HF_ZDIFF_D" 2>/dev/null
+bsdiff "$HF_A" "$HF_B" "$HF_BSDIFF_D" 2>/dev/null
+xdelta3 -f -e -s "$HF_A" "$HF_B" "$HF_XDELTA_D" 2>/dev/null
+
+HF_JSON_PATCH="$TMPDIR_BM/hyperfine_patch_results.json"
+
+info "Running hyperfine patch comparison..."
+
+hyperfine \
+	--warmup 3 \
+	--min-runs 10 \
+	--ignore-failure \
+	--export-json "$HF_JSON_PATCH" \
+	--command-name "zdiff patch" \
+	"$ZDIFF --patch --no-progress '$HF_A' '$HF_ZDIFF_D' -o '$TMPDIR_BM/hf_zdiff_recon'" \
+	--command-name "bspatch" \
+	"bspatch '$HF_A' '$TMPDIR_BM/hf_bspatch_recon' '$HF_BSDIFF_D'" \
+	--command-name "xdelta3 decode" \
+	"xdelta3 -f -d -s '$HF_A' '$HF_XDELTA_D' '$TMPDIR_BM/hf_xdelta_recon'" \
+	2>&1 || warn "hyperfine patch benchmark had issues"
+
+# ── 6. Run quick benchmarks for all test cases ───────────────────────
+
+run_benchmark "small_90"
+run_benchmark "med_90"
+run_benchmark "large_90"
+run_benchmark "med_99"
+run_benchmark "med_10"
+
+# ── 7. Summary table ─────────────────────────────────────────────────
+
+header "Summary"
+
+# Print header
+printf "\n"
+printf "  ${BOLD}%-12s %8s  %8s %8s %8s  %8s %8s %8s  %10s %10s %10s${NC}\n" \
+	"Test" "Size" \
+	"zd-diff" "bs-diff" "xd-diff" \
+	"zd-pat" "bs-pat" "xd-pat" \
+	"zd-sz" "bs-sz" "xd-sz"
+printf "  ${DIM}%-12s %8s  %8s %8s %8s  %8s %8s %8s  %10s %10s %10s${NC}\n" \
+	"────────────" "────────" \
+	"────────" "────────" "────────" \
+	"────────" "────────" "────────" \
+	"──────────" "──────────" "──────────"
+
+for i in "${!BM_NAMES[@]}"; do
+	local_name="${BM_NAMES[$i]}"
+	local_fsz=$(human_bytes "${BM_FILE_SIZE[$i]}")
+
+	printf "  %-12s %8s  %8s %8s %8s  %8s %8s %8s  %10s %10s %10s\n" \
+		"$local_name" "$local_fsz" \
+		"$(fmt_time "${BM_ZDIFF_DIFF_MS[$i]}")" \
+		"$(fmt_time "${BM_BSDIFF_DIFF_MS[$i]}")" \
+		"$(fmt_time "${BM_XDELTA_DIFF_MS[$i]}")" \
+		"$(fmt_time "${BM_ZDIFF_PATCH_MS[$i]}")" \
+		"$(fmt_time "${BM_BSPATCH_PATCH_MS[$i]}")" \
+		"$(fmt_time "${BM_XDELTA_PATCH_MS[$i]}")" \
+		"$(human_bytes "${BM_ZDIFF_SIZE[$i]}")" \
+		"$(human_bytes "${BM_BSDIFF_SIZE[$i]}")" \
+		"$(human_bytes "${BM_XDELTA_SIZE[$i]}")"
+done
+
+printf "\n"
+echo -e "  ${DIM}zd=zdiff  bs=bsdiff  xd=xdelta3  diff=create  pat=patch/apply  sz=diff file size${NC}"
+
+# ── 8. Log results to CSV ────────────────────────────────────────────
+
+header "Logging results"
+
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Create CSV header if file doesn't exist
+if [ ! -f "$LOG_FILE" ]; then
+	echo "timestamp,test_name,file_size,zdiff_diff_ms,bsdiff_diff_ms,xdelta_diff_ms,zdiff_patch_ms,bspatch_patch_ms,xdelta_patch_ms,zdiff_size,bsdiff_size,xdelta_size" > "$LOG_FILE"
+fi
+
+for i in "${!BM_NAMES[@]}"; do
+	echo "${TIMESTAMP},${BM_NAMES[$i]},${BM_FILE_SIZE[$i]},${BM_ZDIFF_DIFF_MS[$i]},${BM_BSDIFF_DIFF_MS[$i]},${BM_XDELTA_DIFF_MS[$i]},${BM_ZDIFF_PATCH_MS[$i]},${BM_BSPATCH_PATCH_MS[$i]},${BM_XDELTA_PATCH_MS[$i]},${BM_ZDIFF_SIZE[$i]},${BM_BSDIFF_SIZE[$i]},${BM_XDELTA_SIZE[$i]}" >> "$LOG_FILE"
+done
+
+ok "Results appended to $LOG_FILE"
+
+# ── 9. Regression detection ──────────────────────────────────────────
+
+header "Regression check"
+
+# Find the previous run's timestamp (second-most-recent unique timestamp)
+if [ -f "$LOG_FILE" ]; then
+	# Get unique timestamps, skip header
+	PREV_TIMESTAMP=$(tail -n +2 "$LOG_FILE" | cut -d',' -f1 | sort -u | tail -n2 | head -n1)
+
+	if [ "$PREV_TIMESTAMP" != "$TIMESTAMP" ] && [ -n "$PREV_TIMESTAMP" ]; then
+		info "Comparing against previous run: $PREV_TIMESTAMP"
+
+		REGRESSIONS=0
+
+		for i in "${!BM_NAMES[@]}"; do
+			test_name="${BM_NAMES[$i]}"
+
+			# Find the previous row for this test
+			prev_row=$(grep "^${PREV_TIMESTAMP},${test_name}," "$LOG_FILE" | head -1)
+			if [ -z "$prev_row" ]; then
+				continue
+			fi
+
+			# Extract previous zdiff values
+			prev_zdiff_diff_ms=$(echo "$prev_row" | cut -d',' -f4)
+			prev_zdiff_size=$(echo "$prev_row" | cut -d',' -f10)
+			curr_zdiff_diff_ms="${BM_ZDIFF_DIFF_MS[$i]}"
+			curr_zdiff_size="${BM_ZDIFF_SIZE[$i]}"
+
+			# Skip non-numeric values
+			if ! echo "$prev_zdiff_diff_ms" | grep -qE '^[0-9]+$'; then continue; fi
+			if ! echo "$curr_zdiff_diff_ms" | grep -qE '^[0-9]+$'; then continue; fi
+			if ! echo "$prev_zdiff_size" | grep -qE '^[0-9]+$'; then continue; fi
+			if ! echo "$curr_zdiff_size" | grep -qE '^[0-9]+$'; then continue; fi
+
+			# Check speed regression (>10% slower)
+			if [ "$prev_zdiff_diff_ms" -gt 0 ]; then
+				threshold=$(( prev_zdiff_diff_ms * 110 / 100 ))
+				if [ "$curr_zdiff_diff_ms" -gt "$threshold" ]; then
+					warn "$test_name: zdiff diff speed regressed: ${prev_zdiff_diff_ms}ms -> ${curr_zdiff_diff_ms}ms (>10%)"
+					REGRESSIONS=$((REGRESSIONS + 1))
+				fi
+			fi
+
+			# Check size regression (>10% larger)
+			if [ "$prev_zdiff_size" -gt 0 ]; then
+				size_threshold=$(( prev_zdiff_size * 110 / 100 ))
+				if [ "$curr_zdiff_size" -gt "$size_threshold" ]; then
+					warn "$test_name: zdiff diff size regressed: ${prev_zdiff_size} -> ${curr_zdiff_size} bytes (>10%)"
+					REGRESSIONS=$((REGRESSIONS + 1))
+				fi
+			fi
+		done
+
+		if [ "$REGRESSIONS" -eq 0 ]; then
+			ok "No regressions detected (within 10% of previous run)"
+		else
+			warn "$REGRESSIONS regression(s) detected!"
+		fi
+	else
+		info "No previous run to compare against (first run)"
+	fi
+else
+	info "No previous run to compare against (first run)"
+fi
+
+# ── Done ──────────────────────────────────────────────────────────────
+
+header "Done"
+echo -e "  ${GREEN}Benchmark complete.${NC} Results logged to:"
+info "$LOG_FILE"
+echo ""
