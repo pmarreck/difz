@@ -16,7 +16,7 @@ The Zig core takes two byte slices and returns a BLIP-encoded diff as a byte sli
 
 Uses Gear hash (a rolling hash with a 256-entry u64 lookup table seeded via BLAKE3) to split both files into variable-size chunks. Each chunk is fingerprinted with BLAKE3 (128-bit). A HashMap matches B's chunk hashes to find identical regions between files. Matches are sorted and merged to produce a list of `(offset_a, offset_b, length)` triples.
 
-CDC chunk size is configurable via `--chunk-size` (default: 1024 bytes).
+CDC chunk size is configurable via `--chunk-size` (default: 4096 bytes).
 
 ### Stage 2: Elder/Myers O(ND) Byte Diff
 

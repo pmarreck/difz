@@ -160,12 +160,13 @@ info "$about_output"
 
 header "Generating test data"
 
-# Name              Size       Similarity  Seed
-generate_test_pair "small_90"  1024       90          42
-generate_test_pair "med_90"    102400     90          43
-generate_test_pair "large_90"  1048576    90          44
-generate_test_pair "med_99"    102400     99          45
-generate_test_pair "med_10"    102400     10          46
+# Name              Size        Similarity  Seed
+generate_test_pair "1M_90"     1048576    90          42
+generate_test_pair "10M_90"    10485760   90          43
+generate_test_pair "20M_90"    20971520   90          44
+generate_test_pair "50M_90"    52428800   90          45
+generate_test_pair "20M_99"    20971520   99          46
+generate_test_pair "20M_50"    20971520   50          47
 
 ok "Test data generated in $TMPDIR_BM"
 
@@ -342,11 +343,11 @@ run_benchmark() {
 
 # ── 5. Run hyperfine for the medium 90% case (detailed stats) ────────
 
-header "Hyperfine statistical benchmark (medium, 90% similar)"
+header "Hyperfine statistical benchmark (10M, 90% similar)"
 
 # Pre-generate files for hyperfine (they already exist from generate_test_pair)
-HF_A="$TMPDIR_BM/med_90_a"
-HF_B="$TMPDIR_BM/med_90_b"
+HF_A="$TMPDIR_BM/10M_90_a"
+HF_B="$TMPDIR_BM/10M_90_b"
 HF_ZDIFF_D="$TMPDIR_BM/hf_zdiff.diff"
 HF_BSDIFF_D="$TMPDIR_BM/hf_bsdiff.diff"
 HF_XDELTA_D="$TMPDIR_BM/hf_xdelta.diff"
@@ -394,11 +395,12 @@ hyperfine \
 
 # ── 6. Run quick benchmarks for all test cases ───────────────────────
 
-run_benchmark "small_90"
-run_benchmark "med_90"
-run_benchmark "large_90"
-run_benchmark "med_99"
-run_benchmark "med_10"
+run_benchmark "1M_90"
+run_benchmark "10M_90"
+run_benchmark "20M_90"
+run_benchmark "50M_90"
+run_benchmark "20M_99"
+run_benchmark "20M_50"
 
 # ── 7. Summary table ─────────────────────────────────────────────────
 

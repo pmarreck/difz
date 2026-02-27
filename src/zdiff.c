@@ -59,7 +59,7 @@ static void print_usage(FILE *out) {
 		"  --about            Show version, platform, architecture\n"
 		"  -o <file>          Output file (default: stdout)\n"
 		"  --seed <hex>       32-byte seed as 64-char hex string\n"
-		"  --chunk-size <n>   Target CDC chunk size (default: 1024)\n"
+		"  --chunk-size <n>   Target CDC chunk size (default: 4096)\n"
 		"  --no-progress      Suppress progress/stats output\n"
 		"  --no-ansi, --no-color  Suppress ANSI escape codes\n"
 		"  --simple           Suppress both ANSI and emoji\n"
@@ -214,7 +214,7 @@ int main(int argc, char *argv[]) {
 	int patch_mode = 0;
 	const char *output_path = NULL;  /* NULL = stdout */
 	const char *seed_hex = NULL;
-	size_t chunk_size = 1024;
+	size_t chunk_size = 4096;
 	int no_progress = 0;
 	/* int no_ansi = 0; */  /* reserved for future use */
 	/* int simple = 0; */   /* reserved for future use */
