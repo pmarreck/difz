@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "blip-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1772146382,
+        "narHash": "sha256-aIP0WQSxkkUXGKWzv0E4rWq2rQDAa9ENbjSq3WTwLxo=",
+        "owner": "pmarreck",
+        "repo": "BLIP",
+        "rev": "5a90a3c329d5d20567f7fb8363ed27d11b8826b9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pmarreck",
+        "ref": "yolo",
+        "repo": "BLIP",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -36,8 +53,10 @@
     },
     "root": {
       "inputs": {
+        "blip-src": "blip-src",
         "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "z7z-src": "z7z-src"
       }
     },
     "systems": {
@@ -52,6 +71,23 @@
       "original": {
         "owner": "nix-systems",
         "repo": "default",
+        "type": "github"
+      }
+    },
+    "z7z-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1772144988,
+        "narHash": "sha256-XxQnhDLFWMenY3RP8A6Odh8Wb2s0HiJUTKa839JEFM8=",
+        "owner": "pmarreck",
+        "repo": "z7z",
+        "rev": "18e094eab1cb545c86a6b6e72cc9c48db3539ddd",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pmarreck",
+        "repo": "z7z",
+        "rev": "18e094eab1cb545c86a6b6e72cc9c48db3539ddd",
         "type": "github"
       }
     }
