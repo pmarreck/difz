@@ -15,6 +15,13 @@ pub fn build(b: *std.Build) void {
 	});
 	const blip_module = blip_dep.module("blip");
 
+	// Get printable-binary dependency
+	const pb_dep = b.dependency("printable_binary", .{
+		.target = target,
+		.optimize = optimize,
+	});
+	const pb_module = pb_dep.module("printable_binary");
+
 	// Create the zdiff module
 	const zdiff_module = b.createModule(.{
 		.root_source_file = b.path("src/lib.zig"),
@@ -22,6 +29,7 @@ pub fn build(b: *std.Build) void {
 		.optimize = optimize,
 		.imports = &.{
 			.{ .name = "blip", .module = blip_module },
+			.{ .name = "printable_binary", .module = pb_module },
 		},
 	});
 
@@ -32,6 +40,7 @@ pub fn build(b: *std.Build) void {
 		.optimize = optimize,
 		.imports = &.{
 			.{ .name = "blip", .module = blip_module },
+			.{ .name = "printable_binary", .module = pb_module },
 		},
 	});
 

@@ -21,7 +21,16 @@ int zdiff_patch(
     const uint8_t *diff, size_t diff_len,
     uint8_t **out, size_t *out_len);
 
-/* Free memory returned by zdiff_diff or zdiff_patch. */
+/* Inspect a diff blob and produce a human-readable text description.
+ * max_data_bytes: truncate INSERT data display (0 = no limit).
+ * hexlike: if non-zero, use hexlike encoding for binary data.
+ * Returns 0 on success, -1 on error. */
+int zdiff_inspect(
+    const uint8_t *diff, size_t diff_len,
+    size_t max_data_bytes, int hexlike,
+    uint8_t **out, size_t *out_len);
+
+/* Free memory returned by zdiff_diff, zdiff_patch, or zdiff_inspect. */
 void zdiff_free(uint8_t *ptr, size_t len);
 
 #endif

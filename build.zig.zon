@@ -8,6 +8,10 @@
 			.url = "https://github.com/pmarreck/BLIP/archive/refs/heads/yolo.tar.gz",
 			.hash = "blip-0.1.0-rcNuGD64CQDEBryxAj93lMCAMkFO0IpknB0MwWnjrGas",
 		},
+		.printable_binary = .{
+			.url = "https://github.com/pmarreck/printable-binary/archive/refs/heads/yolo.tar.gz",
+			.hash = "printable_binary-1.0.0-SdPiyoM4FwByo5ia901HzoUGSGjeolkmQuxJ5UYZzdW1",
+		},
 	},
 	.paths = .{
 		"build.zig",

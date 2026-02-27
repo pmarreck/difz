@@ -4,6 +4,7 @@
  * Build: linked against libzdiff.a via build.zig
  * Usage: zdiff <file_a> <file_b> [-o output]
  *        zdiff --patch <file_a> <diff_file> [-o output]
+ *        zdiff --inspect [--truncate N] [--hexlike] <diff_file>
  */
 
 #include <errno.h>
@@ -49,10 +50,12 @@ static void print_usage(FILE *out) {
 	fprintf(out,
 		"Usage: zdiff [options] <file_a> <file_b>\n"
 		"       zdiff --patch [options] <file_a> <diff_file>\n"
+		"       zdiff --inspect [options] <diff_file>\n"
 		"\n"
 		"Modes:\n"
 		"  (default)     Compute a binary diff between file_a and file_b\n"
 		"  --patch       Apply a diff to file_a to reconstruct file_b\n"
+		"  --inspect     Pretty-print the ops in a diff file\n"
 		"\n"
 		"Options:\n"
 		"  -h, --help         Show this help message\n"
@@ -60,6 +63,8 @@ static void print_usage(FILE *out) {
 		"  -o <file>          Output file (default: stdout)\n"
 		"  --seed <hex>       32-byte seed as 64-char hex string\n"
 		"  --chunk-size <n>   Target CDC chunk size (default: 4096)\n"
+		"  --truncate <n>     Max bytes of INSERT data to display (default: 64)\n"
+		"  --hexlike          Use hexlike encoding for binary data display\n"
 		"  --no-progress      Suppress progress/stats output\n"
 		"  --no-ansi, --no-color  Suppress ANSI escape codes\n"
 		"  --simple           Suppress both ANSI and emoji\n"
@@ -212,9 +217,12 @@ int main(int argc, char *argv[]) {
 
 	/* Defaults */
 	int patch_mode = 0;
+	int inspect_mode = 0;
 	const char *output_path = NULL;  /* NULL = stdout */
 	const char *seed_hex = NULL;
 	size_t chunk_size = 4096;
+	size_t truncate_bytes = 64;
+	int hexlike = 0;
 	int no_progress = 0;
 	/* int no_ansi = 0; */  /* reserved for future use */
 	/* int simple = 0; */   /* reserved for future use */
@@ -235,6 +243,28 @@ int main(int argc, char *argv[]) {
 		}
 		if (strcmp(argv[i], "--patch") == 0) {
 			patch_mode = 1;
+			continue;
+		}
+		if (strcmp(argv[i], "--inspect") == 0) {
+			inspect_mode = 1;
+			continue;
+		}
+		if (strcmp(argv[i], "--truncate") == 0) {
+			if (i + 1 >= argc) {
+				fprintf(stderr, "zdiff: --truncate requires a numeric argument\n");
+				return 1;
+			}
+			char *endptr;
+			long val = strtol(argv[++i], &endptr, 10);
+			if (*endptr != '\0' || val < 0) {
+				fprintf(stderr, "zdiff: invalid truncate value: '%s'\n", argv[i]);
+				return 1;
+			}
+			truncate_bytes = (size_t)val;
+			continue;
+		}
+		if (strcmp(argv[i], "--hexlike") == 0) {
+			hexlike = 1;
 			continue;
 		}
 		if (strcmp(argv[i], "-o") == 0) {
@@ -296,11 +326,29 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	/* Validate positional args */
-	if (pos_count < 2) {
-		fprintf(stderr, "zdiff: expected 2 file arguments, got %d\n", pos_count);
-		fprintf(stderr, "Try 'zdiff --help' for usage.\n");
+	/* Validate mode flags — mutually exclusive */
+	if (patch_mode && inspect_mode) {
+		fprintf(stderr, "zdiff: --patch and --inspect are mutually exclusive\n");
 		return 1;
+	}
+
+	/* Validate positional args */
+	if (inspect_mode) {
+		if (pos_count < 1) {
+			fprintf(stderr, "zdiff: --inspect requires a diff file argument\n");
+			fprintf(stderr, "Try 'zdiff --help' for usage.\n");
+			return 1;
+		}
+		if (pos_count > 1) {
+			fprintf(stderr, "zdiff: --inspect takes exactly one file argument\n");
+			return 1;
+		}
+	} else {
+		if (pos_count < 2) {
+			fprintf(stderr, "zdiff: expected 2 file arguments, got %d\n", pos_count);
+			fprintf(stderr, "Try 'zdiff --help' for usage.\n");
+			return 1;
+		}
 	}
 
 	/* Parse seed if provided */
@@ -314,69 +362,95 @@ int main(int argc, char *argv[]) {
 		seed_ptr = seed_buf;
 	}
 
-	/* Read input files */
-	size_t a_len = 0, b_len = 0;
-	uint8_t *a_data = read_file(positional[0], &a_len);
-	if (!a_data) return 1;
-
-	uint8_t *b_data = read_file(positional[1], &b_len);
-	if (!b_data) {
-		free(a_data);
-		return 1;
-	}
-
 	int exit_code = 0;
 
-	if (patch_mode) {
-		/* ── Patch mode ──────────────────────────────────── */
+	if (inspect_mode) {
+		/* ── Inspect mode ───────────────────────────────── */
+		size_t diff_file_len = 0;
+		uint8_t *diff_data = read_file(positional[0], &diff_file_len);
+		if (!diff_data) return 1;
+
 		uint8_t *result_ptr = NULL;
 		size_t result_len = 0;
 
-		int rc = zdiff_patch(a_data, a_len, b_data, b_len, &result_ptr, &result_len);
+		int rc = zdiff_inspect(diff_data, diff_file_len,
+		                       truncate_bytes, hexlike,
+		                       &result_ptr, &result_len);
 		if (rc != 0) {
-			fprintf(stderr, "zdiff: patch failed\n");
+			fprintf(stderr, "zdiff: inspect failed (invalid diff file?)\n");
 			exit_code = 1;
 		} else {
 			if (write_output(output_path, result_ptr, result_len) != 0) {
 				exit_code = 1;
-			} else if (!no_progress && isatty(STDERR_FILENO)) {
-				char size_str[64];
-				format_size(result_len, size_str, sizeof(size_str));
-				fprintf(stderr, "zdiff: Done. Reconstructed: %s\n", size_str);
 			}
 			zdiff_free(result_ptr, result_len);
 		}
-	} else {
-		/* ── Diff mode ───────────────────────────────────── */
-		uint8_t *diff_ptr = NULL;
-		size_t diff_len = 0;
 
-		int rc = zdiff_diff(a_data, a_len, b_data, b_len, seed_ptr, chunk_size,
-		                    &diff_ptr, &diff_len);
-		if (rc != 0) {
-			fprintf(stderr, "zdiff: diff failed\n");
-			exit_code = 1;
-		} else {
-			if (write_output(output_path, diff_ptr, diff_len) != 0) {
-				exit_code = 1;
-			} else if (!no_progress && isatty(STDERR_FILENO)) {
-				/* Show stats */
-				size_t original = (a_len > b_len) ? a_len : b_len;
-				char diff_size_str[64];
-				format_size(diff_len, diff_size_str, sizeof(diff_size_str));
-				if (original > 0) {
-					double pct = 100.0 * (double)diff_len / (double)original;
-					fprintf(stderr, "zdiff: Done. Diff: %s (%.1f%% of original)\n",
-						diff_size_str, pct);
-				} else {
-					fprintf(stderr, "zdiff: Done. Diff: %s\n", diff_size_str);
-				}
-			}
-			zdiff_free(diff_ptr, diff_len);
+		free(diff_data);
+	} else {
+		/* Read input files */
+		size_t a_len = 0, b_len = 0;
+		uint8_t *a_data = read_file(positional[0], &a_len);
+		if (!a_data) return 1;
+
+		uint8_t *b_data = read_file(positional[1], &b_len);
+		if (!b_data) {
+			free(a_data);
+			return 1;
 		}
+
+		if (patch_mode) {
+			/* ── Patch mode ──────────────────────────────────── */
+			uint8_t *result_ptr = NULL;
+			size_t result_len = 0;
+
+			int rc = zdiff_patch(a_data, a_len, b_data, b_len, &result_ptr, &result_len);
+			if (rc != 0) {
+				fprintf(stderr, "zdiff: patch failed\n");
+				exit_code = 1;
+			} else {
+				if (write_output(output_path, result_ptr, result_len) != 0) {
+					exit_code = 1;
+				} else if (!no_progress && isatty(STDERR_FILENO)) {
+					char size_str[64];
+					format_size(result_len, size_str, sizeof(size_str));
+					fprintf(stderr, "zdiff: Done. Reconstructed: %s\n", size_str);
+				}
+				zdiff_free(result_ptr, result_len);
+			}
+		} else {
+			/* ── Diff mode ───────────────────────────────────── */
+			uint8_t *diff_ptr = NULL;
+			size_t diff_len = 0;
+
+			int rc = zdiff_diff(a_data, a_len, b_data, b_len, seed_ptr, chunk_size,
+			                    &diff_ptr, &diff_len);
+			if (rc != 0) {
+				fprintf(stderr, "zdiff: diff failed\n");
+				exit_code = 1;
+			} else {
+				if (write_output(output_path, diff_ptr, diff_len) != 0) {
+					exit_code = 1;
+				} else if (!no_progress && isatty(STDERR_FILENO)) {
+					/* Show stats */
+					size_t original = (a_len > b_len) ? a_len : b_len;
+					char diff_size_str[64];
+					format_size(diff_len, diff_size_str, sizeof(diff_size_str));
+					if (original > 0) {
+						double pct = 100.0 * (double)diff_len / (double)original;
+						fprintf(stderr, "zdiff: Done. Diff: %s (%.1f%% of original)\n",
+							diff_size_str, pct);
+					} else {
+						fprintf(stderr, "zdiff: Done. Diff: %s\n", diff_size_str);
+					}
+				}
+				zdiff_free(diff_ptr, diff_len);
+			}
+		}
+
+		free(a_data);
+		free(b_data);
 	}
 
-	free(a_data);
-	free(b_data);
 	return exit_code;
 }

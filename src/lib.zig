@@ -3,6 +3,7 @@ const std = @import("std");
 const diff_mod = @import("diff.zig");
 const encoding = @import("encoding.zig");
 const patch_mod = @import("patch.zig");
+const inspect_mod = @import("inspect.zig");
 
 pub const version = "0.1.0";
 
@@ -77,7 +78,32 @@ export fn zdiff_patch(
 	return 0;
 }
 
-/// Free memory returned by zdiff_diff or zdiff_patch.
+/// Inspect a diff blob and produce a human-readable text description.
+/// max_data_bytes: truncate INSERT data display to this many bytes (0 = no limit).
+/// hexlike: if non-zero, use hexlike encoding instead of standard printable-binary.
+/// On success: sets out_ptr/out_len and returns 0.
+/// On error: returns -1.
+export fn zdiff_inspect(
+	diff_ptr: [*]const u8,
+	diff_len: usize,
+	max_data_bytes: usize,
+	hexlike: c_int,
+	out_ptr: *[*]u8,
+	out_len: *usize,
+) callconv(.c) i32 {
+	const allocator = std.heap.page_allocator;
+
+	const diff_blob = diff_ptr[0..diff_len];
+	const effective_max = if (max_data_bytes == 0) std.math.maxInt(usize) else max_data_bytes;
+
+	const result = inspect_mod.inspect(allocator, diff_blob, effective_max, hexlike != 0) catch return -1;
+
+	out_ptr.* = result.ptr;
+	out_len.* = result.len;
+	return 0;
+}
+
+/// Free memory returned by zdiff_diff, zdiff_patch, or zdiff_inspect.
 export fn zdiff_free(ptr: [*]u8, len: usize) callconv(.c) void {
 	const allocator = std.heap.page_allocator;
 	allocator.free(ptr[0..len]);
@@ -98,6 +124,7 @@ test {
 	_ = @import("diff.zig");
 	_ = @import("encoding.zig");
 	_ = @import("patch.zig");
+	_ = @import("inspect.zig");
 }
 
 test "C FFI: zdiff_diff and zdiff_patch round-trip" {
@@ -143,5 +170,36 @@ test "C FFI: zdiff_patch with invalid diff returns error" {
 	var patch_out: [*]u8 = undefined;
 	var patch_len: usize = undefined;
 	const rc = zdiff_patch(a.ptr, a.len, bad_diff.ptr, bad_diff.len, &patch_out, &patch_len);
+	try std.testing.expectEqual(@as(i32, -1), rc);
+}
+
+test "C FFI: zdiff_inspect produces readable output" {
+	// First create a diff
+	const a = "the quick brown fox " ** 50;
+	const b = "the quick red fox " ** 50;
+	var diff_out: [*]u8 = undefined;
+	var diff_len: usize = undefined;
+	const rc = zdiff_diff(a.ptr, a.len, b.ptr, b.len, null, 64, &diff_out, &diff_len);
+	try std.testing.expectEqual(@as(i32, 0), rc);
+	defer zdiff_free(diff_out, diff_len);
+
+	// Now inspect it
+	var inspect_out: [*]u8 = undefined;
+	var inspect_len: usize = undefined;
+	const rc2 = zdiff_inspect(diff_out, diff_len, 64, 0, &inspect_out, &inspect_len);
+	try std.testing.expectEqual(@as(i32, 0), rc2);
+	defer zdiff_free(inspect_out, inspect_len);
+
+	const output = inspect_out[0..inspect_len];
+	try std.testing.expect(std.mem.indexOf(u8, output, "zdiff inspect:") != null);
+	try std.testing.expect(std.mem.indexOf(u8, output, "COPY") != null or
+		std.mem.indexOf(u8, output, "INSERT") != null);
+}
+
+test "C FFI: zdiff_inspect with invalid diff returns error" {
+	const bad_diff = "not a valid diff";
+	var inspect_out: [*]u8 = undefined;
+	var inspect_len: usize = undefined;
+	const rc = zdiff_inspect(bad_diff.ptr, bad_diff.len, 64, 0, &inspect_out, &inspect_len);
 	try std.testing.expectEqual(@as(i32, -1), rc);
 }
