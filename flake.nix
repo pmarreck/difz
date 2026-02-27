@@ -11,8 +11,8 @@
 			let
 				pkgs = import nixpkgs { inherit system; };
 			in
-			{
-				packages.default = pkgs.stdenv.mkDerivation {
+			let
+				zigBuild = { optimize ? "ReleaseFast", doCheck ? false }: pkgs.stdenv.mkDerivation {
 					pname = "zdiff";
 					version = "0.1.0";
 					src = ./.;
@@ -25,9 +25,22 @@
 					buildPhase = ''
 						export XDG_CACHE_HOME="$TMPDIR/zig-cache"
 						mkdir -p "$XDG_CACHE_HOME"
-						zig build -Doptimize=ReleaseFast --prefix $out
-						mkdir -p $out
+						zig build -Doptimize=${optimize} --prefix $out
 					'';
+
+					doCheck = doCheck;
+					checkPhase = ''
+						export XDG_CACHE_HOME="$TMPDIR/zig-cache"
+						zig build test 2>&1
+					'';
+				};
+			in
+			{
+				packages.default = zigBuild {};
+
+				checks = {
+					build = zigBuild {};
+					tests = zigBuild { optimize = "Debug"; doCheck = true; };
 				};
 
 				devShells.default = pkgs.mkShell {

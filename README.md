@@ -62,10 +62,40 @@ zdiff --patch old_file patch.zdiff > new_file
 ## Architecture
 
 ```
-zdiff CLI (C) --> C FFI boundary --> Zig core (pure logic, no I/O)
+zdiff CLI (C) ──> C FFI boundary ──> Zig core (pure logic, no I/O)
 ```
 
-The Zig core takes two byte slices and returns a BLIP-encoded diff. All I/O lives in the C CLI. The C CLI calls the Zig library through the C FFI header — dogfooding the same interface that any external consumer would use.
+The Zig core is a pure library — it takes two byte slices and returns a BLIP-encoded diff as a byte slice. No file I/O, no allocation policy decisions, no CLI concerns. All I/O lives in the C CLI, which calls the Zig library through its C FFI header. This dogfoods the same interface any external consumer would use.
+
+### Source layout
+
+```
+src/
+├── lib.zig          # C FFI exports: zdiff_diff(), zdiff_patch(), zdiff_free()
+├── zdiff.h          # C header for FFI consumers
+├── zdiff.c          # CLI: file I/O, arg parsing, progress display
+├── diff.zig         # Two-stage orchestrator: CDC matching + Elder gap refinement
+├── cdc.zig          # Content-Defined Chunking via Gear hash
+├── gear_hash.zig    # Gear rolling hash with BLAKE3-seeded lookup table
+├── chunk_match.zig  # BLAKE3 fingerprint matching between chunk sets
+├── elder_diff.zig   # Myers O(ND) byte-level diff with edit distance cap
+├── encoding.zig     # BLIP serialization + optional LZMA2 compression
+└── patch.zig        # Diff application (decode + reconstruct)
+```
+
+### Data flow
+
+**Diff:** `(A, B) → CDC chunk both → BLAKE3 match → sort by B-offset → Elder diff gaps → encode ops → LZMA2 compress (if smaller) → output`
+
+**Patch:** `(A, diff) → LZMA2 decompress (if needed) → decode ops → apply Copy/Insert against A → output B`
+
+### Design decisions
+
+- **C FFI is the real API.** Even the CLI written in C calls through FFI rather than importing Zig directly. This guarantees the FFI boundary is always exercised and tested.
+- **CDC handles moved blocks.** Matches are sorted by B-offset, not A-offset, so rearranged sections are correctly detected. Non-monotonic gaps (moved blocks) emit raw Inserts; monotonic gaps get fine-grained Elder diffing.
+- **Edit distance cap.** Myers O(ND) is capped at `sqrt(N+M)*2+16` (max 8192) to prevent quadratic blowup on dissimilar gap regions. When exceeded, the gap falls back to a raw Insert.
+- **Try-compress.** LZMA2 compression is attempted on the encoded output; the compressed version is kept only if it's actually smaller. Random/incompressible data passes through uncompressed.
+- **Deterministic seeds.** The CDC Gear hash table is seeded via BLAKE3, so the same seed produces the same chunking. Seeds can be specified explicitly for reproducible diffs.
 
 ## Building
 
