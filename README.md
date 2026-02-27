@@ -1,5 +1,8 @@
 # zdiff
 
+[![CI](https://github.com/pmarreck/zdiff/actions/workflows/ci.yml/badge.svg?branch=yolo)](https://github.com/pmarreck/zdiff/actions/workflows/ci.yml)
+[![Garnix](https://img.shields.io/endpoint.svg?url=https://garnix.io/api/badges/pmarreck/zdiff&style=flat)](https://garnix.io/repo/pmarreck/zdiff)
+
 A fast binary differ. Given two files A and B, zdiff produces a compact diff — an encoded list of Copy and Insert instructions to transform A into B. Applying the diff to A reconstructs B exactly.
 
 ## Performance
