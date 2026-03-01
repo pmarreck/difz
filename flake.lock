@@ -51,11 +51,47 @@
         "type": "github"
       }
     },
+    "printable-binary-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1772126021,
+        "narHash": "sha256-MepnUBRxFR9n0VVdiQ/qaqgdGCXQiVKt67Yjn3Mx2hk=",
+        "owner": "pmarreck",
+        "repo": "printable-binary",
+        "rev": "19039a978ff43e5b8ba5b7e66d8339dfc9f77e18",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pmarreck",
+        "ref": "yolo",
+        "repo": "printable-binary",
+        "type": "github"
+      }
+    },
+    "progrez-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1772327058,
+        "narHash": "sha256-lhZbKaUgfQnYJ940wJn0j7yZjlw8Px3jmoUEWxA/in0=",
+        "owner": "pmarreck",
+        "repo": "progrez",
+        "rev": "aa7ce676595619246ed852ddfb30ae45ed061b47",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pmarreck",
+        "ref": "yolo",
+        "repo": "progrez",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "blip-src": "blip-src",
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
+        "printable-binary-src": "printable-binary-src",
+        "progrez-src": "progrez-src",
         "z7z-src": "z7z-src"
       }
     },

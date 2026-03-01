@@ -49,6 +49,10 @@ zdiff --patch old_file patch.zdiff -o new_file
 # Pipe to stdout
 zdiff old_file new_file > patch.zdiff
 zdiff --patch old_file patch.zdiff > new_file
+
+# Inspect a diff file (human-readable op dump)
+zdiff --inspect patch.zdiff
+zdiff --inspect --truncate 128 --hexlike patch.zdiff
 ```
 
 ### Options
@@ -56,6 +60,9 @@ zdiff --patch old_file patch.zdiff > new_file
 ```
 -o <file>          Output file (default: stdout)
 --patch            Apply diff mode
+--inspect          Pretty-print the ops in a diff file
+--truncate <n>     Max bytes of INSERT data to display (default: 64)
+--hexlike          Use hexlike encoding for binary data display
 --seed <hex>       32-byte seed as 64-char hex string
 --chunk-size <n>   Target CDC chunk size (default: 4096)
 --no-progress      Suppress progress output
@@ -74,15 +81,16 @@ The Zig core is a pure library — it takes two byte slices and returns a BLIP-e
 
 ```
 src/
-├── lib.zig          # C FFI exports: zdiff_diff(), zdiff_patch(), zdiff_free()
+├── lib.zig          # C FFI exports: zdiff_diff(), zdiff_patch(), zdiff_inspect(), zdiff_free()
 ├── zdiff.h          # C header for FFI consumers
-├── zdiff.c          # CLI: file I/O, arg parsing, progress display
+├── zdiff.c          # CLI: file I/O, arg parsing, progress display (uses progrez)
 ├── diff.zig         # Two-stage orchestrator: CDC matching + Elder gap refinement
 ├── cdc.zig          # Content-Defined Chunking via Gear hash
 ├── gear_hash.zig    # Gear rolling hash with BLAKE3-seeded lookup table
 ├── chunk_match.zig  # BLAKE3 fingerprint matching between chunk sets
 ├── elder_diff.zig   # Myers O(ND) byte-level diff with edit distance cap
 ├── encoding.zig     # BLIP serialization + optional LZMA2 compression
+├── inspect.zig      # Diff file pretty-printer (decode + human-readable op dump)
 └── patch.zig        # Diff application (decode + reconstruct)
 ```
 

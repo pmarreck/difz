@@ -12,6 +12,10 @@
 			.url = "https://github.com/pmarreck/printable-binary/archive/refs/heads/yolo.tar.gz",
 			.hash = "printable_binary-1.0.0-SdPiyoM4FwByo5ia901HzoUGSGjeolkmQuxJ5UYZzdW1",
 		},
+		.progrez = .{
+			.url = "https://github.com/pmarreck/progrez/archive/refs/heads/yolo.tar.gz",
+			.hash = "progrez-0.1.0-0YJXrvO-AQBZNa3mhSjZ4Wc_QVnCMBdqTiT2KxVEpQUH",
+		},
 	},
 	.paths = .{
 		"build.zig",

@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include "zdiff.h"
+#include "progrez.h"
 
 #define ZDIFF_VERSION "0.1.0"
 
@@ -401,10 +402,21 @@ int main(int argc, char *argv[]) {
 
 		if (patch_mode) {
 			/* ── Patch mode ──────────────────────────────────── */
+			progrez_ctx *pctx = NULL;
+			if (!no_progress && isatty(STDERR_FILENO)) {
+				pctx = progrez_create("Applying patch");
+				if (pctx) {
+					progrez_set_identity(pctx, "zdiff", NULL);
+					progrez_set_indeterminate(pctx);
+				}
+			}
+
 			uint8_t *result_ptr = NULL;
 			size_t result_len = 0;
 
 			int rc = zdiff_patch(a_data, a_len, b_data, b_len, &result_ptr, &result_len);
+
+			if (pctx) { progrez_finish(pctx); progrez_destroy(pctx); }
 			if (rc != 0) {
 				fprintf(stderr, "zdiff: patch failed\n");
 				exit_code = 1;
@@ -420,11 +432,22 @@ int main(int argc, char *argv[]) {
 			}
 		} else {
 			/* ── Diff mode ───────────────────────────────────── */
+			progrez_ctx *pctx = NULL;
+			if (!no_progress && isatty(STDERR_FILENO)) {
+				pctx = progrez_create("Computing diff");
+				if (pctx) {
+					progrez_set_identity(pctx, "zdiff", NULL);
+					progrez_set_indeterminate(pctx);
+				}
+			}
+
 			uint8_t *diff_ptr = NULL;
 			size_t diff_len = 0;
 
 			int rc = zdiff_diff(a_data, a_len, b_data, b_len, seed_ptr, chunk_size,
 			                    &diff_ptr, &diff_len);
+
+			if (pctx) { progrez_finish(pctx); progrez_destroy(pctx); }
 			if (rc != 0) {
 				fprintf(stderr, "zdiff: diff failed\n");
 				exit_code = 1;

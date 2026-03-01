@@ -16,9 +16,13 @@
 			url = "github:pmarreck/printable-binary/yolo";
 			flake = false;
 		};
+		progrez-src = {
+			url = "github:pmarreck/progrez/yolo";
+			flake = false;
+		};
 	};
 
-	outputs = { self, nixpkgs, flake-utils, blip-src, z7z-src, printable-binary-src }:
+	outputs = { self, nixpkgs, flake-utils, blip-src, z7z-src, printable-binary-src, progrez-src }:
 		flake-utils.lib.eachDefaultSystem (system:
 			let
 				pkgs = import nixpkgs { inherit system; };
@@ -26,6 +30,7 @@
 				blipHash = "blip-0.1.0-rcNuGD64CQDEBryxAj93lMCAMkFO0IpknB0MwWnjrGas";
 				z7zHash = "z7z-0.1.0-rkKuF0UdBQDsZxiiNFWuuoHVeGLFO078oGD6yQQiSXoA";
 				pbHash = "printable_binary-1.0.0-SdPiyoM4FwByo5ia901HzoUGSGjeolkmQuxJ5UYZzdW1";
+				progrezHash = "progrez-0.1.0-0YJXrvO-AQBZNa3mhSjZ4Wc_QVnCMBdqTiT2KxVEpQUH";
 			in
 			let
 				zigBuild = { optimize ? "ReleaseFast", doCheck ? false }: pkgs.stdenv.mkDerivation {
@@ -50,6 +55,8 @@
 						cp -r ${z7z-src}/* "$TMPDIR/zig-pkgs/${z7zHash}/"
 						mkdir -p "$TMPDIR/zig-pkgs/${pbHash}"
 						cp -r ${printable-binary-src}/* "$TMPDIR/zig-pkgs/${pbHash}/"
+						mkdir -p "$TMPDIR/zig-pkgs/${progrezHash}"
+						cp -r ${progrez-src}/* "$TMPDIR/zig-pkgs/${progrezHash}/"
 
 						zig build -Doptimize=${optimize} --system "$TMPDIR/zig-pkgs" --prefix $out
 					'';

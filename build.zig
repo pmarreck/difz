@@ -22,6 +22,24 @@ pub fn build(b: *std.Build) void {
 	});
 	const pb_module = pb_dep.module("printable_binary");
 
+	// Get progrez dependency (C FFI progress library)
+	// Build a static lib from source — progrez's build.zig registers both
+	// static and dynamic libs with the same name, making artifact() ambiguous.
+	const progrez_dep = b.dependency("progrez", .{
+		.target = target,
+		.optimize = optimize,
+	});
+	const progrez_lib = b.addLibrary(.{
+		.name = "progrez",
+		.linkage = .static,
+		.root_module = b.createModule(.{
+			.root_source_file = progrez_dep.path("src/lib.zig"),
+			.target = target,
+			.optimize = optimize,
+			.link_libc = true,
+		}),
+	});
+
 	// Create the zdiff module
 	const zdiff_module = b.createModule(.{
 		.root_source_file = b.path("src/lib.zig"),
@@ -74,7 +92,9 @@ pub fn build(b: *std.Build) void {
 		.flags = c_flags,
 	});
 	exe.linkLibrary(lib);
+	exe.linkLibrary(progrez_lib);
 	exe.root_module.addIncludePath(b.path("src"));
+	exe.root_module.addIncludePath(progrez_dep.path("include"));
 	b.installArtifact(exe);
 
 	// Tests
