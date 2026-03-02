@@ -14,7 +14,7 @@
 		},
 		.progrez = .{
 			.url = "https://github.com/pmarreck/progrez/archive/refs/heads/yolo.tar.gz",
-			.hash = "progrez-0.1.0-0YJXrvO-AQBZNa3mhSjZ4Wc_QVnCMBdqTiT2KxVEpQUH",
+			.hash = "progrez-0.1.0-0YJXrtTzAQDTvLEr7d-uo8mnLq--eqD8wD3efrcX8gvi",
 		},
 	},
 	.paths = .{

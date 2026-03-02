@@ -30,7 +30,7 @@
 				blipHash = "blip-0.1.0-rcNuGD64CQDEBryxAj93lMCAMkFO0IpknB0MwWnjrGas";
 				z7zHash = "z7z-0.1.0-rkKuF0UdBQDsZxiiNFWuuoHVeGLFO078oGD6yQQiSXoA";
 				pbHash = "printable_binary-1.0.0-SdPiyoM4FwByo5ia901HzoUGSGjeolkmQuxJ5UYZzdW1";
-				progrezHash = "progrez-0.1.0-0YJXrvO-AQBZNa3mhSjZ4Wc_QVnCMBdqTiT2KxVEpQUH";
+				progrezHash = "progrez-0.1.0-0YJXrtTzAQDTvLEr7d-uo8mnLq--eqD8wD3efrcX8gvi";
 			in
 			let
 				zigBuild = { optimize ? "ReleaseFast", doCheck ? false }: pkgs.stdenv.mkDerivation {
