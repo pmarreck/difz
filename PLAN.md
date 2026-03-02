@@ -25,3 +25,9 @@
 - [ ] Translation groundwork: lay foundation for 30-language support per AGENTS.md CLI guidelines
 - [ ] Fuzzing suite: fuzz the encoder/decoder for robustness
 - [ ] Cross-platform CI: test on Linux x86_64/aarch64 and Windows
+
+## Future Exploration
+
+- [ ] **Directory tree diffing** — orchestration layer above the C FFI that walks two directory trees, diffs each changed file via `zdiff_diff()`, and packages results into a single archive (manifest + per-file diff blobs). Rename detection via whole-file BLAKE3. Could live as `zdiff --recursive` or a separate `zdiff-tree` tool. The Zig core stays untouched; this is purely CLI/tooling.
+- [ ] **Streaming/mmap patcher for large files** — current model materializes both inputs in memory; GB-scale game assets need a streaming or mmap-based patch path. Would require a new FFI shape (callback-based or seekable reader) — a clean core extension, not a rewrite.
+- [ ] **Game update patching (Steam-style use case)** — games repack large archive files (`.pak`, `.vpk`, Unity asset bundles) where content is ~95% identical but offsets shift everywhere. Fixed-chunk delta systems (like Steam's) re-download entire chunks for any change. zdiff's CDC natively handles shifted content, potentially producing patches 5-10x smaller. Requires the directory tree and streaming layers above. Compelling benchmark target: real game update before/after pairs.
