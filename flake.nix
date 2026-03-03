@@ -105,6 +105,7 @@
 						hyperfine
 						bsdiff
 						xdelta
+						zstd
 					];
 				};
 			}

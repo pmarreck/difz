@@ -10,22 +10,23 @@ A fast binary differ. Given two files A and B, zdiff produces a compact diff —
 
 Benchmarked on Apple M4 (aarch64), deterministic random binary data (using default `--compress best`):
 
-| File size | Sim. | zdiff time | xdelta3 time | bsdiff time | zdiff size | xdelta3 size | bsdiff size |
-|-----------|------|-----------|-------------|------------|-----------|-------------|------------|
-| **10 MB** | 90%  | **111 ms** | 124 ms | 2,547 ms | 1,024 KB | 1,024 KB | 1,030 KB |
-| **20 MB** | 90%  | **188 ms** | 234 ms | 6,367 ms | 2,048 KB | 2,048 KB | 2,057 KB |
-| **50 MB** | 90%  | **388 ms** | 538 ms | 21,678 ms | 5,120 KB | 5,121 KB | 5,144 KB |
-| **20 MB** | 50%  | **476 ms** | 1,055 ms | 19,393 ms | 10,240 KB | 10,241 KB | 10,285 KB |
-| **20 MB** | 99%  | 118 ms | **49 ms** | 2,709 ms | 205 KB | 205 KB | 206 KB |
+| File size | Sim. | zdiff | xdelta3 | zstd | bsdiff | zdiff size | xdelta3 size | zstd size | bsdiff size |
+|-----------|------|-------|---------|------|--------|-----------|-------------|----------|------------|
+| **10 MB** | 90%  | 134 ms | 127 ms | **27 ms** | 2,326 ms | **1,024 KB** | 1,024 KB | 1,035 KB | 1,030 KB |
+| **20 MB** | 90%  | **221 ms** | 238 ms | 45 ms | 6,014 ms | **2,048 KB** | 2,048 KB | 2,069 KB | 2,057 KB |
+| **50 MB** | 90%  | **417 ms** | 560 ms | 67 ms | 21,114 ms | **5,120 KB** | 5,121 KB | 5,172 KB | 5,144 KB |
+| **20 MB** | 50%  | **496 ms** | 1,131 ms | 43 ms | 20,677 ms | **10,240 KB** | 10,241 KB | 10,252 KB | 10,285 KB |
+| **20 MB** | 99%  | 127 ms | 51 ms | **37 ms** | 2,759 ms | **205 KB** | 205 KB | 228 KB | 206 KB |
 
-**1.1x-2.2x faster than xdelta3. 23x-56x faster than bsdiff.** All three tools produce nearly identical diff sizes (within 0.5%). xdelta3 is faster for highly similar files (99%) where the diff is small and `best`-mode's dual compression trial dominates. Patch application is 4x-18x faster than bspatch and comparable to xdelta3.
+**zdiff produces the smallest diffs** across all test cases. zstd `--patch-from` is the fastest differ (dictionary compression, not true delta encoding) but produces 1-11% larger patches. zdiff is 1.1x-2.3x faster than xdelta3 and 27x-51x faster than bsdiff. Patch application is 4x-16x faster than bspatch and comparable to xdelta3 and zstd.
 
 Hyperfine statistical benchmark (10 MB, 90% similar, 10+ runs):
 
 ```
-zdiff    100.0 ms ± 4.5 ms
-xdelta3  119.7 ms ± 21.3 ms    1.20x slower
-bsdiff     2.58 s ± 0.06 s   25.77x slower
+zstd      16.6 ms ± 1.0 ms
+xdelta3  118.7 ms ± 4.9 ms    7.15x slower than zstd
+zdiff    131.7 ms ± 4.3 ms    7.93x slower than zstd
+bsdiff     2.30 s ± 0.13 s  138.42x slower than zstd
 ```
 
 ## How it works
