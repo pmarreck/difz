@@ -12,20 +12,20 @@ Benchmarked on Apple M4 (aarch64), deterministic random binary data (using defau
 
 | File size | Sim. | zdiff time | xdelta3 time | bsdiff time | zdiff size | xdelta3 size | bsdiff size |
 |-----------|------|-----------|-------------|------------|-----------|-------------|------------|
-| **10 MB** | 90%  | **72 ms** | 120 ms | 2,391 ms | 1,025 KB | 1,024 KB | 1,030 KB |
-| **20 MB** | 90%  | **135 ms** | 229 ms | 6,106 ms | 2,051 KB | 2,048 KB | 2,057 KB |
-| **50 MB** | 90%  | **317 ms** | 555 ms | 21,045 ms | 5,121 KB | 5,121 KB | 5,144 KB |
-| **20 MB** | 50%  | **260 ms** | 1,131 ms | 20,623 ms | 10,244 KB | 10,241 KB | 10,285 KB |
-| **20 MB** | 99%  | **97 ms** | 47 ms | 2,724 ms | 207 KB | 205 KB | 206 KB |
+| **10 MB** | 90%  | **111 ms** | 124 ms | 2,547 ms | 1,024 KB | 1,024 KB | 1,030 KB |
+| **20 MB** | 90%  | **188 ms** | 234 ms | 6,367 ms | 2,048 KB | 2,048 KB | 2,057 KB |
+| **50 MB** | 90%  | **388 ms** | 538 ms | 21,678 ms | 5,120 KB | 5,121 KB | 5,144 KB |
+| **20 MB** | 50%  | **476 ms** | 1,055 ms | 19,393 ms | 10,240 KB | 10,241 KB | 10,285 KB |
+| **20 MB** | 99%  | 118 ms | **49 ms** | 2,709 ms | 205 KB | 205 KB | 206 KB |
 
-**1.7x-4.3x faster than xdelta3. 33x-79x faster than bsdiff.** All three tools produce nearly identical diff sizes (within 0.5%). Patch application is 12x faster than bspatch and comparable to xdelta3.
+**1.1x-2.2x faster than xdelta3. 23x-56x faster than bsdiff.** All three tools produce nearly identical diff sizes (within 0.5%). xdelta3 is faster for highly similar files (99%) where the diff is small and `best`-mode's dual compression trial dominates. Patch application is 4x-18x faster than bspatch and comparable to xdelta3.
 
 Hyperfine statistical benchmark (10 MB, 90% similar, 10+ runs):
 
 ```
-zdiff     67.4 ms ± 4.3 ms
-xdelta3  111.6 ms ± 1.8 ms    1.66x slower
-bsdiff     2.37 s ± 0.03 s   35.18x slower
+zdiff    100.0 ms ± 4.5 ms
+xdelta3  119.7 ms ± 21.3 ms    1.20x slower
+bsdiff     2.58 s ± 0.06 s   25.77x slower
 ```
 
 ## How it works
