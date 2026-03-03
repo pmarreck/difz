@@ -2,12 +2,13 @@
 
 [![CI](https://github.com/pmarreck/zdiff/actions/workflows/ci.yml/badge.svg?branch=yolo)](https://github.com/pmarreck/zdiff/actions/workflows/ci.yml)
 [![Garnix](https://img.shields.io/endpoint.svg?url=https://garnix.io/api/badges/pmarreck/zdiff&style=flat)](https://garnix.io/repo/pmarreck/zdiff)
+[![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 
 A fast binary differ. Given two files A and B, zdiff produces a compact diff — an encoded list of Copy and Insert instructions to transform A into B. Applying the diff to A reconstructs B exactly.
 
 ## Performance
 
-Benchmarked on Apple M4 (aarch64), deterministic random binary data:
+Benchmarked on Apple M4 (aarch64), deterministic random binary data (using default `--compress best`):
 
 | File size | Sim. | zdiff time | xdelta3 time | bsdiff time | zdiff size | xdelta3 size | bsdiff size |
 |-----------|------|-----------|-------------|------------|-----------|-------------|------------|
@@ -35,7 +36,7 @@ Two-stage algorithm:
 
 2. **Elder/Myers O(ND) byte diff** — For gaps between matched chunks, a fine-grained byte-level diff produces compact Copy+Insert instructions. An edit distance cap prevents quadratic blowup on dissimilar regions.
 
-Output is encoded in [BLIP](https://github.com/pmarreck/BLIP) format with selectable compression (LZMA2, bzip2, LZ4, or none). By default, all algorithms are tried and the smallest result is kept.
+Output is encoded in [BLIP](https://github.com/pmarreck/BLIP) format with selectable compression (LZMA2, bzip2, LZ4, or none). By default (`--compress best`), LZMA2 and bzip2 are both tried and the smallest result is kept. LZ4 is available for speed-over-size use cases but is not included in `best` mode since it never wins on ratio.
 
 ## Usage
 
@@ -97,7 +98,7 @@ src/
 
 ### Data flow
 
-**Diff:** `(A, B) → CDC chunk both → BLAKE3 match → sort by B-offset → Elder diff gaps → encode ops → compress (best of lzma2/bzip2/lz4) → output`
+**Diff:** `(A, B) → CDC chunk both → BLAKE3 match → sort by B-offset → Elder diff gaps → encode ops → compress (best of lzma2/bzip2) → output`
 
 **Patch:** `(A, diff) → decompress (auto-detect algorithm) → decode ops → apply Copy/Insert against A → output B`
 
@@ -106,7 +107,7 @@ src/
 - **C FFI is the real API.** Even the CLI written in C calls through FFI rather than importing Zig directly. This guarantees the FFI boundary is always exercised and tested.
 - **CDC handles moved blocks.** Matches are sorted by B-offset, not A-offset, so rearranged sections are correctly detected. Non-monotonic gaps (moved blocks) emit raw Inserts; monotonic gaps get fine-grained Elder diffing.
 - **Edit distance cap.** Myers O(ND) is capped at `sqrt(N+M)*2+16` (max 8192) to prevent quadratic blowup on dissimilar gap regions. When exceeded, the gap falls back to a raw Insert.
-- **Try-best compression.** By default, LZMA2, bzip2, and LZ4 are all tried (using a distributed sampling heuristic for large diffs) and the smallest result is kept. A specific algorithm can be selected with `--compress`. Random/incompressible data passes through uncompressed.
+- **Try-best compression.** By default, LZMA2 and bzip2 are both tried (using a distributed sampling heuristic for large diffs) and the smallest result is kept. LZ4 is available via `--compress lz4` for speed-over-size scenarios but is excluded from `best` since it never wins on ratio. Random/incompressible data passes through uncompressed.
 - **Deterministic seeds.** The CDC Gear hash table is seeded via BLAKE3, so the same seed produces the same chunking. Seeds can be specified explicitly for reproducible diffs.
 
 ## Building
