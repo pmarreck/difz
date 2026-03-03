@@ -87,7 +87,7 @@
 					doCheck = doCheck;
 					checkPhase = ''
 						export XDG_CACHE_HOME="$TMPDIR/zig-cache"
-						zig build test --system "$TMPDIR/zig-pkgs" 2>&1
+						zig build test -Doptimize=ReleaseFast --system "$TMPDIR/zig-pkgs" 2>&1
 					'';
 				};
 			in
@@ -96,7 +96,7 @@
 
 				checks = {
 					build = zigBuild {};
-					tests = zigBuild { optimize = "Debug"; doCheck = true; };
+					tests = zigBuild { doCheck = true; };
 				};
 
 				devShells.default = pkgs.mkShell {
