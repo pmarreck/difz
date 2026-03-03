@@ -137,10 +137,10 @@ fn modeToCompressionId(mode: CompressionMode) ?BlipCompressionId {
 	};
 }
 
-const SAMPLE_CHUNK: usize = 64 * 1024; // 64KB per chunk
-const SAMPLE_THRESHOLD: usize = SAMPLE_CHUNK * 3; // 192KB — below this, try all on full data
+const SAMPLE_CHUNK: usize = 128 * 1024; // 128KB per chunk — large enough to amortize compressor startup overhead
+const SAMPLE_THRESHOLD: usize = SAMPLE_CHUNK * 3; // 384KB — below this, try all on full data
 
-/// Build a distributed sample from data: 3x64KB chunks from beginning, middle, end.
+/// Build a distributed sample from data: 3x128KB chunks from beginning, middle, end.
 /// Returns a newly allocated buffer that caller must free.
 fn buildSample(allocator: std.mem.Allocator, data: []const u8) EncodeError![]u8 {
 	const mid_start = (data.len / 2) -| (SAMPLE_CHUNK / 2);
