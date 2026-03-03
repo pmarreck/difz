@@ -22,6 +22,7 @@ export fn zdiff_diff(
 	b_len: usize,
 	seed: ?*const [32]u8,
 	target_chunk_size: usize,
+	compression: u8,
 	out_ptr: *[*]u8,
 	out_len: *usize,
 ) callconv(.c) i32 {
@@ -43,12 +44,15 @@ export fn zdiff_diff(
 		.target_chunk_size = target_chunk_size,
 	};
 
+	// Convert u8 to CompressionMode, default to .best on invalid value
+	const comp_mode = std.meta.intToEnum(encoding.CompressionMode, compression) catch encoding.CompressionMode.best;
+
 	// Compute diff
 	const result = diff_mod.computeDiff(allocator, a, b, options) catch return -1;
 	defer diff_mod.freeDiffResult(allocator, result);
 
 	// Encode to BLIP bytes
-	const encoded = encoding.encode(allocator, result) catch return -1;
+	const encoded = encoding.encode(allocator, result, comp_mode) catch return -1;
 
 	out_ptr.* = encoded.ptr;
 	out_len.* = encoded.len;
@@ -132,7 +136,7 @@ test "C FFI: zdiff_diff and zdiff_patch round-trip" {
 	const b = "the quick red fox " ** 50;
 	var diff_out: [*]u8 = undefined;
 	var diff_len: usize = undefined;
-	const rc = zdiff_diff(a.ptr, a.len, b.ptr, b.len, null, 64, &diff_out, &diff_len);
+	const rc = zdiff_diff(a.ptr, a.len, b.ptr, b.len, null, 64, 0, &diff_out, &diff_len);
 	try std.testing.expectEqual(@as(i32, 0), rc);
 	defer zdiff_free(diff_out, diff_len);
 
@@ -151,7 +155,7 @@ test "C FFI: zdiff_diff with explicit seed" {
 	const seed = [_]u8{42} ** 32;
 	var diff_out: [*]u8 = undefined;
 	var diff_len: usize = undefined;
-	const rc = zdiff_diff(a.ptr, a.len, b.ptr, b.len, &seed, 128, &diff_out, &diff_len);
+	const rc = zdiff_diff(a.ptr, a.len, b.ptr, b.len, &seed, 128, 0, &diff_out, &diff_len);
 	try std.testing.expectEqual(@as(i32, 0), rc);
 	defer zdiff_free(diff_out, diff_len);
 
@@ -179,7 +183,7 @@ test "C FFI: zdiff_inspect produces readable output" {
 	const b = "the quick red fox " ** 50;
 	var diff_out: [*]u8 = undefined;
 	var diff_len: usize = undefined;
-	const rc = zdiff_diff(a.ptr, a.len, b.ptr, b.len, null, 64, &diff_out, &diff_len);
+	const rc = zdiff_diff(a.ptr, a.len, b.ptr, b.len, null, 64, 0, &diff_out, &diff_len);
 	try std.testing.expectEqual(@as(i32, 0), rc);
 	defer zdiff_free(diff_out, diff_len);
 

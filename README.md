@@ -35,7 +35,7 @@ Two-stage algorithm:
 
 2. **Elder/Myers O(ND) byte diff** — For gaps between matched chunks, a fine-grained byte-level diff produces compact Copy+Insert instructions. An edit distance cap prevents quadratic blowup on dissimilar regions.
 
-Output is encoded in [BLIP](https://github.com/pmarreck/BLIP) format with optional LZMA2 compression (used automatically when it reduces size).
+Output is encoded in [BLIP](https://github.com/pmarreck/BLIP) format with selectable compression (LZMA2, bzip2, LZ4, or none). By default, all algorithms are tried and the smallest result is kept.
 
 ## Usage
 
@@ -58,15 +58,16 @@ zdiff --inspect --truncate 128 --hexlike patch.zdiff
 ### Options
 
 ```
--o <file>          Output file (default: stdout)
---patch            Apply diff mode
---inspect          Pretty-print the ops in a diff file
---truncate <n>     Max bytes of INSERT data to display (default: 64)
---hexlike          Use hexlike encoding for binary data display
---seed <hex>       32-byte seed as 64-char hex string
---chunk-size <n>   Target CDC chunk size (default: 4096)
---no-progress      Suppress progress output
---about            Show version, platform, architecture
+-o <file>            Output file (default: stdout)
+--patch              Apply diff mode
+--inspect            Pretty-print the ops in a diff file
+--compress <algo>    Compression: best, lzma2, bzip2, lz4, none (default: best)
+--truncate <n>       Max bytes of INSERT data to display (default: 64)
+--hexlike            Use hexlike encoding for binary data display
+--seed <hex>         32-byte seed as 64-char hex string
+--chunk-size <n>     Target CDC chunk size (default: 4096)
+--no-progress        Suppress progress output
+--about              Show version, platform, architecture
 ```
 
 ## Architecture
@@ -89,23 +90,23 @@ src/
 ├── gear_hash.zig    # Gear rolling hash with BLAKE3-seeded lookup table
 ├── chunk_match.zig  # BLAKE3 fingerprint matching between chunk sets
 ├── elder_diff.zig   # Myers O(ND) byte-level diff with edit distance cap
-├── encoding.zig     # BLIP serialization + optional LZMA2 compression
+├── encoding.zig     # BLIP serialization + selectable compression (lzma2/bzip2/lz4/best/none)
 ├── inspect.zig      # Diff file pretty-printer (decode + human-readable op dump)
 └── patch.zig        # Diff application (decode + reconstruct)
 ```
 
 ### Data flow
 
-**Diff:** `(A, B) → CDC chunk both → BLAKE3 match → sort by B-offset → Elder diff gaps → encode ops → LZMA2 compress (if smaller) → output`
+**Diff:** `(A, B) → CDC chunk both → BLAKE3 match → sort by B-offset → Elder diff gaps → encode ops → compress (best of lzma2/bzip2/lz4) → output`
 
-**Patch:** `(A, diff) → LZMA2 decompress (if needed) → decode ops → apply Copy/Insert against A → output B`
+**Patch:** `(A, diff) → decompress (auto-detect algorithm) → decode ops → apply Copy/Insert against A → output B`
 
 ### Design decisions
 
 - **C FFI is the real API.** Even the CLI written in C calls through FFI rather than importing Zig directly. This guarantees the FFI boundary is always exercised and tested.
 - **CDC handles moved blocks.** Matches are sorted by B-offset, not A-offset, so rearranged sections are correctly detected. Non-monotonic gaps (moved blocks) emit raw Inserts; monotonic gaps get fine-grained Elder diffing.
 - **Edit distance cap.** Myers O(ND) is capped at `sqrt(N+M)*2+16` (max 8192) to prevent quadratic blowup on dissimilar gap regions. When exceeded, the gap falls back to a raw Insert.
-- **Try-compress.** LZMA2 compression is attempted on the encoded output; the compressed version is kept only if it's actually smaller. Random/incompressible data passes through uncompressed.
+- **Try-best compression.** By default, LZMA2, bzip2, and LZ4 are all tried (using a distributed sampling heuristic for large diffs) and the smallest result is kept. A specific algorithm can be selected with `--compress`. Random/incompressible data passes through uncompressed.
 - **Deterministic seeds.** The CDC Gear hash table is seeded via BLAKE3, so the same seed produces the same chunking. Seeds can be specified explicitly for reproducible diffs.
 
 ## Building

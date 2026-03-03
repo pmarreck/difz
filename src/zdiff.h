@@ -6,12 +6,14 @@
 
 /* Compute a binary diff between files A and B.
  * seed: 32-byte rolling hash seed (NULL for random).
+ * compression: 0=best, 1=lzma2, 2=bzip2, 3=lz4, 255=none.
  * Returns 0 on success, -1 on error. */
 int zdiff_diff(
     const uint8_t *a, size_t a_len,
     const uint8_t *b, size_t b_len,
     const uint8_t seed[32],
     size_t target_chunk_size,
+    uint8_t compression,
     uint8_t **out, size_t *out_len);
 
 /* Apply a diff to file A to reconstruct file B.

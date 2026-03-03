@@ -64,6 +64,7 @@ static void print_usage(FILE *out) {
 		"  -o <file>          Output file (default: stdout)\n"
 		"  --seed <hex>       32-byte seed as 64-char hex string\n"
 		"  --chunk-size <n>   Target CDC chunk size (default: 4096)\n"
+		"  --compress <algo>  Compression: best, lzma2, bzip2, lz4, none (default: best)\n"
 		"  --truncate <n>     Max bytes of INSERT data to display (default: 64)\n"
 		"  --hexlike          Use hexlike encoding for binary data display\n"
 		"  --no-progress      Suppress progress/stats output\n"
@@ -222,6 +223,7 @@ int main(int argc, char *argv[]) {
 	const char *output_path = NULL;  /* NULL = stdout */
 	const char *seed_hex = NULL;
 	size_t chunk_size = 4096;
+	uint8_t compression = 0;  /* 0=best, 1=lzma2, 2=bzip2, 3=lz4, 255=none */
 	size_t truncate_bytes = 64;
 	int hexlike = 0;
 	int no_progress = 0;
@@ -296,6 +298,23 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 			chunk_size = (size_t)val;
+			continue;
+		}
+		if (strcmp(argv[i], "--compress") == 0) {
+			if (i + 1 >= argc) {
+				fprintf(stderr, "zdiff: --compress requires an argument (best, lzma2, bzip2, lz4, none)\n");
+				return 1;
+			}
+			const char *algo = argv[++i];
+			if (strcmp(algo, "best") == 0) compression = 0;
+			else if (strcmp(algo, "lzma2") == 0) compression = 1;
+			else if (strcmp(algo, "bzip2") == 0) compression = 2;
+			else if (strcmp(algo, "lz4") == 0) compression = 3;
+			else if (strcmp(algo, "none") == 0) compression = 255;
+			else {
+				fprintf(stderr, "zdiff: unknown compression algorithm '%s' (use best, lzma2, bzip2, lz4, none)\n", algo);
+				return 1;
+			}
 			continue;
 		}
 		if (strcmp(argv[i], "--no-progress") == 0) {
@@ -445,7 +464,7 @@ int main(int argc, char *argv[]) {
 			size_t diff_len = 0;
 
 			int rc = zdiff_diff(a_data, a_len, b_data, b_len, seed_ptr, chunk_size,
-			                    &diff_ptr, &diff_len);
+			                    compression, &diff_ptr, &diff_len);
 
 			if (pctx) { progrez_finish(pctx); progrez_destroy(pctx); }
 			if (rc != 0) {

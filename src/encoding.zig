@@ -16,6 +16,14 @@ pub const DecodeResult = struct {
 	size_b: usize,
 };
 
+pub const CompressionMode = enum(u8) {
+	best = 0,
+	lzma2 = 1,
+	bzip2 = 2,
+	lz4 = 3,
+	none = 255,
+};
+
 pub const EncodeError = error{
 	OutOfMemory,
 	BufferTooSmall,
@@ -113,6 +121,112 @@ fn blipDecodeValue(buf: []const u8) EncodeError!blip.DecodeResult {
 }
 
 // ---------------------------------------------------------------------------
+// Compression helpers
+// ---------------------------------------------------------------------------
+
+/// The BLIP CompressionId type, extracted from the compressContainer function signature.
+const BlipCompressionId = @typeInfo(@TypeOf(blip.compression_mod.compressContainer)).@"fn".params[1].type.?;
+
+/// Map CompressionMode to blip CompressionId for single-algorithm modes.
+fn modeToCompressionId(mode: CompressionMode) ?BlipCompressionId {
+	return switch (mode) {
+		.lzma2 => .lzma2,
+		.bzip2 => .bzip2,
+		.lz4 => .lz4,
+		.best, .none => null,
+	};
+}
+
+const SAMPLE_CHUNK: usize = 64 * 1024; // 64KB per chunk
+const SAMPLE_THRESHOLD: usize = SAMPLE_CHUNK * 3; // 192KB — below this, try all on full data
+
+/// Build a distributed sample from data: 3x64KB chunks from beginning, middle, end.
+/// Returns a newly allocated buffer that caller must free.
+fn buildSample(allocator: std.mem.Allocator, data: []const u8) EncodeError![]u8 {
+	const mid_start = (data.len / 2) -| (SAMPLE_CHUNK / 2);
+	const end_start = data.len -| SAMPLE_CHUNK;
+
+	const chunk1 = data[0..@min(SAMPLE_CHUNK, data.len)];
+	const chunk2 = data[mid_start..@min(mid_start + SAMPLE_CHUNK, data.len)];
+	const chunk3 = data[end_start..@min(end_start + SAMPLE_CHUNK, data.len)];
+
+	const sample = try allocator.alloc(u8, chunk1.len + chunk2.len + chunk3.len);
+	var pos: usize = 0;
+	@memcpy(sample[pos..][0..chunk1.len], chunk1);
+	pos += chunk1.len;
+	@memcpy(sample[pos..][0..chunk2.len], chunk2);
+	pos += chunk2.len;
+	@memcpy(sample[pos..][0..chunk3.len], chunk3);
+	return sample;
+}
+
+/// Try all 3 algorithms on the given sample data and return the one that compresses smallest.
+fn pickBestAlgo(allocator: std.mem.Allocator, data: []const u8) EncodeError!CompressionMode {
+	// Get sample data — full data if small, distributed chunks if large
+	var sample_owned: ?[]u8 = null;
+	defer if (sample_owned) |s| allocator.free(s);
+
+	const sample: []const u8 = if (data.len < SAMPLE_THRESHOLD) data else blk: {
+		sample_owned = try buildSample(allocator, data);
+		break :blk sample_owned.?;
+	};
+
+	const algos = [_]CompressionMode{ .lzma2, .bzip2 };
+	var best_size: usize = std.math.maxInt(usize);
+	var best_mode: CompressionMode = .lzma2; // default tiebreaker
+
+	for (algos) |mode| {
+		const comp_id = modeToCompressionId(mode).?;
+		const compressed = blip.compression_mod.compressContainer(allocator, comp_id, sample, null, null, null) catch continue;
+		defer allocator.free(compressed);
+		if (compressed.len < best_size) {
+			best_size = compressed.len;
+			best_mode = mode;
+		}
+	}
+
+	return best_mode;
+}
+
+/// Compress the serialized ARRAY according to the given mode.
+/// Returns the final output (compressed or uncompressed). Frees top_array if compressed version is used.
+fn compressOutput(allocator: std.mem.Allocator, top_array: []u8, mode: CompressionMode) EncodeError![]u8 {
+	switch (mode) {
+		.none => return top_array,
+		.lzma2, .bzip2, .lz4 => {
+			const comp_id = modeToCompressionId(mode).?;
+			const compressed = blip.compression_mod.compressContainer(allocator, comp_id, top_array, null, null, null) catch |e| switch (e) {
+				error.OutOfMemory => return error.OutOfMemory,
+				else => return top_array, // compression failed, return uncompressed
+			};
+			if (compressed.len < top_array.len) {
+				allocator.free(top_array);
+				return compressed;
+			} else {
+				allocator.free(compressed);
+				return top_array;
+			}
+		},
+		.best => {
+			const chosen = try pickBestAlgo(allocator, top_array);
+			if (chosen == .none) return top_array;
+			const comp_id = modeToCompressionId(chosen).?;
+			const compressed = blip.compression_mod.compressContainer(allocator, comp_id, top_array, null, null, null) catch |e| switch (e) {
+				error.OutOfMemory => return error.OutOfMemory,
+				else => return top_array,
+			};
+			if (compressed.len < top_array.len) {
+				allocator.free(top_array);
+				return compressed;
+			} else {
+				allocator.free(compressed);
+				return top_array;
+			}
+		},
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Encode
 // ---------------------------------------------------------------------------
 
@@ -124,7 +238,7 @@ fn blipDecodeValue(buf: []const u8) EncodeError!blip.DecodeResult {
 ///   +-- [1] DATA: metadata (seed[32] + BLIP(chunk_size) + BLIP(size_a) + BLIP(size_b))
 ///   +-- [2] ARRAY: instructions
 ///       +-- [i] DATA: opcode + BLIP fields [+ data]
-pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult) EncodeError![]u8 {
+pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult, compression: CompressionMode) EncodeError![]u8 {
 	// 1. Build magic element
 	const magic_data = try serializeDataContainer(allocator, MAGIC);
 	defer allocator.free(magic_data);
@@ -191,20 +305,8 @@ pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult) EncodeE
 	const top_elements = [_][]const u8{ magic_data, metadata_data, instr_array };
 	const top_array = try blip.array_mod.serializeArray(allocator, &top_elements);
 
-	// 6. Try LZMA2 compression — keep whichever is smaller.
-	// Random binary insert data is incompressible; structured data benefits.
-	const compressed = blip.compression_mod.compressContainer(allocator, .lzma2, top_array, null, null, null) catch |e| switch (e) {
-		error.OutOfMemory => return error.OutOfMemory,
-		else => return top_array, // compression failed, return uncompressed
-	};
-
-	if (compressed.len < top_array.len) {
-		allocator.free(top_array);
-		return compressed;
-	} else {
-		allocator.free(compressed);
-		return top_array;
-	}
+	// 6. Compress according to the requested mode.
+	return compressOutput(allocator, top_array, compression);
 }
 
 // ---------------------------------------------------------------------------
@@ -361,7 +463,7 @@ test "encode then decode produces identical ops" {
 		.size_a = 305,
 		.size_b = 305,
 	};
-	const encoded = try encode(testing.allocator, result);
+	const encoded = try encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 
 	const decoded = try decode(testing.allocator, encoded);
@@ -395,7 +497,7 @@ test "encoded diff is a valid LP container" {
 		.size_a = 10,
 		.size_b = 10,
 	};
-	const encoded = try encode(testing.allocator, result);
+	const encoded = try encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 
 	// Must round-trip successfully (validates container integrity)
@@ -418,7 +520,7 @@ test "empty ops round-trip" {
 		.size_a = 0,
 		.size_b = 0,
 	};
-	const encoded = try encode(testing.allocator, result);
+	const encoded = try encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 	const decoded = try decode(testing.allocator, encoded);
 	defer freeDecoded(testing.allocator, decoded);
@@ -437,7 +539,7 @@ test "large insert data round-trips correctly" {
 		.size_a = 0,
 		.size_b = 500,
 	};
-	const encoded = try encode(testing.allocator, result);
+	const encoded = try encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 	const decoded = try decode(testing.allocator, encoded);
 	defer freeDecoded(testing.allocator, decoded);
@@ -461,7 +563,7 @@ test "multiple interleaved copy and insert ops round-trip" {
 		.size_a = 175,
 		.size_b = 180,
 	};
-	const encoded = try encode(testing.allocator, result);
+	const encoded = try encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 	const decoded = try decode(testing.allocator, encoded);
 	defer freeDecoded(testing.allocator, decoded);
@@ -498,7 +600,7 @@ test "seed and metadata preserved across encode/decode" {
 		.size_a = 1_000_000,
 		.size_b = 1_000_001,
 	};
-	const encoded = try encode(testing.allocator, result);
+	const encoded = try encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 	const decoded = try decode(testing.allocator, encoded);
 	defer freeDecoded(testing.allocator, decoded);
@@ -521,7 +623,7 @@ test "LZMA2 compressed encoding is smaller than uncompressed for repetitive data
 		.size_a = 100,
 		.size_b = 2100,
 	};
-	const encoded = try encode(testing.allocator, result);
+	const encoded = try encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 
 	// Compressed container should be detected as compressed
@@ -551,7 +653,7 @@ test "LZMA2 decode handles both compressed and uncompressed input" {
 		.size_a = 10,
 		.size_b = 10,
 	};
-	const encoded = try encode(testing.allocator, result);
+	const encoded = try encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 
 	const decoded = try decode(testing.allocator, encoded);
@@ -559,4 +661,124 @@ test "LZMA2 decode handles both compressed and uncompressed input" {
 	try testing.expectEqual(@as(usize, 1), decoded.ops.len);
 	try testing.expectEqual(DiffOp.Tag.copy, decoded.ops[0].tag);
 	try testing.expectEqual(@as(usize, 10), decoded.ops[0].length);
+}
+
+test "bzip2 compression round-trips correctly" {
+	const insert_data = "ABCDEFGHIJ" ** 200;
+	var ops_buf = [_]DiffOp{
+		.{ .tag = .copy, .offset = 0, .length = 100, .data = null },
+		.{ .tag = .insert, .offset = 0, .length = 2000, .data = insert_data },
+	};
+	const result = diff_mod.DiffResult{
+		.ops = &ops_buf,
+		.options = .{ .seed = [_]u8{0} ** 32, .target_chunk_size = 1024 },
+		.size_a = 100,
+		.size_b = 2100,
+	};
+	const encoded = try encode(testing.allocator, result, .bzip2);
+	defer testing.allocator.free(encoded);
+
+	try testing.expect(blip.compression_mod.isCompressed(encoded));
+	try testing.expect(encoded.len < 2000);
+
+	const decoded = try decode(testing.allocator, encoded);
+	defer freeDecoded(testing.allocator, decoded);
+	try testing.expectEqual(@as(usize, 2), decoded.ops.len);
+	try testing.expectEqualStrings(insert_data, decoded.ops[1].data.?);
+}
+
+test "lz4 compression round-trips correctly" {
+	const insert_data = "ABCDEFGHIJ" ** 200;
+	var ops_buf = [_]DiffOp{
+		.{ .tag = .copy, .offset = 0, .length = 100, .data = null },
+		.{ .tag = .insert, .offset = 0, .length = 2000, .data = insert_data },
+	};
+	const result = diff_mod.DiffResult{
+		.ops = &ops_buf,
+		.options = .{ .seed = [_]u8{0} ** 32, .target_chunk_size = 1024 },
+		.size_a = 100,
+		.size_b = 2100,
+	};
+	const encoded = try encode(testing.allocator, result, .lz4);
+	defer testing.allocator.free(encoded);
+
+	try testing.expect(blip.compression_mod.isCompressed(encoded));
+	try testing.expect(encoded.len < 2000);
+
+	const decoded = try decode(testing.allocator, encoded);
+	defer freeDecoded(testing.allocator, decoded);
+	try testing.expectEqual(@as(usize, 2), decoded.ops.len);
+	try testing.expectEqualStrings(insert_data, decoded.ops[1].data.?);
+}
+
+test "none compression produces uncompressed output" {
+	const insert_data = "ABCDEFGHIJ" ** 200;
+	var ops_buf = [_]DiffOp{
+		.{ .tag = .copy, .offset = 0, .length = 100, .data = null },
+		.{ .tag = .insert, .offset = 0, .length = 2000, .data = insert_data },
+	};
+	const result = diff_mod.DiffResult{
+		.ops = &ops_buf,
+		.options = .{ .seed = [_]u8{0} ** 32, .target_chunk_size = 1024 },
+		.size_a = 100,
+		.size_b = 2100,
+	};
+	const encoded = try encode(testing.allocator, result, .none);
+	defer testing.allocator.free(encoded);
+
+	// Should NOT be compressed
+	try testing.expect(!blip.compression_mod.isCompressed(encoded));
+
+	// Must still decode correctly
+	const decoded = try decode(testing.allocator, encoded);
+	defer freeDecoded(testing.allocator, decoded);
+	try testing.expectEqual(@as(usize, 2), decoded.ops.len);
+	try testing.expectEqualStrings(insert_data, decoded.ops[1].data.?);
+}
+
+test "best compression round-trips correctly" {
+	const insert_data = "ABCDEFGHIJ" ** 200;
+	var ops_buf = [_]DiffOp{
+		.{ .tag = .copy, .offset = 0, .length = 100, .data = null },
+		.{ .tag = .insert, .offset = 0, .length = 2000, .data = insert_data },
+	};
+	const result = diff_mod.DiffResult{
+		.ops = &ops_buf,
+		.options = .{ .seed = [_]u8{0} ** 32, .target_chunk_size = 1024 },
+		.size_a = 100,
+		.size_b = 2100,
+	};
+	const encoded = try encode(testing.allocator, result, .best);
+	defer testing.allocator.free(encoded);
+
+	// best should pick a compression algorithm for compressible data
+	try testing.expect(blip.compression_mod.isCompressed(encoded));
+	try testing.expect(encoded.len < 2000);
+
+	const decoded = try decode(testing.allocator, encoded);
+	defer freeDecoded(testing.allocator, decoded);
+	try testing.expectEqual(@as(usize, 2), decoded.ops.len);
+	try testing.expectEqualStrings(insert_data, decoded.ops[1].data.?);
+}
+
+test "pickBestAlgo returns a valid algorithm for small input" {
+	// Small compressible data — should try all algorithms exhaustively
+	const data = "ABCDEFGHIJ" ** 200; // 2000 bytes, well below 192KB threshold
+	const result = try pickBestAlgo(testing.allocator, data);
+	// Must be one of the three real algorithms
+	try testing.expect(result == .lzma2 or result == .bzip2 or result == .lz4);
+}
+
+test "pickBestAlgo returns a valid algorithm for large input" {
+	// Large repetitive data — should use distributed sampling
+	const alloc = testing.allocator;
+	const size = SAMPLE_THRESHOLD + 1024; // just above 192KB
+	const data = try alloc.alloc(u8, size);
+	defer alloc.free(data);
+	// Fill with repetitive pattern
+	for (data, 0..) |*b, i| {
+		b.* = @intCast(i % 256);
+	}
+	const result = try pickBestAlgo(alloc, data);
+	try testing.expect(result == .lzma2 or result == .bzip2 or result == .lz4);
 }

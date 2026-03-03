@@ -117,7 +117,7 @@ test "full round-trip: diff then patch" {
 	const options = diff_mod.DiffOptions{ .seed = [_]u8{0} ** 32, .target_chunk_size = 64 };
 	const result = try diff_mod.computeDiff(testing.allocator, a, b, options);
 	defer diff_mod.freeDiffResult(testing.allocator, result);
-	const encoded = try encoding.encode(testing.allocator, result);
+	const encoded = try encoding.encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 	const reconstructed = try patch(testing.allocator, a, encoded);
 	defer testing.allocator.free(reconstructed);
@@ -135,7 +135,7 @@ test "patch with wrong source file size returns error" {
 	const options = diff_mod.DiffOptions{ .seed = [_]u8{0} ** 32, .target_chunk_size = 64 };
 	const result = try diff_mod.computeDiff(testing.allocator, a, b, options);
 	defer diff_mod.freeDiffResult(testing.allocator, result);
-	const encoded = try encoding.encode(testing.allocator, result);
+	const encoded = try encoding.encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 	// Pass wrong file (different length) as A
 	const wrong_a = "hi";
@@ -147,7 +147,7 @@ test "patch empty files" {
 	const options = diff_mod.DiffOptions{ .seed = [_]u8{0} ** 32, .target_chunk_size = 64 };
 	const result = try diff_mod.computeDiff(testing.allocator, "", "", options);
 	defer diff_mod.freeDiffResult(testing.allocator, result);
-	const encoded = try encoding.encode(testing.allocator, result);
+	const encoded = try encoding.encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 	const reconstructed = try patch(testing.allocator, "", encoded);
 	defer testing.allocator.free(reconstructed);
@@ -160,7 +160,7 @@ test "patchInfo returns correct metadata" {
 	const options = diff_mod.DiffOptions{ .seed = [_]u8{42} ** 32, .target_chunk_size = 256 };
 	const result = try diff_mod.computeDiff(testing.allocator, a, b, options);
 	defer diff_mod.freeDiffResult(testing.allocator, result);
-	const encoded = try encoding.encode(testing.allocator, result);
+	const encoded = try encoding.encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 	const info = try patchInfo(testing.allocator, encoded);
 	try testing.expectEqual(@as(usize, 11), info.size_a);
@@ -183,7 +183,7 @@ test "round-trip with large random data" {
 	const options = diff_mod.DiffOptions{ .seed = [_]u8{7} ** 32, .target_chunk_size = 512 };
 	const result = try diff_mod.computeDiff(testing.allocator, &a, &b, options);
 	defer diff_mod.freeDiffResult(testing.allocator, result);
-	const encoded = try encoding.encode(testing.allocator, result);
+	const encoded = try encoding.encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 	const reconstructed = try patch(testing.allocator, &a, encoded);
 	defer testing.allocator.free(reconstructed);

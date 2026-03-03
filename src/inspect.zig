@@ -104,7 +104,7 @@ test "inspect: basic round-trip formatting" {
         .size_a = 305,
         .size_b = 305,
     };
-    const encoded_diff = try encoding.encode(alloc, diff_result);
+    const encoded_diff = try encoding.encode(alloc, diff_result, .lzma2);
     defer alloc.free(encoded_diff);
 
     const output = try inspect(alloc, encoded_diff, 64, false);
@@ -137,7 +137,7 @@ test "inspect: truncation" {
         .size_a = 0,
         .size_b = 200,
     };
-    const encoded_diff = try encoding.encode(alloc, diff_result);
+    const encoded_diff = try encoding.encode(alloc, diff_result, .lzma2);
     defer alloc.free(encoded_diff);
 
     // Truncate to 16 bytes
@@ -161,7 +161,7 @@ test "inspect: no truncation when data fits" {
         .size_a = 0,
         .size_b = 3,
     };
-    const encoded_diff = try encoding.encode(alloc, diff_result);
+    const encoded_diff = try encoding.encode(alloc, diff_result, .lzma2);
     defer alloc.free(encoded_diff);
 
     const output = try inspect(alloc, encoded_diff, 64, false);
@@ -183,7 +183,7 @@ test "inspect: hexlike mode" {
         .size_a = 0,
         .size_b = 3,
     };
-    const encoded_diff = try encoding.encode(alloc, diff_result);
+    const encoded_diff = try encoding.encode(alloc, diff_result, .lzma2);
     defer alloc.free(encoded_diff);
 
     const output = try inspect(alloc, encoded_diff, 64, true);
@@ -202,7 +202,7 @@ test "inspect: empty ops" {
         .size_a = 0,
         .size_b = 0,
     };
-    const encoded_diff = try encoding.encode(alloc, diff_result);
+    const encoded_diff = try encoding.encode(alloc, diff_result, .lzma2);
     defer alloc.free(encoded_diff);
 
     const output = try inspect(alloc, encoded_diff, 64, false);
