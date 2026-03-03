@@ -19,8 +19,12 @@ pub const PatchError = error{
 	KeysNotSorted,
 	HashMismatch,
 	IndexOutOfBounds,
+	InvalidSigilOrder,
+	MissingDecompLen,
+	MissingSigil,
 	CompressionFailed,
 	DecompressionFailed,
+	UnsupportedCompression,
 };
 
 pub const PatchInfo = struct {

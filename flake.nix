@@ -27,10 +27,10 @@
 			let
 				pkgs = import nixpkgs { inherit system; };
 				# Zig package hashes — must match build.zig.zon dep chains
-				blipHash = "blip-0.1.0-rcNuGD64CQDEBryxAj93lMCAMkFO0IpknB0MwWnjrGas";
+				blipHash = "blip-0.1.0-rcNuGDPUCwDSRBBRestQfjkD4DFXTGMr7qAOmZsnuKsl";
 				z7zHash = "z7z-0.1.0-rkKuF0UdBQDsZxiiNFWuuoHVeGLFO078oGD6yQQiSXoA";
 				pbHash = "printable_binary-1.0.0-SdPiyoM4FwByo5ia901HzoUGSGjeolkmQuxJ5UYZzdW1";
-				progrezHash = "progrez-0.1.0-0YJXrtTzAQDTvLEr7d-uo8mnLq--eqD8wD3efrcX8gvi";
+				progrezHash = "progrez-0.1.0-0YJXrt4AAgAa3oScbj1pXFwos1rhFzR50M6sQSJBmZHg";
 			in
 			let
 				zigBuild = { optimize ? "ReleaseFast", doCheck ? false }: pkgs.stdenv.mkDerivation {

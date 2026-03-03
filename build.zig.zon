@@ -6,7 +6,7 @@
 	.dependencies = .{
 		.blip = .{
 			.url = "https://github.com/pmarreck/BLIP/archive/refs/heads/yolo.tar.gz",
-			.hash = "blip-0.1.0-rcNuGD64CQDEBryxAj93lMCAMkFO0IpknB0MwWnjrGas",
+			.hash = "blip-0.1.0-rcNuGDPUCwDSRBBRestQfjkD4DFXTGMr7qAOmZsnuKsl",
 		},
 		.printable_binary = .{
 			.url = "https://github.com/pmarreck/printable-binary/archive/refs/heads/yolo.tar.gz",
@@ -14,7 +14,7 @@
 		},
 		.progrez = .{
 			.url = "https://github.com/pmarreck/progrez/archive/refs/heads/yolo.tar.gz",
-			.hash = "progrez-0.1.0-0YJXrtTzAQDTvLEr7d-uo8mnLq--eqD8wD3efrcX8gvi",
+			.hash = "progrez-0.1.0-0YJXrt4AAgAa3oScbj1pXFwos1rhFzR50M6sQSJBmZHg",
 		},
 	},
 	.paths = .{

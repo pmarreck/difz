@@ -30,24 +30,36 @@ pub const EncodeError = error{
 	HashMismatch,
 	IndexOutOfBounds,
 	InvalidMagic,
+	InvalidSigilOrder,
+	MissingDecompLen,
+	MissingSigil,
 	CompressionFailed,
 	DecompressionFailed,
+	UnsupportedCompression,
 };
 
 // ---------------------------------------------------------------------------
-// Helper: build a RAW container manually
+// Helper: build a DATA container in v2 LP format
 // ---------------------------------------------------------------------------
 
-/// Build a RAW container (type 0x81 0x04) from payload bytes.
-/// Layout: [0x81, 0x04] + BLIP(total_length) + payload
-/// where total_length = 2 + encodedSize(total_length) + payload.len
+/// Build a DATA container (type_id=4) in v2 LP format from payload bytes.
+///
+/// Layout: [BLIP(total)] [0x81 0x01] [0x04] [0x81 0x7F] [payload]
+///   - BLIP(total): self-referential total length
+///   - 0x81 0x01:   TYPE sentinel
+///   - 0x04:        type_id = DATA (BLIP immediate)
+///   - 0x81 0x7F:   VAL sentinel
+///   - payload:     raw bytes
+///
+/// Attribute overhead (fixed): 2 + 1 + 2 = 5 bytes
 /// Caller owns returned memory.
-fn serializeRaw(allocator: std.mem.Allocator, payload: []const u8) EncodeError![]u8 {
-	// Solve the fixpoint: total = 2 + blip.encodedSize(total) + payload.len
-	const base: u64 = 2 + payload.len;
+fn serializeDataContainer(allocator: std.mem.Allocator, payload: []const u8) EncodeError![]u8 {
+	const attr_overhead: u64 = 5; // TYPE sentinel(2) + BLIP(4)(1) + VAL sentinel(2)
+
+	// Solve fixpoint: total = blip.encodedSize(total) + attr_overhead + payload.len
 	var total: u64 = undefined;
 	for (1..10) |l_bytes| {
-		const candidate = base + l_bytes;
+		const candidate = l_bytes + attr_overhead + payload.len;
 		if (blip.encodedSize(candidate) == l_bytes) {
 			total = candidate;
 			break;
@@ -57,34 +69,27 @@ fn serializeRaw(allocator: std.mem.Allocator, payload: []const u8) EncodeError![
 	const buf = try allocator.alloc(u8, @intCast(total));
 	errdefer allocator.free(buf);
 
-	// Type sentinel: RAW = 0x81 0x04
-	buf[0] = 0x81;
-	buf[1] = 0x04;
-
 	// BLIP(total)
-	const len_bytes = blip.encode(total, buf[2..]) catch return error.BufferTooSmall;
+	var pos: usize = blip.encode(total, buf) catch return error.BufferTooSmall;
+
+	// TYPE sentinel: 0x81 0x01
+	buf[pos] = 0x81;
+	buf[pos + 1] = 0x01;
+	pos += 2;
+
+	// type_id = DATA = 4 (BLIP immediate)
+	buf[pos] = 0x04;
+	pos += 1;
+
+	// VAL sentinel: 0x81 0x7F
+	buf[pos] = 0x81;
+	buf[pos + 1] = 0x7F;
+	pos += 2;
 
 	// Payload
-	@memcpy(buf[2 + len_bytes ..], payload);
+	@memcpy(buf[pos..], payload);
 
 	return buf;
-}
-
-/// Parse a RAW container and return the payload slice (zero-copy into buf).
-/// Returns error if not a RAW container or truncated.
-fn parseRaw(buf: []const u8) EncodeError![]const u8 {
-	if (buf.len < 3) return error.UnexpectedEndOfInput;
-	if (buf[0] != 0x81 or buf[1] != 0x04) return error.InvalidContainerType;
-	const len_result = blip.decode(buf[2..]) catch |e| switch (e) {
-		error.UnexpectedEndOfInput => return error.UnexpectedEndOfInput,
-		error.Overflow => return error.Overflow,
-		error.BufferTooSmall => return error.BufferTooSmall,
-	};
-	const total: usize = @intCast(len_result.value);
-	const value_offset = 2 + len_result.bytes_read;
-	if (total > buf.len) return error.LengthExceedsBounds;
-	if (total < value_offset) return error.InvalidLength;
-	return buf[value_offset..total];
 }
 
 // ---------------------------------------------------------------------------
@@ -115,14 +120,14 @@ fn blipDecodeValue(buf: []const u8) EncodeError!blip.DecodeResult {
 ///
 /// Format:
 ///   ARRAY (top-level)
-///   +-- [0] RAW: magic "ZDIF\x01"
-///   +-- [1] RAW: metadata (seed[32] + BLIP(chunk_size) + BLIP(size_a) + BLIP(size_b))
+///   +-- [0] DATA: magic "ZDIF\x01"
+///   +-- [1] DATA: metadata (seed[32] + BLIP(chunk_size) + BLIP(size_a) + BLIP(size_b))
 ///   +-- [2] ARRAY: instructions
-///       +-- [i] RAW: opcode + BLIP fields [+ data]
+///       +-- [i] DATA: opcode + BLIP fields [+ data]
 pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult) EncodeError![]u8 {
 	// 1. Build magic element
-	const magic_raw = try serializeRaw(allocator, MAGIC);
-	defer allocator.free(magic_raw);
+	const magic_data = try serializeDataContainer(allocator, MAGIC);
+	defer allocator.free(magic_data);
 
 	// 2. Build metadata element: seed[32] + BLIP(chunk_size) + BLIP(size_a) + BLIP(size_b)
 	var meta_buf: [32 + 9 + 9 + 9]u8 = undefined; // 32 bytes seed + max 9 bytes each for 3 BLIP values
@@ -131,10 +136,10 @@ pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult) EncodeE
 	meta_pos += try blipEncodeValue(@intCast(result.options.target_chunk_size), meta_buf[meta_pos..]);
 	meta_pos += try blipEncodeValue(@intCast(result.size_a), meta_buf[meta_pos..]);
 	meta_pos += try blipEncodeValue(@intCast(result.size_b), meta_buf[meta_pos..]);
-	const metadata_raw = try serializeRaw(allocator, meta_buf[0..meta_pos]);
-	defer allocator.free(metadata_raw);
+	const metadata_data = try serializeDataContainer(allocator, meta_buf[0..meta_pos]);
+	defer allocator.free(metadata_data);
 
-	// 3. Build instruction RAW elements
+	// 3. Build instruction DATA elements
 	var instr_elements_list: std.ArrayList([]u8) = .{};
 	defer {
 		for (instr_elements_list.items) |item| allocator.free(item);
@@ -150,8 +155,8 @@ pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult) EncodeE
 				var ipos: usize = 1;
 				ipos += try blipEncodeValue(@intCast(op.offset), instr_buf[ipos..]);
 				ipos += try blipEncodeValue(@intCast(op.length), instr_buf[ipos..]);
-				const raw_elem = try serializeRaw(allocator, instr_buf[0..ipos]);
-				try instr_elements_list.append(allocator, raw_elem);
+				const data_elem = try serializeDataContainer(allocator, instr_buf[0..ipos]);
+				try instr_elements_list.append(allocator, data_elem);
 			},
 			.insert => {
 				// Insert: 0x01 + BLIP(length) + raw data bytes
@@ -165,8 +170,8 @@ pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult) EncodeE
 				ipos += try blipEncodeValue(@intCast(op.length), payload_buf[ipos..]);
 				@memcpy(payload_buf[ipos..][0..data_bytes.len], data_bytes);
 				ipos += data_bytes.len;
-				const raw_elem = try serializeRaw(allocator, payload_buf[0..ipos]);
-				try instr_elements_list.append(allocator, raw_elem);
+				const data_elem = try serializeDataContainer(allocator, payload_buf[0..ipos]);
+				try instr_elements_list.append(allocator, data_elem);
 			},
 		}
 	}
@@ -183,12 +188,12 @@ pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult) EncodeE
 	defer allocator.free(instr_array);
 
 	// 5. Build top-level ARRAY from [magic, metadata, instructions]
-	const top_elements = [_][]const u8{ magic_raw, metadata_raw, instr_array };
+	const top_elements = [_][]const u8{ magic_data, metadata_data, instr_array };
 	const top_array = try blip.array_mod.serializeArray(allocator, &top_elements);
 
 	// 6. Try LZMA2 compression — keep whichever is smaller.
 	// Random binary insert data is incompressible; structured data benefits.
-	const compressed = blip.lzma2_mod.compressContainer(allocator, top_array) catch |e| switch (e) {
+	const compressed = blip.compression_mod.compressContainer(allocator, .lzma2, top_array, null, null, null) catch |e| switch (e) {
 		error.OutOfMemory => return error.OutOfMemory,
 		else => return top_array, // compression failed, return uncompressed
 	};
@@ -207,14 +212,14 @@ pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult) EncodeE
 // ---------------------------------------------------------------------------
 
 /// Deserialize BLIP bytes back into a DecodeResult.
-/// Accepts both LZMA2-compressed and uncompressed (legacy) ARRAY containers.
+/// Accepts both compressed and uncompressed ARRAY containers.
 pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!DecodeResult {
-	// Check for LZMA2 container (sentinel 0x81 0x09) and decompress if present
+	// Check for compressed LP container and decompress if present
 	var decompressed: ?[]u8 = null;
 	defer if (decompressed) |d| allocator.free(d);
 
-	const inner_data: []const u8 = if (data.len >= 2 and data[0] == 0x81 and data[1] == 0x09) blk: {
-		decompressed = blip.lzma2_mod.decompressContainer(allocator, data) catch |e| switch (e) {
+	const inner_data: []const u8 = if (blip.compression_mod.isCompressed(data)) blk: {
+		decompressed = blip.compression_mod.decompressContainer(allocator, data) catch |e| switch (e) {
 			error.OutOfMemory => return error.OutOfMemory,
 			else => return error.InvalidMagic,
 		};
@@ -222,32 +227,18 @@ pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!Decode
 	} else data;
 
 	// Parse outer ARRAY
-	const outer = blip.array_mod.ArrayReader.init(inner_data) catch |e| switch (e) {
-		error.InvalidContainerType => return error.InvalidMagic,
-		error.UnexpectedEndOfInput => return error.InvalidMagic,
-		error.InvalidLength => return error.InvalidMagic,
-		error.LengthExceedsBounds => return error.InvalidMagic,
-		error.Overflow => return error.InvalidMagic,
-		error.BufferTooSmall => return error.InvalidMagic,
-		error.MissingRequiredKey => return error.InvalidMagic,
-		error.DuplicateKey => return error.InvalidMagic,
-		error.KeysNotSorted => return error.InvalidMagic,
-		error.HashMismatch => return error.InvalidMagic,
-		error.IndexOutOfBounds => return error.InvalidMagic,
-		error.InvalidMagic => return error.InvalidMagic,
-	};
+	const outer = blip.array_mod.ArrayReader.init(inner_data) catch return error.InvalidMagic;
 
 	if (outer.elementCount() < 3) return error.InvalidMagic;
 
-	// Element 0: magic
+	// Element 0: magic (DATA container)
 	const magic_view = outer.elementAt(0) catch return error.InvalidMagic;
-	// magic_view is a ContainerView. Extract RAW payload.
-	const magic_payload = parseRaw(magic_view.buf[0..@intCast(magic_view.total_length)]) catch return error.InvalidMagic;
+	const magic_payload = magic_view.payloadSlice();
 	if (!std.mem.eql(u8, magic_payload, MAGIC)) return error.InvalidMagic;
 
-	// Element 1: metadata
+	// Element 1: metadata (DATA container)
 	const meta_view = outer.elementAt(1) catch return error.InvalidLength;
-	const meta_payload = try parseRaw(meta_view.buf[0..@intCast(meta_view.total_length)]);
+	const meta_payload = meta_view.payloadSlice();
 	if (meta_payload.len < 32) return error.InvalidLength;
 
 	var seed: [32]u8 = undefined;
@@ -265,7 +256,7 @@ pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!Decode
 	const size_b_result = try blipDecodeValue(meta_payload[mpos..]);
 	const size_b: usize = @intCast(size_b_result.value);
 
-	// Element 2: instructions array
+	// Element 2: instructions array (ARRAY container)
 	const instr_view = outer.elementAt(2) catch return error.InvalidLength;
 	const instr_buf = instr_view.buf[0..@intCast(instr_view.total_length)];
 	const instr_reader = blip.array_mod.ArrayReader.init(instr_buf) catch return error.InvalidLength;
@@ -287,7 +278,7 @@ pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!Decode
 
 	for (0..op_count) |i| {
 		const elem_view = instr_reader.elementAt(@intCast(i)) catch return error.InvalidLength;
-		const elem_payload = try parseRaw(elem_view.buf[0..@intCast(elem_view.total_length)]);
+		const elem_payload = elem_view.payloadSlice();
 
 		if (elem_payload.len < 1) return error.InvalidLength;
 		const opcode = elem_payload[0];
@@ -394,7 +385,7 @@ test "encode then decode produces identical ops" {
 	}
 }
 
-test "encoded diff starts with valid BLIP container" {
+test "encoded diff is a valid LP container" {
 	var ops_buf = [_]DiffOp{
 		.{ .tag = .copy, .offset = 0, .length = 10, .data = null },
 	};
@@ -407,10 +398,10 @@ test "encoded diff starts with valid BLIP container" {
 	const encoded = try encode(testing.allocator, result);
 	defer testing.allocator.free(encoded);
 
-	// First byte should be 0x81 (BLIP container), second byte is either
-	// 0x01 (ARRAY, uncompressed) or 0x09 (LZMA2, compressed) — whichever is smaller
-	try testing.expectEqual(@as(u8, 0x81), encoded[0]);
-	try testing.expect(encoded[1] == 0x01 or encoded[1] == 0x09);
+	// Must round-trip successfully (validates container integrity)
+	const decoded = try decode(testing.allocator, encoded);
+	defer freeDecoded(testing.allocator, decoded);
+	try testing.expectEqual(@as(usize, 1), decoded.ops.len);
 }
 
 test "decode rejects invalid magic" {
@@ -533,9 +524,8 @@ test "LZMA2 compressed encoding is smaller than uncompressed for repetitive data
 	const encoded = try encode(testing.allocator, result);
 	defer testing.allocator.free(encoded);
 
-	// Encoded output should start with LZMA2 sentinel (0x81 0x09)
-	try testing.expectEqual(@as(u8, 0x81), encoded[0]);
-	try testing.expectEqual(@as(u8, 0x09), encoded[1]);
+	// Compressed container should be detected as compressed
+	try testing.expect(blip.compression_mod.isCompressed(encoded));
 
 	// Compressed should be smaller than the uncompressed insert data
 	try testing.expect(encoded.len < 2000);
