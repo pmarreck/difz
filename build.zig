@@ -40,8 +40,8 @@ pub fn build(b: *std.Build) void {
 		}),
 	});
 
-	// Create the zdiff module
-	const zdiff_module = b.createModule(.{
+	// Create the difz module
+	const difz_module = b.createModule(.{
 		.root_source_file = b.path("src/lib.zig"),
 		.target = target,
 		.optimize = optimize,
@@ -64,22 +64,22 @@ pub fn build(b: *std.Build) void {
 
 	const lib = b.addLibrary(.{
 		.linkage = .static,
-		.name = "zdiff",
+		.name = "difz",
 		.root_module = lib_module,
 	});
 	b.installArtifact(lib);
 
 	// Install C header
-	lib.installHeader(b.path("src/zdiff.h"), "zdiff.h");
+	lib.installHeader(b.path("src/difz.h"), "difz.h");
 
 	// C CLI executable — dogfoods the FFI
 	const c_flags: []const []const u8 = if (optimize == .Debug)
-		&.{ "-std=c11", "-Wall", "-Wextra", "-Wpedantic", "-DZDIFF_DEBUG" }
+		&.{ "-std=c11", "-Wall", "-Wextra", "-Wpedantic", "-DDIFZ_DEBUG" }
 	else
 		&.{ "-std=c11", "-Wall", "-Wextra", "-Wpedantic", "-DNDEBUG" };
 
 	const exe = b.addExecutable(.{
-		.name = "zdiff",
+		.name = "difz",
 		.root_module = b.createModule(.{
 			.root_source_file = null,
 			.target = target,
@@ -88,7 +88,7 @@ pub fn build(b: *std.Build) void {
 		}),
 	});
 	exe.addCSourceFile(.{
-		.file = b.path("src/zdiff.c"),
+		.file = b.path("src/difz.c"),
 		.flags = c_flags,
 	});
 	exe.linkLibrary(lib);
@@ -99,7 +99,7 @@ pub fn build(b: *std.Build) void {
 
 	// Tests
 	const unit_tests = b.addTest(.{
-		.root_module = zdiff_module,
+		.root_module = difz_module,
 	});
 
 	const run_unit_tests = b.addRunArtifact(unit_tests);

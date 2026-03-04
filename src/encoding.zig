@@ -508,7 +508,7 @@ test "encoded diff is a valid LP container" {
 
 test "decode rejects invalid magic" {
 	// Just some random bytes, not a valid ZDIF container
-	const bad = "not a valid zdiff blob";
+	const bad = "not a valid difz blob";
 	const result = decode(testing.allocator, bad);
 	try testing.expectError(error.InvalidMagic, result);
 }

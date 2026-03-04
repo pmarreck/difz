@@ -1,5 +1,5 @@
 {
-	description = "zdiff - a binary differ written in Zig";
+	description = "difz - a binary differ written in Zig";
 
 	inputs = {
 		nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -51,7 +51,7 @@
 			in
 			let
 				zigBuild = { optimize ? "ReleaseFast", doCheck ? false }: pkgs.stdenv.mkDerivation {
-					pname = "zdiff";
+					pname = "difz";
 					version = "0.1.0";
 					src = ./.;
 

@@ -1,6 +1,6 @@
 .{
-	.fingerprint = 0x117497c4acd2bfb7,
-	.name = .zdiff,
+	.fingerprint = 0x51711be4db89c40d,
+	.name = .difz,
 	.version = "0.1.0",
 	.minimum_zig_version = "0.15.0",
 	.dependencies = .{

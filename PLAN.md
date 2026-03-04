@@ -1,4 +1,4 @@
-# ZDiff Implementation Plan
+# Difz Implementation Plan
 
 ## Completed Tasks
 
@@ -10,9 +10,9 @@
 - [x] Task 6: Two-Stage Diff Orchestrator — CDC coarse matching + Elder gap refinement (2026-02-25 ~11:45pm EST)
 - [x] Task 7: BLIP Encoding — serialize diff instructions as BLIP ARRAY container (2026-02-26 ~12:00am EST)
 - [x] Task 8: Patch — apply BLIP-encoded diff to reconstruct target (2026-02-26 ~12:15am EST)
-- [x] Task 9: C FFI Layer — zdiff_diff, zdiff_patch, zdiff_free exports + zdiff.h (2026-02-26 ~12:30am EST)
+- [x] Task 9: C FFI Layer — difz_diff, difz_patch, difz_free exports + difz.h (2026-02-26 ~12:30am EST)
 - [x] Task 10: C CLI — C program dogfooding the FFI, 46 CLI integration tests (2026-02-26 ~12:45am EST)
-- [x] Task 11: Benchmark Suite — hyperfine stats, zdiff vs bsdiff vs xdelta3 (2026-02-26 ~1:00am EST)
+- [x] Task 11: Benchmark Suite — hyperfine stats, difz vs bsdiff vs xdelta3 (2026-02-26 ~1:00am EST)
 - [x] Task 12: Documentation — CODE_MINIMAP.md, PLAN.md, PROJECT_SPEC.md updates (2026-02-26 ~1:15am EST)
 
 - [x] Task 13: Edit Distance Cap — cap Myers at sqrt(N+M)*2+16, bail to raw Insert on large dissimilar gaps (~170x speedup on 100KB/10% similar) (2026-02-26)
@@ -28,6 +28,6 @@
 
 ## Future Exploration
 
-- [ ] **Directory tree diffing** — orchestration layer above the C FFI that walks two directory trees, diffs each changed file via `zdiff_diff()`, and packages results into a single archive (manifest + per-file diff blobs). Rename detection via whole-file BLAKE3. Could live as `zdiff --recursive` or a separate `zdiff-tree` tool. The Zig core stays untouched; this is purely CLI/tooling.
+- [ ] **Directory tree diffing** — orchestration layer above the C FFI that walks two directory trees, diffs each changed file via `difz_diff()`, and packages results into a single archive (manifest + per-file diff blobs). Rename detection via whole-file BLAKE3. Could live as `difz --recursive` or a separate `difz-tree` tool. The Zig core stays untouched; this is purely CLI/tooling.
 - [ ] **Streaming/mmap patcher for large files** — current model materializes both inputs in memory; GB-scale game assets need a streaming or mmap-based patch path. Would require a new FFI shape (callback-based or seekable reader) — a clean core extension, not a rewrite.
-- [ ] **Game update patching (Steam-style use case)** — games repack large archive files (`.pak`, `.vpk`, Unity asset bundles) where content is ~95% identical but offsets shift everywhere. Fixed-chunk delta systems (like Steam's) re-download entire chunks for any change. zdiff's CDC natively handles shifted content, potentially producing patches 5-10x smaller. Requires the directory tree and streaming layers above. Compelling benchmark target: real game update before/after pairs.
+- [ ] **Game update patching (Steam-style use case)** — games repack large archive files (`.pak`, `.vpk`, Unity asset bundles) where content is ~95% identical but offsets shift everywhere. Fixed-chunk delta systems (like Steam's) re-download entire chunks for any change. difz's CDC natively handles shifted content, potentially producing patches 5-10x smaller. Requires the directory tree and streaming layers above. Compelling benchmark target: real game update before/after pairs.

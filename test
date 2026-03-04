@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Run all zdiff tests in Debug mode
+# Run all difz tests in Debug mode
 # Accumulates errors across all test suites; exit code = total failures.
 
 set -u

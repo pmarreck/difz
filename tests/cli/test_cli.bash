@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# CLI test suite for zdiff
-# Tests the C CLI that dogfoods the zdiff FFI.
+# CLI test suite for difz
+# Tests the C CLI that dogfoods the difz FFI.
 # Exit code = number of failed tests (0 = all pass).
 
 set -u  # catch undefined variables; NO set -e (we test error paths)
 
 ERRORS=0
 TESTS=0
-ZDIFF="${ZDIFF:-./zig-out/bin/zdiff}"
-TEST_DIR="${TMPDIR:-/tmp}/zdiff_cli_tests_$$"
+DIFZ="${DIFZ:-./zig-out/bin/difz}"
+TEST_DIR="${TMPDIR:-/tmp}/difz_cli_tests_$$"
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
@@ -34,19 +34,19 @@ trap cleanup EXIT
 
 # ── Setup ──────────────────────────────────────────────────────────────
 
-printf "zdiff CLI tests\n"
+printf "difz CLI tests\n"
 printf "===============\n"
 
 # Build project
-printf "\nBuilding zdiff...\n"
+printf "\nBuilding difz...\n"
 nix develop -c zig build -Doptimize=Debug 2>&1
 if [ $? -ne 0 ]; then
 	printf "FATAL: build failed\n"
 	exit 1
 fi
 
-if [ ! -x "$ZDIFF" ]; then
-	printf "FATAL: zdiff binary not found at %s\n" "$ZDIFF"
+if [ ! -x "$DIFZ" ]; then
+	printf "FATAL: difz binary not found at %s\n" "$DIFZ"
 	exit 1
 fi
 
@@ -56,7 +56,7 @@ mkdir -p "$TEST_DIR"
 
 printf "\n[--help / --about]\n"
 
-HELP_OUT=$("$ZDIFF" --help 2>/dev/null)
+HELP_OUT=$("$DIFZ" --help 2>/dev/null)
 HELP_RC=$?
 if [ $HELP_RC -eq 0 ]; then
 	pass "--help exits 0"
@@ -77,7 +77,7 @@ else
 fi
 
 # -h should also work
-H_OUT=$("$ZDIFF" -h 2>/dev/null)
+H_OUT=$("$DIFZ" -h 2>/dev/null)
 H_RC=$?
 if [ $H_RC -eq 0 ]; then
 	pass "-h exits 0"
@@ -87,7 +87,7 @@ fi
 
 # ── Test: --about ──────────────────────────────────────────────────────
 
-ABOUT_OUT=$("$ZDIFF" --about 2>/dev/null)
+ABOUT_OUT=$("$DIFZ" --about 2>/dev/null)
 ABOUT_RC=$?
 if [ $ABOUT_RC -eq 0 ]; then
 	pass "--about exits 0"
@@ -117,7 +117,7 @@ fi
 
 printf "\n[Debug build detection]\n"
 
-DEBUG_STDERR=$("$ZDIFF" --about 2>&1 1>/dev/null)
+DEBUG_STDERR=$("$DIFZ" --about 2>&1 1>/dev/null)
 if echo "$DEBUG_STDERR" | grep -q "DEBUG BUILD"; then
 	pass "Debug build prints DEBUG BUILD to stderr"
 else
@@ -133,7 +133,7 @@ printf 'the quick brown fox jumped over the lazy dog\n' > "$TEST_DIR/a.txt"
 printf 'the quick red fox jumped over the lazy cat\n' > "$TEST_DIR/b.txt"
 
 # Diff
-DIFF_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/diff.bin" 2>&1)
+DIFF_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/diff.bin" 2>&1)
 DIFF_RC=$?
 if [ $DIFF_RC -eq 0 ]; then
 	pass "diff exits 0"
@@ -153,7 +153,7 @@ else
 fi
 
 # Patch
-PATCH_STDERR=$("$ZDIFF" --patch --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/diff.bin" -o "$TEST_DIR/b_reconstructed.txt" 2>&1)
+PATCH_STDERR=$("$DIFZ" --patch --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/diff.bin" -o "$TEST_DIR/b_reconstructed.txt" 2>&1)
 PATCH_RC=$?
 if [ $PATCH_RC -eq 0 ]; then
 	pass "patch exits 0"
@@ -180,7 +180,7 @@ cp "$TEST_DIR/bin_a.dat" "$TEST_DIR/bin_b.dat"
 printf '\xDE\xAD\xBE\xEF' | dd of="$TEST_DIR/bin_b.dat" bs=1 seek=100 conv=notrunc 2>/dev/null
 printf '\xCA\xFE\xBA\xBE' | dd of="$TEST_DIR/bin_b.dat" bs=1 seek=2000 conv=notrunc 2>/dev/null
 
-DIFF_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/bin_a.dat" "$TEST_DIR/bin_b.dat" -o "$TEST_DIR/bin_diff.dat" 2>&1)
+DIFF_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/bin_a.dat" "$TEST_DIR/bin_b.dat" -o "$TEST_DIR/bin_diff.dat" 2>&1)
 DIFF_RC=$?
 if [ $DIFF_RC -eq 0 ]; then
 	pass "binary diff exits 0"
@@ -188,7 +188,7 @@ else
 	fail "binary diff exits 0" "rc=$DIFF_RC, stderr: $DIFF_STDERR"
 fi
 
-PATCH_STDERR=$("$ZDIFF" --patch --no-progress "$TEST_DIR/bin_a.dat" "$TEST_DIR/bin_diff.dat" -o "$TEST_DIR/bin_b_out.dat" 2>&1)
+PATCH_STDERR=$("$DIFZ" --patch --no-progress "$TEST_DIR/bin_a.dat" "$TEST_DIR/bin_diff.dat" -o "$TEST_DIR/bin_b_out.dat" 2>&1)
 PATCH_RC=$?
 if [ $PATCH_RC -eq 0 ]; then
 	pass "binary patch exits 0"
@@ -207,7 +207,7 @@ fi
 printf "\n[Stdout/pipe output]\n"
 
 # diff to stdout, capture to file (binary data may contain null bytes)
-"$ZDIFF" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" > "$TEST_DIR/stdout_diff.bin" 2>/dev/null
+"$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" > "$TEST_DIR/stdout_diff.bin" 2>/dev/null
 DIFF_RC=$?
 STDOUT_SIZE=$(wc -c < "$TEST_DIR/stdout_diff.bin" | tr -d ' ')
 if [ $DIFF_RC -eq 0 ] && [ "$STDOUT_SIZE" -gt 0 ]; then
@@ -221,7 +221,7 @@ fi
 printf "\n[Stdin input]\n"
 
 # Pipe file_b via stdin using -
-DIFF_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/a.txt" - -o "$TEST_DIR/stdin_diff.bin" < "$TEST_DIR/b.txt" 2>&1)
+DIFF_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" - -o "$TEST_DIR/stdin_diff.bin" < "$TEST_DIR/b.txt" 2>&1)
 DIFF_RC=$?
 if [ $DIFF_RC -eq 0 ]; then
 	pass "diff with stdin (-) exits 0"
@@ -230,7 +230,7 @@ else
 fi
 
 # Verify the stdin-produced diff can reconstruct
-PATCH_STDERR=$("$ZDIFF" --patch --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/stdin_diff.bin" -o "$TEST_DIR/stdin_recon.txt" 2>&1)
+PATCH_STDERR=$("$DIFZ" --patch --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/stdin_diff.bin" -o "$TEST_DIR/stdin_recon.txt" 2>&1)
 PATCH_RC=$?
 if [ $PATCH_RC -eq 0 ] && diff -q "$TEST_DIR/b.txt" "$TEST_DIR/stdin_recon.txt" >/dev/null 2>&1; then
 	pass "round-trip via stdin works"
@@ -239,7 +239,7 @@ else
 fi
 
 # Test @stdin alias
-DIFF_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/a.txt" @stdin -o "$TEST_DIR/atstdin_diff.bin" < "$TEST_DIR/b.txt" 2>&1)
+DIFF_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" @stdin -o "$TEST_DIR/atstdin_diff.bin" < "$TEST_DIR/b.txt" 2>&1)
 DIFF_RC=$?
 if [ $DIFF_RC -eq 0 ]; then
 	pass "diff with @stdin exits 0"
@@ -251,7 +251,7 @@ fi
 
 printf "\n[Explicit stdout with -o -]\n"
 
-"$ZDIFF" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o - > "$TEST_DIR/explicit_dash.bin" 2>/dev/null
+"$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o - > "$TEST_DIR/explicit_dash.bin" 2>/dev/null
 EXPLICIT_RC=$?
 EXPLICIT_SIZE=$(wc -c < "$TEST_DIR/explicit_dash.bin" | tr -d ' ')
 if [ $EXPLICIT_RC -eq 0 ] && [ "$EXPLICIT_SIZE" -gt 0 ]; then
@@ -260,7 +260,7 @@ else
 	fail "diff with -o - writes to stdout" "rc=$EXPLICIT_RC, size=$EXPLICIT_SIZE"
 fi
 
-"$ZDIFF" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o @stdout > "$TEST_DIR/explicit_atstdout.bin" 2>/dev/null
+"$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o @stdout > "$TEST_DIR/explicit_atstdout.bin" 2>/dev/null
 EXPLICIT_RC2=$?
 EXPLICIT_SIZE2=$(wc -c < "$TEST_DIR/explicit_atstdout.bin" | tr -d ' ')
 if [ $EXPLICIT_RC2 -eq 0 ] && [ "$EXPLICIT_SIZE2" -gt 0 ]; then
@@ -275,7 +275,7 @@ printf "\n[--seed option]\n"
 
 SEED_HEX="0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
 
-DIFF_STDERR=$("$ZDIFF" --no-progress --seed "$SEED_HEX" "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/seeded_diff.bin" 2>&1)
+DIFF_STDERR=$("$DIFZ" --no-progress --seed "$SEED_HEX" "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/seeded_diff.bin" 2>&1)
 DIFF_RC=$?
 if [ $DIFF_RC -eq 0 ]; then
 	pass "--seed produces diff"
@@ -284,7 +284,7 @@ else
 fi
 
 # Same seed should produce same output (deterministic)
-DIFF_STDERR=$("$ZDIFF" --no-progress --seed "$SEED_HEX" "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/seeded_diff2.bin" 2>&1)
+DIFF_STDERR=$("$DIFZ" --no-progress --seed "$SEED_HEX" "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/seeded_diff2.bin" 2>&1)
 if cmp -s "$TEST_DIR/seeded_diff.bin" "$TEST_DIR/seeded_diff2.bin"; then
 	pass "same seed produces identical diff"
 else
@@ -292,7 +292,7 @@ else
 fi
 
 # Round-trip with seeded diff
-PATCH_STDERR=$("$ZDIFF" --patch --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/seeded_diff.bin" -o "$TEST_DIR/seeded_recon.txt" 2>&1)
+PATCH_STDERR=$("$DIFZ" --patch --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/seeded_diff.bin" -o "$TEST_DIR/seeded_recon.txt" 2>&1)
 if diff -q "$TEST_DIR/b.txt" "$TEST_DIR/seeded_recon.txt" >/dev/null 2>&1; then
 	pass "seeded diff round-trips correctly"
 else
@@ -300,7 +300,7 @@ else
 fi
 
 # Bad seed (too short)
-BAD_SEED_STDERR=$("$ZDIFF" --no-progress --seed "0102" "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" 2>&1)
+BAD_SEED_STDERR=$("$DIFZ" --no-progress --seed "0102" "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" 2>&1)
 BAD_SEED_RC=$?
 if [ $BAD_SEED_RC -ne 0 ]; then
 	pass "bad seed (too short) returns error"
@@ -309,7 +309,7 @@ else
 fi
 
 # Bad seed (non-hex chars)
-BAD_SEED_STDERR=$("$ZDIFF" --no-progress --seed "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg" "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" 2>&1)
+BAD_SEED_STDERR=$("$DIFZ" --no-progress --seed "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg" "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" 2>&1)
 BAD_SEED_RC=$?
 if [ $BAD_SEED_RC -ne 0 ]; then
 	pass "bad seed (non-hex) returns error"
@@ -321,7 +321,7 @@ fi
 
 printf "\n[--chunk-size option]\n"
 
-DIFF_STDERR=$("$ZDIFF" --no-progress --chunk-size 512 "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/cs_diff.bin" 2>&1)
+DIFF_STDERR=$("$DIFZ" --no-progress --chunk-size 512 "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/cs_diff.bin" 2>&1)
 DIFF_RC=$?
 if [ $DIFF_RC -eq 0 ]; then
 	pass "--chunk-size 512 accepted"
@@ -337,7 +337,7 @@ mkdir -p "$TEST_DIR/dir with spaces"
 cp "$TEST_DIR/a.txt" "$TEST_DIR/dir with spaces/file a.txt"
 cp "$TEST_DIR/b.txt" "$TEST_DIR/dir with spaces/file b.txt"
 
-DIFF_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/dir with spaces/file a.txt" "$TEST_DIR/dir with spaces/file b.txt" -o "$TEST_DIR/dir with spaces/diff.bin" 2>&1)
+DIFF_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/dir with spaces/file a.txt" "$TEST_DIR/dir with spaces/file b.txt" -o "$TEST_DIR/dir with spaces/diff.bin" 2>&1)
 DIFF_RC=$?
 if [ $DIFF_RC -eq 0 ]; then
 	pass "diff with spaces in path exits 0"
@@ -345,7 +345,7 @@ else
 	fail "diff with spaces in path exits 0" "rc=$DIFF_RC, stderr: $DIFF_STDERR"
 fi
 
-PATCH_STDERR=$("$ZDIFF" --patch --no-progress "$TEST_DIR/dir with spaces/file a.txt" "$TEST_DIR/dir with spaces/diff.bin" -o "$TEST_DIR/dir with spaces/recon.txt" 2>&1)
+PATCH_STDERR=$("$DIFZ" --patch --no-progress "$TEST_DIR/dir with spaces/file a.txt" "$TEST_DIR/dir with spaces/diff.bin" -o "$TEST_DIR/dir with spaces/recon.txt" 2>&1)
 PATCH_RC=$?
 if [ $PATCH_RC -eq 0 ] && diff -q "$TEST_DIR/dir with spaces/file b.txt" "$TEST_DIR/dir with spaces/recon.txt" >/dev/null 2>&1; then
 	pass "round-trip with spaces in path works"
@@ -358,7 +358,7 @@ fi
 printf "\n[Error cases]\n"
 
 # Missing file
-MISSING_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/nonexistent_file.txt" "$TEST_DIR/b.txt" 2>&1)
+MISSING_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/nonexistent_file.txt" "$TEST_DIR/b.txt" 2>&1)
 MISSING_RC=$?
 if [ $MISSING_RC -ne 0 ]; then
 	pass "missing file returns error"
@@ -373,7 +373,7 @@ else
 fi
 
 # Too few arguments
-FEW_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/a.txt" 2>&1)
+FEW_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" 2>&1)
 FEW_RC=$?
 if [ $FEW_RC -ne 0 ]; then
 	pass "too few arguments returns error"
@@ -382,7 +382,7 @@ else
 fi
 
 # No arguments at all
-NONE_STDERR=$("$ZDIFF" 2>&1)
+NONE_STDERR=$("$DIFZ" 2>&1)
 NONE_RC=$?
 if [ $NONE_RC -ne 0 ]; then
 	pass "no arguments returns error"
@@ -391,8 +391,8 @@ else
 fi
 
 # Invalid diff file for patch mode
-printf 'not a valid zdiff file at all' > "$TEST_DIR/bad_diff.bin"
-BAD_PATCH_STDERR=$("$ZDIFF" --patch --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/bad_diff.bin" 2>&1)
+printf 'not a valid difz file at all' > "$TEST_DIR/bad_diff.bin"
+BAD_PATCH_STDERR=$("$DIFZ" --patch --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/bad_diff.bin" 2>&1)
 BAD_PATCH_RC=$?
 if [ $BAD_PATCH_RC -ne 0 ]; then
 	pass "patch with invalid diff returns error"
@@ -407,7 +407,7 @@ else
 fi
 
 # Unknown option
-UNKNOWN_STDERR=$("$ZDIFF" --unknown-option 2>&1)
+UNKNOWN_STDERR=$("$DIFZ" --unknown-option 2>&1)
 UNKNOWN_RC=$?
 if [ $UNKNOWN_RC -ne 0 ]; then
 	pass "unknown option returns error"
@@ -416,7 +416,7 @@ else
 fi
 
 # Too many arguments
-MANY_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" "$TEST_DIR/a.txt" 2>&1)
+MANY_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" "$TEST_DIR/a.txt" 2>&1)
 MANY_RC=$?
 if [ $MANY_RC -ne 0 ]; then
 	pass "too many arguments returns error"
@@ -430,8 +430,8 @@ printf "\n[--patch mode position independence]\n"
 
 # --patch can appear before or after file args
 # Before (already tested above in round-trip), test after
-DIFF_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/pos_diff.bin" 2>&1)
-PATCH_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/pos_diff.bin" --patch -o "$TEST_DIR/pos_recon.txt" 2>&1)
+DIFF_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/pos_diff.bin" 2>&1)
+PATCH_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/pos_diff.bin" --patch -o "$TEST_DIR/pos_recon.txt" 2>&1)
 PATCH_RC=$?
 if [ $PATCH_RC -eq 0 ] && diff -q "$TEST_DIR/b.txt" "$TEST_DIR/pos_recon.txt" >/dev/null 2>&1; then
 	pass "--patch after file args works"
@@ -443,7 +443,7 @@ fi
 
 printf "\n[Identical files]\n"
 
-DIFF_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/a.txt" -o "$TEST_DIR/identical_diff.bin" 2>&1)
+DIFF_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/a.txt" -o "$TEST_DIR/identical_diff.bin" 2>&1)
 DIFF_RC=$?
 if [ $DIFF_RC -eq 0 ]; then
 	pass "diff of identical files exits 0"
@@ -452,7 +452,7 @@ else
 fi
 
 # Patch should reconstruct identical file
-PATCH_STDERR=$("$ZDIFF" --patch --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/identical_diff.bin" -o "$TEST_DIR/identical_recon.txt" 2>&1)
+PATCH_STDERR=$("$DIFZ" --patch --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/identical_diff.bin" -o "$TEST_DIR/identical_recon.txt" 2>&1)
 PATCH_RC=$?
 if [ $PATCH_RC -eq 0 ] && diff -q "$TEST_DIR/a.txt" "$TEST_DIR/identical_recon.txt" >/dev/null 2>&1; then
 	pass "identical files round-trip correctly"
@@ -466,7 +466,7 @@ printf "\n[Empty files]\n"
 
 : > "$TEST_DIR/empty.txt"
 
-DIFF_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/empty.txt" "$TEST_DIR/a.txt" -o "$TEST_DIR/empty_diff.bin" 2>&1)
+DIFF_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/empty.txt" "$TEST_DIR/a.txt" -o "$TEST_DIR/empty_diff.bin" 2>&1)
 DIFF_RC=$?
 if [ $DIFF_RC -eq 0 ]; then
 	pass "diff with empty file_a exits 0"
@@ -474,7 +474,7 @@ else
 	fail "diff with empty file_a exits 0" "rc=$DIFF_RC, stderr: $DIFF_STDERR"
 fi
 
-PATCH_STDERR=$("$ZDIFF" --patch --no-progress "$TEST_DIR/empty.txt" "$TEST_DIR/empty_diff.bin" -o "$TEST_DIR/empty_recon.txt" 2>&1)
+PATCH_STDERR=$("$DIFZ" --patch --no-progress "$TEST_DIR/empty.txt" "$TEST_DIR/empty_diff.bin" -o "$TEST_DIR/empty_recon.txt" 2>&1)
 PATCH_RC=$?
 if [ $PATCH_RC -eq 0 ] && diff -q "$TEST_DIR/a.txt" "$TEST_DIR/empty_recon.txt" >/dev/null 2>&1; then
 	pass "empty-to-nonempty round-trip works"
@@ -483,7 +483,7 @@ else
 fi
 
 # Both empty
-DIFF_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/empty.txt" "$TEST_DIR/empty.txt" -o "$TEST_DIR/both_empty_diff.bin" 2>&1)
+DIFF_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/empty.txt" "$TEST_DIR/empty.txt" -o "$TEST_DIR/both_empty_diff.bin" 2>&1)
 DIFF_RC=$?
 if [ $DIFF_RC -eq 0 ]; then
 	pass "diff of two empty files exits 0"
@@ -491,7 +491,7 @@ else
 	fail "diff of two empty files exits 0" "rc=$DIFF_RC, stderr: $DIFF_STDERR"
 fi
 
-PATCH_STDERR=$("$ZDIFF" --patch --no-progress "$TEST_DIR/empty.txt" "$TEST_DIR/both_empty_diff.bin" -o "$TEST_DIR/both_empty_recon.txt" 2>&1)
+PATCH_STDERR=$("$DIFZ" --patch --no-progress "$TEST_DIR/empty.txt" "$TEST_DIR/both_empty_diff.bin" -o "$TEST_DIR/both_empty_recon.txt" 2>&1)
 PATCH_RC=$?
 if [ $PATCH_RC -eq 0 ]; then
 	RECON_SIZE=$(wc -c < "$TEST_DIR/both_empty_recon.txt" | tr -d ' ')
@@ -509,7 +509,7 @@ fi
 printf "\n[Stderr cleanliness]\n"
 
 # With --no-progress, stderr should only contain DEBUG BUILD (since we built debug)
-CLEAN_STDERR=$("$ZDIFF" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o /dev/null 2>&1)
+CLEAN_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o /dev/null 2>&1)
 # Remove the expected DEBUG BUILD line
 CLEAN_STDERR_FILTERED=$(echo "$CLEAN_STDERR" | grep -v "^DEBUG BUILD$" | grep -v "^$")
 if [ -z "$CLEAN_STDERR_FILTERED" ]; then

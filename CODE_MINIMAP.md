@@ -1,9 +1,9 @@
-# ZDiff Code Minimap
+# Difz Code Minimap
 
 ## Architecture
 
 ```
-zdiff CLI (C) ──> C FFI boundary ──> Zig core (pure logic, no I/O)
+difz CLI (C) ──> C FFI boundary ──> Zig core (pure logic, no I/O)
 ```
 
 All business logic lives in Zig. The C CLI dogfoods the FFI. The Zig core performs no I/O.
@@ -12,17 +12,17 @@ All business logic lives in Zig. The C CLI dogfoods the FFI. The Zig core perfor
 
 ### `src/lib.zig` — Public API + C FFI exports
 - `version` — version string ("0.1.0")
-- `zdiff_diff()` — C FFI: compute binary diff between two buffers, returns BLIP-encoded blob
-- `zdiff_patch()` — C FFI: apply diff to source buffer, returns reconstructed target
-- `zdiff_free()` — C FFI: free memory returned by zdiff_diff or zdiff_patch
+- `difz_diff()` — C FFI: compute binary diff between two buffers, returns BLIP-encoded blob
+- `difz_patch()` — C FFI: apply diff to source buffer, returns reconstructed target
+- `difz_free()` — C FFI: free memory returned by difz_diff or difz_patch
 - Test block imports all modules to ensure test discovery
 
-### `src/zdiff.h` — C header for FFI consumers
-- Declares `zdiff_diff`, `zdiff_patch`, `zdiff_free` with C types
+### `src/difz.h` — C header for FFI consumers
+- Declares `difz_diff`, `difz_patch`, `difz_free` with C types
 
-### `src/zdiff.c` — C CLI that dogfoods the FFI
-- Diff mode: `zdiff <file_a> <file_b> [-o output]`
-- Patch mode: `zdiff --patch <file_a> <diff> [-o output]`
+### `src/difz.c` — C CLI that dogfoods the FFI
+- Diff mode: `difz <file_a> <file_b> [-o output]`
+- Patch mode: `difz --patch <file_a> <diff> [-o output]`
 - Options: `-h`/`--help`, `--about`, `-o`, `--seed`, `--chunk-size`, `--no-progress`, `--no-ansi`/`--no-color`, `--simple`
 - Stream routing: `-`/`@stdin` for stdin, `-`/`@stdout` for stdout, `@stderr` for stderr
 - Progress stats to stderr (interactive terminal only)
@@ -88,7 +88,7 @@ All business logic lives in Zig. The C CLI dogfoods the FFI. The Zig core perfor
 
 ## Build & Config Files
 
-- `build.zig` — Zig 0.15 build: zdiff module, static library (libzdiff.a), C executable, tests
+- `build.zig` — Zig 0.15 build: difz module, static library (libdifz.a), C executable, tests
 - `build.zig.zon` — package manifest with BLIP dependency via GitHub tarball
 - `flake.nix` — Nix flake: devShell (zig, hyperfine, bsdiff, xdelta) + packages.default
 
@@ -96,7 +96,7 @@ All business logic lives in Zig. The C CLI dogfoods the FFI. The Zig core perfor
 
 - `build` — `nix develop -c zig build` (ReleaseFast default, `--test`/`--debug` flags)
 - `test` — runs Zig unit tests + CLI integration tests, accumulates errors
-- `bm` — benchmark suite: hyperfine stats, zdiff vs bsdiff vs xdelta3, regression detection
+- `bm` — benchmark suite: hyperfine stats, difz vs bsdiff vs xdelta3, regression detection
 
 ## Test Suites
 

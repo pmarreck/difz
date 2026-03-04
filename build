@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Build script for zdiff
+# Build script for difz
 # Default: ReleaseFast. Use --test or --debug for Debug builds.
 
 args=()

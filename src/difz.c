@@ -1,10 +1,10 @@
-/* zdiff CLI — dogfoods the zdiff C FFI.
+/* difz CLI — dogfoods the difz C FFI.
  * Computes binary diffs (CDC + Elder/Myers O(ND)) and applies patches.
  *
- * Build: linked against libzdiff.a via build.zig
- * Usage: zdiff <file_a> <file_b> [-o output]
- *        zdiff --patch <file_a> <diff_file> [-o output]
- *        zdiff --inspect [--truncate N] [--hexlike] <diff_file>
+ * Build: linked against libdifz.a via build.zig
+ * Usage: difz <file_a> <file_b> [-o output]
+ *        difz --patch <file_a> <diff_file> [-o output]
+ *        difz --inspect [--truncate N] [--hexlike] <diff_file>
  */
 
 #include <errno.h>
@@ -14,44 +14,44 @@
 #include <stdint.h>
 #include <unistd.h>
 
-#include "zdiff.h"
+#include "difz.h"
 #include "progrez.h"
 
-#define ZDIFF_VERSION "0.1.0"
+#define DIFZ_VERSION "0.1.0"
 
 /* ── Platform / arch detection ─────────────────────────────────────── */
 
 #if defined(__APPLE__)
-	#define ZDIFF_PLATFORM "macOS"
+	#define DIFZ_PLATFORM "macOS"
 #elif defined(_WIN32) || defined(_WIN64)
-	#define ZDIFF_PLATFORM "Windows"
+	#define DIFZ_PLATFORM "Windows"
 #elif defined(__linux__)
-	#define ZDIFF_PLATFORM "Linux"
+	#define DIFZ_PLATFORM "Linux"
 #elif defined(__FreeBSD__)
-	#define ZDIFF_PLATFORM "FreeBSD"
+	#define DIFZ_PLATFORM "FreeBSD"
 #else
-	#define ZDIFF_PLATFORM "Unknown"
+	#define DIFZ_PLATFORM "Unknown"
 #endif
 
 #if defined(__aarch64__) || defined(_M_ARM64)
-	#define ZDIFF_ARCH "aarch64"
+	#define DIFZ_ARCH "aarch64"
 #elif defined(__x86_64__) || defined(_M_X64)
-	#define ZDIFF_ARCH "x86_64"
+	#define DIFZ_ARCH "x86_64"
 #elif defined(__i386__) || defined(_M_IX86)
-	#define ZDIFF_ARCH "x86"
+	#define DIFZ_ARCH "x86"
 #elif defined(__arm__) || defined(_M_ARM)
-	#define ZDIFF_ARCH "arm"
+	#define DIFZ_ARCH "arm"
 #else
-	#define ZDIFF_ARCH "unknown"
+	#define DIFZ_ARCH "unknown"
 #endif
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
 
 static void print_usage(FILE *out) {
 	fprintf(out,
-		"Usage: zdiff [options] <file_a> <file_b>\n"
-		"       zdiff --patch [options] <file_a> <diff_file>\n"
-		"       zdiff --inspect [options] <diff_file>\n"
+		"Usage: difz [options] <file_a> <file_b>\n"
+		"       difz --patch [options] <file_a> <diff_file>\n"
+		"       difz --inspect [options] <diff_file>\n"
 		"\n"
 		"Modes:\n"
 		"  (default)     Compute a binary diff between file_a and file_b\n"
@@ -79,8 +79,8 @@ static void print_usage(FILE *out) {
 }
 
 static void print_about(void) {
-	fprintf(stdout, "zdiff %s -- fast binary differ (CDC + Elder/Myers O(ND)) -- %s %s\n",
-		ZDIFF_VERSION, ZDIFF_PLATFORM, ZDIFF_ARCH);
+	fprintf(stdout, "difz %s -- fast binary differ (CDC + Elder/Myers O(ND)) -- %s %s\n",
+		DIFZ_VERSION, DIFZ_PLATFORM, DIFZ_ARCH);
 }
 
 /* Parse a single hex character to its value (0-15), or -1 on error. */
@@ -116,7 +116,7 @@ static uint8_t *read_file(const char *path, size_t *out_len) {
 	} else {
 		f = fopen(path, "rb");
 		if (!f) {
-			fprintf(stderr, "zdiff: cannot open '%s': %s\n", path, strerror(errno));
+			fprintf(stderr, "difz: cannot open '%s': %s\n", path, strerror(errno));
 			return NULL;
 		}
 	}
@@ -126,7 +126,7 @@ static uint8_t *read_file(const char *path, size_t *out_len) {
 	size_t len = 0;
 	uint8_t *buf = malloc(cap);
 	if (!buf) {
-		fprintf(stderr, "zdiff: out of memory\n");
+		fprintf(stderr, "difz: out of memory\n");
 		if (!is_stdin) fclose(f);
 		return NULL;
 	}
@@ -136,7 +136,7 @@ static uint8_t *read_file(const char *path, size_t *out_len) {
 			cap *= 2;
 			uint8_t *new_buf = realloc(buf, cap);
 			if (!new_buf) {
-				fprintf(stderr, "zdiff: out of memory\n");
+				fprintf(stderr, "difz: out of memory\n");
 				free(buf);
 				if (!is_stdin) fclose(f);
 				return NULL;
@@ -149,7 +149,7 @@ static uint8_t *read_file(const char *path, size_t *out_len) {
 	}
 
 	if (ferror(f)) {
-		fprintf(stderr, "zdiff: read error on '%s': %s\n", path, strerror(errno));
+		fprintf(stderr, "difz: read error on '%s': %s\n", path, strerror(errno));
 		free(buf);
 		if (!is_stdin) fclose(f);
 		return NULL;
@@ -173,7 +173,7 @@ static int write_output(const char *path, const uint8_t *data, size_t len) {
 	} else {
 		f = fopen(path, "wb");
 		if (!f) {
-			fprintf(stderr, "zdiff: cannot open output '%s': %s\n", path, strerror(errno));
+			fprintf(stderr, "difz: cannot open output '%s': %s\n", path, strerror(errno));
 			return -1;
 		}
 		needs_close = 1;
@@ -182,7 +182,7 @@ static int write_output(const char *path, const uint8_t *data, size_t len) {
 	if (len > 0) {
 		size_t written = fwrite(data, 1, len, f);
 		if (written != len) {
-			fprintf(stderr, "zdiff: write error: %s\n", strerror(errno));
+			fprintf(stderr, "difz: write error: %s\n", strerror(errno));
 			if (needs_close) fclose(f);
 			return -1;
 		}
@@ -209,7 +209,7 @@ static void format_size(size_t bytes, char *buf, size_t buf_size) {
 
 int main(int argc, char *argv[]) {
 	/* Debug build announcement */
-#ifdef ZDIFF_DEBUG
+#ifdef DIFZ_DEBUG
 	if (isatty(STDERR_FILENO)) {
 		fprintf(stderr, "\033[33mDEBUG BUILD\033[0m\n");
 	} else {
@@ -254,13 +254,13 @@ int main(int argc, char *argv[]) {
 		}
 		if (strcmp(argv[i], "--truncate") == 0) {
 			if (i + 1 >= argc) {
-				fprintf(stderr, "zdiff: --truncate requires a numeric argument\n");
+				fprintf(stderr, "difz: --truncate requires a numeric argument\n");
 				return 1;
 			}
 			char *endptr;
 			long val = strtol(argv[++i], &endptr, 10);
 			if (*endptr != '\0' || val < 0) {
-				fprintf(stderr, "zdiff: invalid truncate value: '%s'\n", argv[i]);
+				fprintf(stderr, "difz: invalid truncate value: '%s'\n", argv[i]);
 				return 1;
 			}
 			truncate_bytes = (size_t)val;
@@ -272,7 +272,7 @@ int main(int argc, char *argv[]) {
 		}
 		if (strcmp(argv[i], "-o") == 0) {
 			if (i + 1 >= argc) {
-				fprintf(stderr, "zdiff: -o requires an argument\n");
+				fprintf(stderr, "difz: -o requires an argument\n");
 				return 1;
 			}
 			output_path = argv[++i];
@@ -280,7 +280,7 @@ int main(int argc, char *argv[]) {
 		}
 		if (strcmp(argv[i], "--seed") == 0) {
 			if (i + 1 >= argc) {
-				fprintf(stderr, "zdiff: --seed requires a 64-character hex argument\n");
+				fprintf(stderr, "difz: --seed requires a 64-character hex argument\n");
 				return 1;
 			}
 			seed_hex = argv[++i];
@@ -288,13 +288,13 @@ int main(int argc, char *argv[]) {
 		}
 		if (strcmp(argv[i], "--chunk-size") == 0) {
 			if (i + 1 >= argc) {
-				fprintf(stderr, "zdiff: --chunk-size requires a numeric argument\n");
+				fprintf(stderr, "difz: --chunk-size requires a numeric argument\n");
 				return 1;
 			}
 			char *endptr;
 			long val = strtol(argv[++i], &endptr, 10);
 			if (*endptr != '\0' || val <= 0) {
-				fprintf(stderr, "zdiff: invalid chunk-size: '%s'\n", argv[i]);
+				fprintf(stderr, "difz: invalid chunk-size: '%s'\n", argv[i]);
 				return 1;
 			}
 			chunk_size = (size_t)val;
@@ -302,7 +302,7 @@ int main(int argc, char *argv[]) {
 		}
 		if (strcmp(argv[i], "--compress") == 0) {
 			if (i + 1 >= argc) {
-				fprintf(stderr, "zdiff: --compress requires an argument (best, lzma2, bzip2, lz4, none)\n");
+				fprintf(stderr, "difz: --compress requires an argument (best, lzma2, bzip2, lz4, none)\n");
 				return 1;
 			}
 			const char *algo = argv[++i];
@@ -312,7 +312,7 @@ int main(int argc, char *argv[]) {
 			else if (strcmp(algo, "lz4") == 0) compression = 3;
 			else if (strcmp(algo, "none") == 0) compression = 255;
 			else {
-				fprintf(stderr, "zdiff: unknown compression algorithm '%s' (use best, lzma2, bzip2, lz4, none)\n", algo);
+				fprintf(stderr, "difz: unknown compression algorithm '%s' (use best, lzma2, bzip2, lz4, none)\n", algo);
 				return 1;
 			}
 			continue;
@@ -333,7 +333,7 @@ int main(int argc, char *argv[]) {
 
 		/* Unknown option (single-dash or double-dash, but not bare "-") */
 		if (argv[i][0] == '-' && argv[i][1] != '\0') {
-			fprintf(stderr, "zdiff: unknown option '%s'\n", argv[i]);
+			fprintf(stderr, "difz: unknown option '%s'\n", argv[i]);
 			return 1;
 		}
 
@@ -341,32 +341,32 @@ int main(int argc, char *argv[]) {
 		if (pos_count < 2) {
 			positional[pos_count++] = argv[i];
 		} else {
-			fprintf(stderr, "zdiff: too many arguments\n");
+			fprintf(stderr, "difz: too many arguments\n");
 			return 1;
 		}
 	}
 
 	/* Validate mode flags — mutually exclusive */
 	if (patch_mode && inspect_mode) {
-		fprintf(stderr, "zdiff: --patch and --inspect are mutually exclusive\n");
+		fprintf(stderr, "difz: --patch and --inspect are mutually exclusive\n");
 		return 1;
 	}
 
 	/* Validate positional args */
 	if (inspect_mode) {
 		if (pos_count < 1) {
-			fprintf(stderr, "zdiff: --inspect requires a diff file argument\n");
-			fprintf(stderr, "Try 'zdiff --help' for usage.\n");
+			fprintf(stderr, "difz: --inspect requires a diff file argument\n");
+			fprintf(stderr, "Try 'difz --help' for usage.\n");
 			return 1;
 		}
 		if (pos_count > 1) {
-			fprintf(stderr, "zdiff: --inspect takes exactly one file argument\n");
+			fprintf(stderr, "difz: --inspect takes exactly one file argument\n");
 			return 1;
 		}
 	} else {
 		if (pos_count < 2) {
-			fprintf(stderr, "zdiff: expected 2 file arguments, got %d\n", pos_count);
-			fprintf(stderr, "Try 'zdiff --help' for usage.\n");
+			fprintf(stderr, "difz: expected 2 file arguments, got %d\n", pos_count);
+			fprintf(stderr, "Try 'difz --help' for usage.\n");
 			return 1;
 		}
 	}
@@ -376,7 +376,7 @@ int main(int argc, char *argv[]) {
 	uint8_t *seed_ptr = NULL;
 	if (seed_hex) {
 		if (parse_hex_seed(seed_hex, seed_buf) != 0) {
-			fprintf(stderr, "zdiff: invalid seed: must be exactly 64 hex characters\n");
+			fprintf(stderr, "difz: invalid seed: must be exactly 64 hex characters\n");
 			return 1;
 		}
 		seed_ptr = seed_buf;
@@ -393,17 +393,17 @@ int main(int argc, char *argv[]) {
 		uint8_t *result_ptr = NULL;
 		size_t result_len = 0;
 
-		int rc = zdiff_inspect(diff_data, diff_file_len,
+		int rc = difz_inspect(diff_data, diff_file_len,
 		                       truncate_bytes, hexlike,
 		                       &result_ptr, &result_len);
 		if (rc != 0) {
-			fprintf(stderr, "zdiff: inspect failed (invalid diff file?)\n");
+			fprintf(stderr, "difz: inspect failed (invalid diff file?)\n");
 			exit_code = 1;
 		} else {
 			if (write_output(output_path, result_ptr, result_len) != 0) {
 				exit_code = 1;
 			}
-			zdiff_free(result_ptr, result_len);
+			difz_free(result_ptr, result_len);
 		}
 
 		free(diff_data);
@@ -425,7 +425,7 @@ int main(int argc, char *argv[]) {
 			if (!no_progress && isatty(STDERR_FILENO)) {
 				pctx = progrez_create("Applying patch");
 				if (pctx) {
-					progrez_set_identity(pctx, "zdiff", NULL);
+					progrez_set_identity(pctx, "difz", NULL);
 					progrez_set_indeterminate(pctx);
 				}
 			}
@@ -433,11 +433,11 @@ int main(int argc, char *argv[]) {
 			uint8_t *result_ptr = NULL;
 			size_t result_len = 0;
 
-			int rc = zdiff_patch(a_data, a_len, b_data, b_len, &result_ptr, &result_len);
+			int rc = difz_patch(a_data, a_len, b_data, b_len, &result_ptr, &result_len);
 
 			if (pctx) { progrez_finish(pctx); progrez_destroy(pctx); }
 			if (rc != 0) {
-				fprintf(stderr, "zdiff: patch failed\n");
+				fprintf(stderr, "difz: patch failed\n");
 				exit_code = 1;
 			} else {
 				if (write_output(output_path, result_ptr, result_len) != 0) {
@@ -445,9 +445,9 @@ int main(int argc, char *argv[]) {
 				} else if (!no_progress && isatty(STDERR_FILENO)) {
 					char size_str[64];
 					format_size(result_len, size_str, sizeof(size_str));
-					fprintf(stderr, "zdiff: Done. Reconstructed: %s\n", size_str);
+					fprintf(stderr, "difz: Done. Reconstructed: %s\n", size_str);
 				}
-				zdiff_free(result_ptr, result_len);
+				difz_free(result_ptr, result_len);
 			}
 		} else {
 			/* ── Diff mode ───────────────────────────────────── */
@@ -455,7 +455,7 @@ int main(int argc, char *argv[]) {
 			if (!no_progress && isatty(STDERR_FILENO)) {
 				pctx = progrez_create("Computing diff");
 				if (pctx) {
-					progrez_set_identity(pctx, "zdiff", NULL);
+					progrez_set_identity(pctx, "difz", NULL);
 					progrez_set_indeterminate(pctx);
 				}
 			}
@@ -463,12 +463,12 @@ int main(int argc, char *argv[]) {
 			uint8_t *diff_ptr = NULL;
 			size_t diff_len = 0;
 
-			int rc = zdiff_diff(a_data, a_len, b_data, b_len, seed_ptr, chunk_size,
+			int rc = difz_diff(a_data, a_len, b_data, b_len, seed_ptr, chunk_size,
 			                    compression, &diff_ptr, &diff_len);
 
 			if (pctx) { progrez_finish(pctx); progrez_destroy(pctx); }
 			if (rc != 0) {
-				fprintf(stderr, "zdiff: diff failed\n");
+				fprintf(stderr, "difz: diff failed\n");
 				exit_code = 1;
 			} else {
 				if (write_output(output_path, diff_ptr, diff_len) != 0) {
@@ -480,13 +480,13 @@ int main(int argc, char *argv[]) {
 					format_size(diff_len, diff_size_str, sizeof(diff_size_str));
 					if (original > 0) {
 						double pct = 100.0 * (double)diff_len / (double)original;
-						fprintf(stderr, "zdiff: Done. Diff: %s (%.1f%% of original)\n",
+						fprintf(stderr, "difz: Done. Diff: %s (%.1f%% of original)\n",
 							diff_size_str, pct);
 					} else {
-						fprintf(stderr, "zdiff: Done. Diff: %s\n", diff_size_str);
+						fprintf(stderr, "difz: Done. Diff: %s\n", diff_size_str);
 					}
 				}
-				zdiff_free(diff_ptr, diff_len);
+				difz_free(diff_ptr, diff_len);
 			}
 		}
 

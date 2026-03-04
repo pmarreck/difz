@@ -42,7 +42,7 @@ pub fn inspect(
     const size_a_str = formatSize(&size_a_buf, decoded.size_a);
     const size_b_str = formatSize(&size_b_buf, decoded.size_b);
 
-    try writer.print("zdiff inspect: {d} ops, source={s}, target={s}, chunk_size={d}\n\n", .{
+    try writer.print("difz inspect: {d} ops, source={s}, target={s}, chunk_size={d}\n\n", .{
         decoded.ops.len,
         size_a_str,
         size_b_str,

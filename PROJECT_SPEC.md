@@ -1,11 +1,11 @@
-# ZDiff - Project Specification
+# Difz - Project Specification
 
-ZDiff is a fast, concise binary differ. Given 2 files of some unknown similarity A and B, it outputs a compact diff — an encoded list of Copy and Insert instructions to transform A into B. Delete is implicit (anything in A not covered by a Copy is discarded).
+Difz is a fast, concise binary differ. Given 2 files of some unknown similarity A and B, it outputs a compact diff — an encoded list of Copy and Insert instructions to transform A into B. Delete is implicit (anything in A not covered by a Copy is discarded).
 
 ## Architecture
 
 ```
-zdiff CLI (C) ──> C FFI boundary ──> Zig core (pure logic, no I/O)
+difz CLI (C) ──> C FFI boundary ──> Zig core (pure logic, no I/O)
 ```
 
 The Zig core takes two byte slices and returns a BLIP-encoded diff as a byte slice. All I/O is done by the C CLI. The FFI is dogfooded — the C CLI calls the Zig library through the C header, never importing Zig directly.
@@ -45,10 +45,10 @@ BLIP is a variable-length integer encoding + container format. See [pmarreck/BLI
 ## CLI Interface
 
 ```
-zdiff <file_a> <file_b> [-o output | -]       # produce diff
-zdiff --patch <file_a> <diff> [-o output | -]  # apply diff
-zdiff -h / --help
-zdiff --about
+difz <file_a> <file_b> [-o output | -]       # produce diff
+difz --patch <file_a> <diff> [-o output | -]  # apply diff
+difz -h / --help
+difz --about
 ```
 
 ## Edge Cases

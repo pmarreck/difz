@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Benchmark suite for zdiff — compares speed and diff size against bsdiff, xdelta3, and zstd --patch-from.
+# Benchmark suite for difz — compares speed and diff size against bsdiff, xdelta3, and zstd --patch-from.
 # Usage: nix develop -c bash bm
 #
 # Generates deterministic test data at various sizes and similarity levels,
@@ -21,8 +21,8 @@ NC='\033[0m'
 # ── Paths ─────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ZDIFF="$SCRIPT_DIR/zig-out/bin/zdiff"
-TMPDIR_BM="${TMPDIR:-/tmp}/zdiff-bench-$$"
+DIFZ="$SCRIPT_DIR/zig-out/bin/difz"
+TMPDIR_BM="${TMPDIR:-/tmp}/difz-bench-$$"
 LOG_DIR="$SCRIPT_DIR/tests/benchmark"
 LOG_FILE="$LOG_DIR/benchmark_log.csv"
 
@@ -132,24 +132,24 @@ fmt_time() {
 
 # ── 1. Build ──────────────────────────────────────────────────────────
 
-header "Building zdiff (ReleaseFast)"
+header "Building difz (ReleaseFast)"
 
 if ! zig build 2>&1; then
 	err "Build failed!"
 	exit 1
 fi
 
-if [ ! -x "$ZDIFF" ]; then
-	err "zdiff binary not found at $ZDIFF"
+if [ ! -x "$DIFZ" ]; then
+	err "difz binary not found at $DIFZ"
 	exit 1
 fi
 ok "Build succeeded"
 
 # ── 2. Assert not a debug build ──────────────────────────────────────
 
-about_output=$("$ZDIFF" --about 2>&1 || true)
+about_output=$("$DIFZ" --about 2>&1 || true)
 if echo "$about_output" | grep -q "DEBUG BUILD"; then
-	err "zdiff appears to be a DEBUG BUILD! Benchmarks require ReleaseFast."
+	err "difz appears to be a DEBUG BUILD! Benchmarks require ReleaseFast."
 	err "Output: $about_output"
 	exit 1
 fi
@@ -174,13 +174,13 @@ ok "Test data generated in $TMPDIR_BM"
 
 # Arrays to accumulate results for summary table
 declare -a BM_NAMES=()
-declare -a BM_ZDIFF_DIFF_MS=()
+declare -a BM_DIFZ_DIFF_MS=()
 declare -a BM_BSDIFF_DIFF_MS=()
 declare -a BM_XDELTA_DIFF_MS=()
-declare -a BM_ZDIFF_PATCH_MS=()
+declare -a BM_DIFZ_PATCH_MS=()
 declare -a BM_BSPATCH_PATCH_MS=()
 declare -a BM_XDELTA_PATCH_MS=()
-declare -a BM_ZDIFF_SIZE=()
+declare -a BM_DIFZ_SIZE=()
 declare -a BM_BSDIFF_SIZE=()
 declare -a BM_XDELTA_SIZE=()
 declare -a BM_ZSTD_DIFF_MS=()
@@ -195,12 +195,12 @@ run_benchmark() {
 	local file_size
 	file_size=$(wc -c < "$file_a" | tr -d ' ')
 
-	local zdiff_diff="$TMPDIR_BM/${name}_zdiff.diff"
+	local difz_diff="$TMPDIR_BM/${name}_difz.diff"
 	local bsdiff_diff="$TMPDIR_BM/${name}_bsdiff.diff"
 	local xdelta_diff="$TMPDIR_BM/${name}_xdelta.diff"
 	local zstd_diff="$TMPDIR_BM/${name}_zstd.diff"
 
-	local zdiff_recon="$TMPDIR_BM/${name}_zdiff_recon"
+	local difz_recon="$TMPDIR_BM/${name}_difz_recon"
 	local bsdiff_recon="$TMPDIR_BM/${name}_bsdiff_recon"
 	local xdelta_recon="$TMPDIR_BM/${name}_xdelta_recon"
 	local zstd_recon="$TMPDIR_BM/${name}_zstd_recon"
@@ -212,16 +212,16 @@ run_benchmark() {
 
 	local result rc ms
 
-	# zdiff diff
-	result=$(time_cmd "$ZDIFF" --no-progress "$file_a" "$file_b" -o "$zdiff_diff")
+	# difz diff
+	result=$(time_cmd "$DIFZ" --no-progress "$file_a" "$file_b" -o "$difz_diff")
 	ms=$(echo "$result" | cut -d' ' -f1)
 	rc=$(echo "$result" | cut -d' ' -f2)
 	if [ "$rc" -ne 0 ]; then
-		warn "zdiff diff failed (rc=$rc)"
+		warn "difz diff failed (rc=$rc)"
 		ms="FAIL"
 	fi
-	local zdiff_diff_ms="$ms"
-	info "  zdiff:   $(fmt_time "$zdiff_diff_ms")"
+	local difz_diff_ms="$ms"
+	info "  difz:   $(fmt_time "$difz_diff_ms")"
 
 	# bsdiff diff
 	result=$(time_cmd bsdiff "$file_a" "$file_b" "$bsdiff_diff")
@@ -259,26 +259,26 @@ run_benchmark() {
 	# ── Patch benchmarks ──
 	echo -e "  ${CYAN}Patch speed:${NC}"
 
-	# zdiff patch
-	if [ -f "$zdiff_diff" ]; then
-		result=$(time_cmd "$ZDIFF" --patch --no-progress "$file_a" "$zdiff_diff" -o "$zdiff_recon")
+	# difz patch
+	if [ -f "$difz_diff" ]; then
+		result=$(time_cmd "$DIFZ" --patch --no-progress "$file_a" "$difz_diff" -o "$difz_recon")
 		ms=$(echo "$result" | cut -d' ' -f1)
 		rc=$(echo "$result" | cut -d' ' -f2)
 		if [ "$rc" -ne 0 ]; then
-			warn "zdiff patch failed (rc=$rc)"
+			warn "difz patch failed (rc=$rc)"
 			ms="FAIL"
 		else
 			# Verify correctness
-			if ! cmp -s "$file_b" "$zdiff_recon"; then
-				warn "zdiff patch produced incorrect output!"
+			if ! cmp -s "$file_b" "$difz_recon"; then
+				warn "difz patch produced incorrect output!"
 				ms="WRONG"
 			fi
 		fi
 	else
 		ms="SKIP"
 	fi
-	local zdiff_patch_ms="$ms"
-	info "  zdiff:   $(fmt_time "$zdiff_patch_ms")"
+	local difz_patch_ms="$ms"
+	info "  difz:   $(fmt_time "$difz_patch_ms")"
 
 	# bspatch
 	if [ -f "$bsdiff_diff" ]; then
@@ -343,12 +343,12 @@ run_benchmark() {
 	# ── Diff sizes ──
 	echo -e "  ${CYAN}Diff sizes:${NC}"
 
-	local zdiff_sz=0 bsdiff_sz=0 xdelta_sz=0
-	if [ -f "$zdiff_diff" ]; then
-		zdiff_sz=$(wc -c < "$zdiff_diff" | tr -d ' ')
-		info "  zdiff:   $(human_bytes "$zdiff_sz") ($zdiff_sz bytes)"
+	local difz_sz=0 bsdiff_sz=0 xdelta_sz=0
+	if [ -f "$difz_diff" ]; then
+		difz_sz=$(wc -c < "$difz_diff" | tr -d ' ')
+		info "  difz:   $(human_bytes "$difz_sz") ($difz_sz bytes)"
 	else
-		info "  zdiff:   N/A"
+		info "  difz:   N/A"
 	fi
 	if [ -f "$bsdiff_diff" ]; then
 		bsdiff_sz=$(wc -c < "$bsdiff_diff" | tr -d ' ')
@@ -373,13 +373,13 @@ run_benchmark() {
 	# Accumulate results
 	BM_NAMES+=("$name")
 	BM_FILE_SIZE+=("$file_size")
-	BM_ZDIFF_DIFF_MS+=("$zdiff_diff_ms")
+	BM_DIFZ_DIFF_MS+=("$difz_diff_ms")
 	BM_BSDIFF_DIFF_MS+=("$bsdiff_diff_ms")
 	BM_XDELTA_DIFF_MS+=("$xdelta_diff_ms")
-	BM_ZDIFF_PATCH_MS+=("$zdiff_patch_ms")
+	BM_DIFZ_PATCH_MS+=("$difz_patch_ms")
 	BM_BSPATCH_PATCH_MS+=("$bspatch_patch_ms")
 	BM_XDELTA_PATCH_MS+=("$xdelta_patch_ms")
-	BM_ZDIFF_SIZE+=("$zdiff_sz")
+	BM_DIFZ_SIZE+=("$difz_sz")
 	BM_BSDIFF_SIZE+=("$bsdiff_sz")
 	BM_XDELTA_SIZE+=("$xdelta_sz")
 	BM_ZSTD_DIFF_MS+=("$zstd_diff_ms")
@@ -394,7 +394,7 @@ header "Hyperfine statistical benchmark (10M, 90% similar)"
 # Pre-generate files for hyperfine (they already exist from generate_test_pair)
 HF_A="$TMPDIR_BM/10M_90_a"
 HF_B="$TMPDIR_BM/10M_90_b"
-HF_ZDIFF_D="$TMPDIR_BM/hf_zdiff.diff"
+HF_DIFZ_D="$TMPDIR_BM/hf_difz.diff"
 HF_BSDIFF_D="$TMPDIR_BM/hf_bsdiff.diff"
 HF_XDELTA_D="$TMPDIR_BM/hf_xdelta.diff"
 HF_ZSTD_D="$TMPDIR_BM/hf_zstd.diff"
@@ -408,8 +408,8 @@ hyperfine \
 	--min-runs 10 \
 	--ignore-failure \
 	--export-json "$HF_JSON" \
-	--command-name "zdiff" \
-	"$ZDIFF --no-progress '$HF_A' '$HF_B' -o '$HF_ZDIFF_D'" \
+	--command-name "difz" \
+	"$DIFZ --no-progress '$HF_A' '$HF_B' -o '$HF_DIFZ_D'" \
 	--command-name "bsdiff" \
 	"bsdiff '$HF_A' '$HF_B' '$HF_BSDIFF_D'" \
 	--command-name "xdelta3" \
@@ -421,7 +421,7 @@ hyperfine \
 echo ""
 
 # Now run hyperfine for patch operations (need diff files to exist first)
-"$ZDIFF" --no-progress "$HF_A" "$HF_B" -o "$HF_ZDIFF_D" 2>/dev/null
+"$DIFZ" --no-progress "$HF_A" "$HF_B" -o "$HF_DIFZ_D" 2>/dev/null
 bsdiff "$HF_A" "$HF_B" "$HF_BSDIFF_D" 2>/dev/null
 xdelta3 -f -e -s "$HF_A" "$HF_B" "$HF_XDELTA_D" 2>/dev/null
 zstd -f --patch-from="$HF_A" "$HF_B" -o "$HF_ZSTD_D" 2>/dev/null
@@ -435,8 +435,8 @@ hyperfine \
 	--min-runs 10 \
 	--ignore-failure \
 	--export-json "$HF_JSON_PATCH" \
-	--command-name "zdiff patch" \
-	"$ZDIFF --patch --no-progress '$HF_A' '$HF_ZDIFF_D' -o '$TMPDIR_BM/hf_zdiff_recon'" \
+	--command-name "difz patch" \
+	"$DIFZ --patch --no-progress '$HF_A' '$HF_DIFZ_D' -o '$TMPDIR_BM/hf_difz_recon'" \
 	--command-name "bspatch" \
 	"bspatch '$HF_A' '$TMPDIR_BM/hf_bspatch_recon' '$HF_BSDIFF_D'" \
 	--command-name "xdelta3 decode" \
@@ -477,22 +477,22 @@ for i in "${!BM_NAMES[@]}"; do
 
 	printf "  %-12s %8s  %8s %8s %8s %8s  %8s %8s %8s %8s  %10s %10s %10s %10s\n" \
 		"$local_name" "$local_fsz" \
-		"$(fmt_time "${BM_ZDIFF_DIFF_MS[$i]}")" \
+		"$(fmt_time "${BM_DIFZ_DIFF_MS[$i]}")" \
 		"$(fmt_time "${BM_BSDIFF_DIFF_MS[$i]}")" \
 		"$(fmt_time "${BM_XDELTA_DIFF_MS[$i]}")" \
 		"$(fmt_time "${BM_ZSTD_DIFF_MS[$i]}")" \
-		"$(fmt_time "${BM_ZDIFF_PATCH_MS[$i]}")" \
+		"$(fmt_time "${BM_DIFZ_PATCH_MS[$i]}")" \
 		"$(fmt_time "${BM_BSPATCH_PATCH_MS[$i]}")" \
 		"$(fmt_time "${BM_XDELTA_PATCH_MS[$i]}")" \
 		"$(fmt_time "${BM_ZSTD_PATCH_MS[$i]}")" \
-		"$(human_bytes "${BM_ZDIFF_SIZE[$i]}")" \
+		"$(human_bytes "${BM_DIFZ_SIZE[$i]}")" \
 		"$(human_bytes "${BM_BSDIFF_SIZE[$i]}")" \
 		"$(human_bytes "${BM_XDELTA_SIZE[$i]}")" \
 		"$(human_bytes "${BM_ZSTD_SIZE[$i]}")"
 done
 
 printf "\n"
-echo -e "  ${DIM}zd=zdiff  bs=bsdiff  xd=xdelta3  zs=zstd  diff=create  pat=patch/apply  sz=diff file size${NC}"
+echo -e "  ${DIM}zd=difz  bs=bsdiff  xd=xdelta3  zs=zstd  diff=create  pat=patch/apply  sz=diff file size${NC}"
 
 # ── 8. Log results to CSV ────────────────────────────────────────────
 
@@ -502,11 +502,11 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Create CSV header if file doesn't exist
 if [ ! -f "$LOG_FILE" ]; then
-	echo "timestamp,test_name,file_size,zdiff_diff_ms,bsdiff_diff_ms,xdelta_diff_ms,zstd_diff_ms,zdiff_patch_ms,bspatch_patch_ms,xdelta_patch_ms,zstd_patch_ms,zdiff_size,bsdiff_size,xdelta_size,zstd_size" > "$LOG_FILE"
+	echo "timestamp,test_name,file_size,difz_diff_ms,bsdiff_diff_ms,xdelta_diff_ms,zstd_diff_ms,difz_patch_ms,bspatch_patch_ms,xdelta_patch_ms,zstd_patch_ms,difz_size,bsdiff_size,xdelta_size,zstd_size" > "$LOG_FILE"
 fi
 
 for i in "${!BM_NAMES[@]}"; do
-	echo "${TIMESTAMP},${BM_NAMES[$i]},${BM_FILE_SIZE[$i]},${BM_ZDIFF_DIFF_MS[$i]},${BM_BSDIFF_DIFF_MS[$i]},${BM_XDELTA_DIFF_MS[$i]},${BM_ZSTD_DIFF_MS[$i]},${BM_ZDIFF_PATCH_MS[$i]},${BM_BSPATCH_PATCH_MS[$i]},${BM_XDELTA_PATCH_MS[$i]},${BM_ZSTD_PATCH_MS[$i]},${BM_ZDIFF_SIZE[$i]},${BM_BSDIFF_SIZE[$i]},${BM_XDELTA_SIZE[$i]},${BM_ZSTD_SIZE[$i]}" >> "$LOG_FILE"
+	echo "${TIMESTAMP},${BM_NAMES[$i]},${BM_FILE_SIZE[$i]},${BM_DIFZ_DIFF_MS[$i]},${BM_BSDIFF_DIFF_MS[$i]},${BM_XDELTA_DIFF_MS[$i]},${BM_ZSTD_DIFF_MS[$i]},${BM_DIFZ_PATCH_MS[$i]},${BM_BSPATCH_PATCH_MS[$i]},${BM_XDELTA_PATCH_MS[$i]},${BM_ZSTD_PATCH_MS[$i]},${BM_DIFZ_SIZE[$i]},${BM_BSDIFF_SIZE[$i]},${BM_XDELTA_SIZE[$i]},${BM_ZSTD_SIZE[$i]}" >> "$LOG_FILE"
 done
 
 ok "Results appended to $LOG_FILE"
@@ -534,32 +534,32 @@ if [ -f "$LOG_FILE" ]; then
 				continue
 			fi
 
-			# Extract previous zdiff values
-			prev_zdiff_diff_ms=$(echo "$prev_row" | cut -d',' -f4)
-			prev_zdiff_size=$(echo "$prev_row" | cut -d',' -f10)
-			curr_zdiff_diff_ms="${BM_ZDIFF_DIFF_MS[$i]}"
-			curr_zdiff_size="${BM_ZDIFF_SIZE[$i]}"
+			# Extract previous difz values
+			prev_difz_diff_ms=$(echo "$prev_row" | cut -d',' -f4)
+			prev_difz_size=$(echo "$prev_row" | cut -d',' -f10)
+			curr_difz_diff_ms="${BM_DIFZ_DIFF_MS[$i]}"
+			curr_difz_size="${BM_DIFZ_SIZE[$i]}"
 
 			# Skip non-numeric values
-			if ! echo "$prev_zdiff_diff_ms" | grep -qE '^[0-9]+$'; then continue; fi
-			if ! echo "$curr_zdiff_diff_ms" | grep -qE '^[0-9]+$'; then continue; fi
-			if ! echo "$prev_zdiff_size" | grep -qE '^[0-9]+$'; then continue; fi
-			if ! echo "$curr_zdiff_size" | grep -qE '^[0-9]+$'; then continue; fi
+			if ! echo "$prev_difz_diff_ms" | grep -qE '^[0-9]+$'; then continue; fi
+			if ! echo "$curr_difz_diff_ms" | grep -qE '^[0-9]+$'; then continue; fi
+			if ! echo "$prev_difz_size" | grep -qE '^[0-9]+$'; then continue; fi
+			if ! echo "$curr_difz_size" | grep -qE '^[0-9]+$'; then continue; fi
 
 			# Check speed regression (>10% slower)
-			if [ "$prev_zdiff_diff_ms" -gt 0 ]; then
-				threshold=$(( prev_zdiff_diff_ms * 110 / 100 ))
-				if [ "$curr_zdiff_diff_ms" -gt "$threshold" ]; then
-					warn "$test_name: zdiff diff speed regressed: ${prev_zdiff_diff_ms}ms -> ${curr_zdiff_diff_ms}ms (>10%)"
+			if [ "$prev_difz_diff_ms" -gt 0 ]; then
+				threshold=$(( prev_difz_diff_ms * 110 / 100 ))
+				if [ "$curr_difz_diff_ms" -gt "$threshold" ]; then
+					warn "$test_name: difz diff speed regressed: ${prev_difz_diff_ms}ms -> ${curr_difz_diff_ms}ms (>10%)"
 					REGRESSIONS=$((REGRESSIONS + 1))
 				fi
 			fi
 
 			# Check size regression (>10% larger)
-			if [ "$prev_zdiff_size" -gt 0 ]; then
-				size_threshold=$(( prev_zdiff_size * 110 / 100 ))
-				if [ "$curr_zdiff_size" -gt "$size_threshold" ]; then
-					warn "$test_name: zdiff diff size regressed: ${prev_zdiff_size} -> ${curr_zdiff_size} bytes (>10%)"
+			if [ "$prev_difz_size" -gt 0 ]; then
+				size_threshold=$(( prev_difz_size * 110 / 100 ))
+				if [ "$curr_difz_size" -gt "$size_threshold" ]; then
+					warn "$test_name: difz diff size regressed: ${prev_difz_size} -> ${curr_difz_size} bytes (>10%)"
 					REGRESSIONS=$((REGRESSIONS + 1))
 				fi
 			fi

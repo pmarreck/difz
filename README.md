@@ -1,16 +1,16 @@
-# zdiff
+# difz
 
-[![CI](https://github.com/pmarreck/zdiff/actions/workflows/ci.yml/badge.svg?branch=yolo)](https://github.com/pmarreck/zdiff/actions/workflows/ci.yml)
-[![Garnix](https://img.shields.io/endpoint.svg?url=https://garnix.io/api/badges/pmarreck/zdiff&style=flat)](https://garnix.io/repo/pmarreck/zdiff)
+[![CI](https://github.com/pmarreck/difz/actions/workflows/ci.yml/badge.svg?branch=yolo)](https://github.com/pmarreck/difz/actions/workflows/ci.yml)
+[![Garnix](https://img.shields.io/endpoint.svg?url=https://garnix.io/api/badges/pmarreck/difz&style=flat)](https://garnix.io/repo/pmarreck/difz)
 [![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 
-A fast binary differ. Given two files A and B, zdiff produces a compact diff — an encoded list of Copy and Insert instructions to transform A into B. Applying the diff to A reconstructs B exactly.
+A fast binary differ. Given two files A and B, difz produces a compact diff — an encoded list of Copy and Insert instructions to transform A into B. Applying the diff to A reconstructs B exactly.
 
 ## Performance
 
 Benchmarked on Apple M4 (aarch64), deterministic random binary data (using default `--compress best`):
 
-| File size | Sim. | zdiff | xdelta3 | zstd | bsdiff | zdiff size | xdelta3 size | zstd size | bsdiff size |
+| File size | Sim. | difz | xdelta3 | zstd | bsdiff | difz size | xdelta3 size | zstd size | bsdiff size |
 |-----------|------|-------|---------|------|--------|-----------|-------------|----------|------------|
 | **10 MB** | 90%  | 134 ms | 127 ms | **27 ms** | 2,326 ms | **1,024 KB** | 1,024 KB | 1,035 KB | 1,030 KB |
 | **20 MB** | 90%  | **221 ms** | 238 ms | 45 ms | 6,014 ms | **2,048 KB** | 2,048 KB | 2,069 KB | 2,057 KB |
@@ -18,14 +18,14 @@ Benchmarked on Apple M4 (aarch64), deterministic random binary data (using defau
 | **20 MB** | 50%  | **496 ms** | 1,131 ms | 43 ms | 20,677 ms | **10,240 KB** | 10,241 KB | 10,252 KB | 10,285 KB |
 | **20 MB** | 99%  | 127 ms | 51 ms | **37 ms** | 2,759 ms | **205 KB** | 205 KB | 228 KB | 206 KB |
 
-**zdiff produces the smallest diffs** across all test cases. zstd `--patch-from` is the fastest differ (dictionary compression, not true delta encoding) but produces 1-11% larger patches. zdiff is 1.1x-2.3x faster than xdelta3 and 27x-51x faster than bsdiff. Patch application is 4x-16x faster than bspatch and comparable to xdelta3 and zstd.
+**difz produces the smallest diffs** across all test cases. zstd `--patch-from` is the fastest differ (dictionary compression, not true delta encoding) but produces 1-11% larger patches. difz is 1.1x-2.3x faster than xdelta3 and 27x-51x faster than bsdiff. Patch application is 4x-16x faster than bspatch and comparable to xdelta3 and zstd.
 
 Hyperfine statistical benchmark (10 MB, 90% similar, 10+ runs):
 
 ```
 zstd      16.6 ms ± 1.0 ms
 xdelta3  118.7 ms ± 4.9 ms    7.15x slower than zstd
-zdiff    131.7 ms ± 4.3 ms    7.93x slower than zstd
+difz    131.7 ms ± 4.3 ms    7.93x slower than zstd
 bsdiff     2.30 s ± 0.13 s  138.42x slower than zstd
 ```
 
@@ -43,18 +43,18 @@ Output is encoded in [BLIP](https://github.com/pmarreck/BLIP) format with select
 
 ```bash
 # Produce a diff
-zdiff old_file new_file -o patch.zdiff
+difz old_file new_file -o patch.difz
 
 # Apply a diff
-zdiff --patch old_file patch.zdiff -o new_file
+difz --patch old_file patch.difz -o new_file
 
 # Pipe to stdout
-zdiff old_file new_file > patch.zdiff
-zdiff --patch old_file patch.zdiff > new_file
+difz old_file new_file > patch.difz
+difz --patch old_file patch.difz > new_file
 
 # Inspect a diff file (human-readable op dump)
-zdiff --inspect patch.zdiff
-zdiff --inspect --truncate 128 --hexlike patch.zdiff
+difz --inspect patch.difz
+difz --inspect --truncate 128 --hexlike patch.difz
 ```
 
 ### Options
@@ -75,7 +75,7 @@ zdiff --inspect --truncate 128 --hexlike patch.zdiff
 ## Architecture
 
 ```
-zdiff CLI (C) ──> C FFI boundary ──> Zig core (pure logic, no I/O)
+difz CLI (C) ──> C FFI boundary ──> Zig core (pure logic, no I/O)
 ```
 
 The Zig core is a pure library — it takes two byte slices and returns a BLIP-encoded diff as a byte slice. No file I/O, no allocation policy decisions, no CLI concerns. All I/O lives in the C CLI, which calls the Zig library through its C FFI header. This dogfoods the same interface any external consumer would use.
@@ -84,9 +84,9 @@ The Zig core is a pure library — it takes two byte slices and returns a BLIP-e
 
 ```
 src/
-├── lib.zig          # C FFI exports: zdiff_diff(), zdiff_patch(), zdiff_inspect(), zdiff_free()
-├── zdiff.h          # C header for FFI consumers
-├── zdiff.c          # CLI: file I/O, arg parsing, progress display (uses progrez)
+├── lib.zig          # C FFI exports: difz_diff(), difz_patch(), difz_inspect(), difz_free()
+├── difz.h          # C header for FFI consumers
+├── difz.c          # CLI: file I/O, arg parsing, progress display (uses progrez)
 ├── diff.zig         # Two-stage orchestrator: CDC matching + Elder gap refinement
 ├── cdc.zig          # Content-Defined Chunking via Gear hash
 ├── gear_hash.zig    # Gear rolling hash with BLAKE3-seeded lookup table
@@ -117,7 +117,7 @@ Requires [Nix](https://nixos.org/) with flakes enabled:
 
 ```bash
 nix develop    # enter dev shell with Zig 0.15 + benchmark tools
-zig build      # build zdiff
+zig build      # build difz
 zig build test # run all tests
 ```
 
@@ -127,7 +127,7 @@ zig build test # run all tests
 nix develop -c bash bm
 ```
 
-Compares zdiff against bsdiff and xdelta3 across multiple file sizes and similarity levels. Results are logged to `tests/benchmark/benchmark_log.csv` with automatic regression detection.
+Compares difz against bsdiff and xdelta3 across multiple file sizes and similarity levels. Results are logged to `tests/benchmark/benchmark_log.csv` with automatic regression detection.
 
 ## Dependencies
 
