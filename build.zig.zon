@@ -6,11 +6,11 @@
 	.dependencies = .{
 		.blip = .{
 			.url = "https://github.com/pmarreck/BLIP/archive/refs/heads/yolo.tar.gz",
-			.hash = "blip-0.1.0-rcNuGDPUCwDSRBBRestQfjkD4DFXTGMr7qAOmZsnuKsl",
+			.hash = "blip-0.1.0-rcNuGMY2DADdc-EzyPh21pMgeBR79JX8A8wWrOy9Z1Lj",
 		},
 		.printable_binary = .{
 			.url = "https://github.com/pmarreck/printable-binary/archive/refs/heads/yolo.tar.gz",
-			.hash = "printable_binary-1.0.0-SdPiyoM4FwByo5ia901HzoUGSGjeolkmQuxJ5UYZzdW1",
+			.hash = "printable_binary-1.0.0-SdPiymo4FwAZvt-5yp4JS2hR-JEyGnJOQB5OoYHVmm_N",
 		},
 		.progrez = .{
 			.url = "https://github.com/pmarreck/progrez/archive/refs/heads/yolo.tar.gz",
