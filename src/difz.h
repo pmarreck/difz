@@ -6,7 +6,7 @@
 
 /* Compute a binary diff between files A and B.
  * seed: 32-byte rolling hash seed (NULL for random).
- * compression: 0=best, 1=lzma2, 2=bzip2, 3=lz4, 255=none.
+ * compression: 0=best, 1=lzma2, 2=bzip2, 3=lz4, 4=zstd, 255=none.
  * Returns 0 on success, -1 on error. */
 int difz_diff(
     const uint8_t *a, size_t a_len,

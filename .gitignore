@@ -8,3 +8,6 @@ libtest_offset_logic.a
 test_pow2
 .DS_Store
 
+AGENTS.md
+ZIG_RECENT_API_CHANGES.md
+jj_cheatsheet.md
