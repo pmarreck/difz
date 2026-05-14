@@ -8,12 +8,14 @@ pub fn build(b: *std.Build) void {
 		"Optimization mode (default: ReleaseFast)",
 	) orelse .ReleaseFast;
 
-	// Get BLIP dependency
-	const blip_dep = b.dependency("blip", .{
+	// Get blar dependency (provides compression_mod + re-exports BLIP varint via blar.core).
+	// Disable blar's heavy/optional features — we only need its Zig-side compression API.
+	const blar_dep = b.dependency("blar", .{
 		.target = target,
 		.optimize = optimize,
+		.enable_flac = false,
 	});
-	const blip_module = blip_dep.module("blip");
+	const blar_module = blar_dep.module("blar");
 
 	// Get printable-binary dependency
 	const pb_dep = b.dependency("printable_binary", .{
@@ -46,7 +48,7 @@ pub fn build(b: *std.Build) void {
 		.target = target,
 		.optimize = optimize,
 		.imports = &.{
-			.{ .name = "blip", .module = blip_module },
+			.{ .name = "blar", .module = blar_module },
 			.{ .name = "printable_binary", .module = pb_module },
 		},
 	});
@@ -57,7 +59,7 @@ pub fn build(b: *std.Build) void {
 		.target = target,
 		.optimize = optimize,
 		.imports = &.{
-			.{ .name = "blip", .module = blip_module },
+			.{ .name = "blar", .module = blar_module },
 			.{ .name = "printable_binary", .module = pb_module },
 		},
 	});
