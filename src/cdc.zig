@@ -23,7 +23,7 @@ pub fn chunkSlice(allocator: std.mem.Allocator, data: []const u8, seed: [32]u8, 
 	const max_size = target_size * 4;
 
 	// Collect chunks using an ArrayList
-	var chunks: std.ArrayList(Chunk) = .{};
+	var chunks: std.ArrayList(Chunk) = .empty;
 	defer chunks.deinit(allocator);
 
 	var state: u64 = 0;

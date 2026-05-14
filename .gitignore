@@ -10,4 +10,6 @@ test_pow2
 
 AGENTS.md
 ZIG_RECENT_API_CHANGES.md
+ZIG_0.15_TO_0.16_MIGRATION.md
 jj_cheatsheet.md
+zig-pkg/

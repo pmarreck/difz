@@ -33,7 +33,8 @@ export fn difz_diff(
 	if (seed) |s| {
 		seed_buf = s.*;
 	} else {
-		std.crypto.random.bytes(&seed_buf);
+		const io = std.Io.Threaded.global_single_threaded.io();
+		io.randomSecure(&seed_buf) catch io.random(&seed_buf);
 	}
 
 	const a = a_ptr[0..a_len];
@@ -45,7 +46,7 @@ export fn difz_diff(
 	};
 
 	// Convert u8 to CompressionMode, default to .best on invalid value
-	const comp_mode = std.meta.intToEnum(encoding.CompressionMode, compression) catch encoding.CompressionMode.best;
+	const comp_mode = std.enums.fromInt(encoding.CompressionMode, compression) orelse encoding.CompressionMode.best;
 
 	// Compute diff
 	const result = diff_mod.computeDiff(allocator, a, b, options) catch return -1;

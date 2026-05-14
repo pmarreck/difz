@@ -32,9 +32,8 @@ pub fn inspect(
     defer encoding.freeDecoded(allocator, decoded);
 
     // Build output using an ArrayList
-    var out: std.ArrayList(u8) = .{};
+    var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
-    const writer = out.writer(allocator);
 
     // Header line
     var size_a_buf: [64]u8 = undefined;
@@ -42,7 +41,7 @@ pub fn inspect(
     const size_a_str = formatSize(&size_a_buf, decoded.size_a);
     const size_b_str = formatSize(&size_b_buf, decoded.size_b);
 
-    try writer.print("difz inspect: {d} ops, source={s}, target={s}, chunk_size={d}\n\n", .{
+    try out.print(allocator, "difz inspect: {d} ops, source={s}, target={s}, chunk_size={d}\n\n", .{
         decoded.ops.len,
         size_a_str,
         size_b_str,
@@ -53,7 +52,7 @@ pub fn inspect(
     for (decoded.ops, 0..) |op, i| {
         switch (op.tag) {
             .copy => {
-                try writer.print("  #{d:<4}COPY    offset={d:<10}length={d}\n", .{
+                try out.print(allocator, "  #{d:<4}COPY    offset={d:<10}length={d}\n", .{
                     i, op.offset, op.length,
                 });
             },
@@ -70,11 +69,11 @@ pub fn inspect(
                 defer allocator.free(encoded_display);
 
                 if (data.len > max_data_bytes) {
-                    try writer.print("  #{d:<4}INSERT  length={d:<10}data=\u{300c}{s}...\u{300d} (truncated, {d} bytes total)\n", .{
+                    try out.print(allocator, "  #{d:<4}INSERT  length={d:<10}data=\u{300c}{s}...\u{300d} (truncated, {d} bytes total)\n", .{
                         i, op.length, encoded_display, data.len,
                     });
                 } else {
-                    try writer.print("  #{d:<4}INSERT  length={d:<10}data=\u{300c}{s}\u{300d}\n", .{
+                    try out.print(allocator, "  #{d:<4}INSERT  length={d:<10}data=\u{300c}{s}\u{300d}\n", .{
                         i, op.length, encoded_display,
                     });
                 }

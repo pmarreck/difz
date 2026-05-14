@@ -2,19 +2,16 @@
 	.fingerprint = 0x51711be4db89c40d,
 	.name = .difz,
 	.version = "0.1.0",
-	.minimum_zig_version = "0.15.0",
+	.minimum_zig_version = "0.16.0",
 	.dependencies = .{
 		.blip = .{
-			.url = "https://github.com/pmarreck/BLIP/archive/refs/heads/yolo.tar.gz",
-			.hash = "blip-0.1.0-rcNuGMY2DADdc-EzyPh21pMgeBR79JX8A8wWrOy9Z1Lj",
+			.path = "../BLIP-zig016",
 		},
 		.printable_binary = .{
-			.url = "https://github.com/pmarreck/printable-binary/archive/refs/heads/yolo.tar.gz",
-			.hash = "printable_binary-1.0.0-SdPiymo4FwAZvt-5yp4JS2hR-JEyGnJOQB5OoYHVmm_N",
+			.path = "../printable_binary-zig016",
 		},
 		.progrez = .{
-			.url = "https://github.com/pmarreck/progrez/archive/refs/heads/yolo.tar.gz",
-			.hash = "progrez-0.1.0-0YJXrl0CAgCI-gvYCSEWEnW2rsWMTPbehyOnOveB4EJp",
+			.path = "../progrez-zig016",
 		},
 	},
 	.paths = .{
