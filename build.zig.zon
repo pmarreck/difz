@@ -4,14 +4,17 @@
 	.version = "0.1.0",
 	.minimum_zig_version = "0.16.0",
 	.dependencies = .{
-		.blip = .{
-			.path = "../BLIP-zig016",
+		.blar = .{
+			.url = "https://github.com/pmarreck/blar/archive/7a872b251b67a03263b54b6abfed002110478fa6.tar.gz",
+			.hash = "blar-3.0.0-3Hgr7Zr8EABSg7P2-3jk9OAJd34NpVbv9zSdnBZHd1hk",
 		},
 		.printable_binary = .{
-			.path = "../printable_binary-zig016",
+			.url = "https://github.com/pmarreck/printable-binary/archive/3baa3ef9ac2bde838af65e384ab49605d3f95d92.tar.gz",
+			.hash = "printable_binary-1.0.0-SdPiyhM8FwC-Cu8V1e8Joio4mTcFZ2N6eTmnHg7knIsr",
 		},
 		.progrez = .{
-			.path = "../progrez-zig016",
+			.url = "https://github.com/pmarreck/progrez/archive/802d64510c8362e09235d725c52dbb924f96ec7c.tar.gz",
+			.hash = "progrez-0.1.0-0YJXrpMFAgCG7UTrQbsri0tU-QdFy01xaIv9sO4YI3fi",
 		},
 	},
 	.paths = .{

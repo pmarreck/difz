@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
-const blip = @import("blip");
+const blar = @import("blar");
+const blip = blar.core;
 const diff_mod = @import("diff.zig");
 
 pub const DiffOp = diff_mod.DiffOp;
@@ -126,7 +127,7 @@ fn blipDecodeValue(buf: []const u8) EncodeError!blip.DecodeResult {
 // ---------------------------------------------------------------------------
 
 /// The BLIP CompressionId type, extracted from the compressContainer function signature.
-const BlipCompressionId = @typeInfo(@TypeOf(blip.compression_mod.compressContainer)).@"fn".params[1].type.?;
+const BlipCompressionId = @typeInfo(@TypeOf(blar.compression_mod.compressContainer)).@"fn".params[1].type.?;
 
 /// Map CompressionMode to blip CompressionId for single-algorithm modes.
 fn modeToCompressionId(mode: CompressionMode) ?BlipCompressionId {
@@ -179,7 +180,7 @@ fn pickBestAlgo(allocator: std.mem.Allocator, data: []const u8) EncodeError!Comp
 
 	for (algos) |mode| {
 		const comp_id = modeToCompressionId(mode).?;
-		const compressed = blip.compression_mod.compressContainer(allocator, comp_id, sample, null, null, null) catch continue;
+		const compressed = blar.compression_mod.compressContainer(allocator, comp_id, sample, null, null, null, 0) catch continue;
 		defer allocator.free(compressed);
 		if (compressed.len < best_size) {
 			best_size = compressed.len;
@@ -197,7 +198,7 @@ fn compressOutput(allocator: std.mem.Allocator, top_array: []u8, mode: Compressi
 		.none => return top_array,
 		.lzma2, .bzip2, .lz4, .zstd => {
 			const comp_id = modeToCompressionId(mode).?;
-			const compressed = blip.compression_mod.compressContainer(allocator, comp_id, top_array, null, null, null) catch |e| switch (e) {
+			const compressed = blar.compression_mod.compressContainer(allocator, comp_id, top_array, null, null, null, 0) catch |e| switch (e) {
 				error.OutOfMemory => return error.OutOfMemory,
 				else => return top_array, // compression failed, return uncompressed
 			};
@@ -213,7 +214,7 @@ fn compressOutput(allocator: std.mem.Allocator, top_array: []u8, mode: Compressi
 			const chosen = try pickBestAlgo(allocator, top_array);
 			if (chosen == .none) return top_array;
 			const comp_id = modeToCompressionId(chosen).?;
-			const compressed = blip.compression_mod.compressContainer(allocator, comp_id, top_array, null, null, null) catch |e| switch (e) {
+			const compressed = blar.compression_mod.compressContainer(allocator, comp_id, top_array, null, null, null, 0) catch |e| switch (e) {
 				error.OutOfMemory => return error.OutOfMemory,
 				else => return top_array,
 			};
@@ -322,8 +323,8 @@ pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!Decode
 	var decompressed: ?[]u8 = null;
 	defer if (decompressed) |d| allocator.free(d);
 
-	const inner_data: []const u8 = if (blip.compression_mod.isCompressed(data)) blk: {
-		decompressed = blip.compression_mod.decompressContainer(allocator, data) catch |e| switch (e) {
+	const inner_data: []const u8 = if (blar.compression_mod.isCompressed(data)) blk: {
+		decompressed = blar.compression_mod.decompressContainer(allocator, data) catch |e| switch (e) {
 			error.OutOfMemory => return error.OutOfMemory,
 			else => return error.InvalidMagic,
 		};
@@ -629,7 +630,7 @@ test "LZMA2 compressed encoding is smaller than uncompressed for repetitive data
 	defer testing.allocator.free(encoded);
 
 	// Compressed container should be detected as compressed
-	try testing.expect(blip.compression_mod.isCompressed(encoded));
+	try testing.expect(blar.compression_mod.isCompressed(encoded));
 
 	// Compressed should be smaller than the uncompressed insert data
 	try testing.expect(encoded.len < 2000);
@@ -680,7 +681,7 @@ test "bzip2 compression round-trips correctly" {
 	const encoded = try encode(testing.allocator, result, .bzip2);
 	defer testing.allocator.free(encoded);
 
-	try testing.expect(blip.compression_mod.isCompressed(encoded));
+	try testing.expect(blar.compression_mod.isCompressed(encoded));
 	try testing.expect(encoded.len < 2000);
 
 	const decoded = try decode(testing.allocator, encoded);
@@ -704,7 +705,7 @@ test "lz4 compression round-trips correctly" {
 	const encoded = try encode(testing.allocator, result, .lz4);
 	defer testing.allocator.free(encoded);
 
-	try testing.expect(blip.compression_mod.isCompressed(encoded));
+	try testing.expect(blar.compression_mod.isCompressed(encoded));
 	try testing.expect(encoded.len < 2000);
 
 	const decoded = try decode(testing.allocator, encoded);
@@ -728,7 +729,7 @@ test "zstd compression round-trips correctly" {
 	const encoded = try encode(testing.allocator, result, .zstd);
 	defer testing.allocator.free(encoded);
 
-	try testing.expect(blip.compression_mod.isCompressed(encoded));
+	try testing.expect(blar.compression_mod.isCompressed(encoded));
 	try testing.expect(encoded.len < 2000);
 
 	const decoded = try decode(testing.allocator, encoded);
@@ -753,7 +754,7 @@ test "none compression produces uncompressed output" {
 	defer testing.allocator.free(encoded);
 
 	// Should NOT be compressed
-	try testing.expect(!blip.compression_mod.isCompressed(encoded));
+	try testing.expect(!blar.compression_mod.isCompressed(encoded));
 
 	// Must still decode correctly
 	const decoded = try decode(testing.allocator, encoded);
@@ -778,7 +779,7 @@ test "best compression round-trips correctly" {
 	defer testing.allocator.free(encoded);
 
 	// best should pick a compression algorithm for compressible data
-	try testing.expect(blip.compression_mod.isCompressed(encoded));
+	try testing.expect(blar.compression_mod.isCompressed(encoded));
 	try testing.expect(encoded.len < 2000);
 
 	const decoded = try decode(testing.allocator, encoded);

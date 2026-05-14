@@ -1,4 +1,5 @@
-const blip = @import("blip");
+const blar = @import("blar");
+const blip = blar.core;
 const std = @import("std");
 const diff_mod = @import("diff.zig");
 const encoding = @import("encoding.zig");
