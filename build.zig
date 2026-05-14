@@ -87,12 +87,12 @@ pub fn build(b: *std.Build) void {
 			.link_libc = true,
 		}),
 	});
-	exe.addCSourceFile(.{
+	exe.root_module.addCSourceFile(.{
 		.file = b.path("src/difz.c"),
 		.flags = c_flags,
 	});
-	exe.linkLibrary(lib);
-	exe.linkLibrary(progrez_lib);
+	exe.root_module.linkLibrary(lib);
+	exe.root_module.linkLibrary(progrez_lib);
 	exe.root_module.addIncludePath(b.path("src"));
 	exe.root_module.addIncludePath(progrez_dep.path("include"));
 	b.installArtifact(exe);

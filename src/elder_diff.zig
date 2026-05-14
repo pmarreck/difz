@@ -156,7 +156,7 @@ pub fn diff(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]DiffO
 	}
 
 	// Traceback: walk from d=final_d back to d=0 to recover the edit script
-	var edits: std.ArrayList(Edit) = .{};
+	var edits: std.ArrayList(Edit) = .empty;
 	defer edits.deinit(allocator);
 
 	var x: isize = @intCast(n);
@@ -264,7 +264,7 @@ fn intToIndex(k: isize, max_d: usize) usize {
 
 /// Convert a list of Edit operations into merged DiffOps.
 fn editsToDiffOps(allocator: std.mem.Allocator, b: []const u8, edits: []const Edit) ![]DiffOp {
-	var ops: std.ArrayList(DiffOp) = .{};
+	var ops: std.ArrayList(DiffOp) = .empty;
 	defer ops.deinit(allocator);
 
 	var i: usize = 0;
@@ -452,9 +452,11 @@ test "large dissimilar diff completes quickly via edit distance cap" {
 	prng_a.random().bytes(&a);
 	prng_b.random().bytes(&b);
 
-	var timer = try std.time.Timer.start();
+	const t_start = std.Io.Timestamp.now(std.testing.io, .awake);
 	const ops = try diff(testing.allocator, &a, &b);
-	const elapsed_ms = timer.read() / 1_000_000;
+	const t_end = std.Io.Timestamp.now(std.testing.io, .awake);
+	const elapsed_ns: u64 = @intCast(t_end.nanoseconds - t_start.nanoseconds);
+	const elapsed_ms = elapsed_ns / 1_000_000;
 	defer testing.allocator.free(ops);
 
 	// Must complete in under 500ms (Debug build). Without cap this takes 30+ seconds.

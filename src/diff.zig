@@ -257,7 +257,7 @@ pub fn computeDiff(allocator: std.mem.Allocator, a: []const u8, b: []const u8, o
 	const filtered = matches[0..filtered_len];
 
 	// Build ops by walking filtered matches in B-order.
-	var ops_list: std.ArrayList(DiffOp) = .{};
+	var ops_list: std.ArrayList(DiffOp) = .empty;
 	defer ops_list.deinit(allocator);
 
 	var pos_b: usize = 0;

@@ -59,7 +59,7 @@ pub fn findMatches(allocator: std.mem.Allocator, a: []const u8, b: []const u8, s
 		const h = blake3Hash128(chunk_data);
 		const gop = try b_map.getOrPut(h);
 		if (!gop.found_existing) {
-			gop.value_ptr.* = BChunkList{};
+			gop.value_ptr.* = BChunkList.empty;
 		}
 		try gop.value_ptr.append(allocator, .{
 			.offset = chunk.offset,
@@ -68,7 +68,7 @@ pub fn findMatches(allocator: std.mem.Allocator, a: []const u8, b: []const u8, s
 	}
 
 	// 3. Walk A's chunks, BLAKE3-hash each, look up in B's map
-	var matches: std.ArrayList(Match) = .{};
+	var matches: std.ArrayList(Match) = .empty;
 	defer matches.deinit(allocator);
 
 	for (chunks_a) |chunk| {
@@ -125,7 +125,7 @@ pub fn findMatches(allocator: std.mem.Allocator, a: []const u8, b: []const u8, s
 /// Caller must free both gaps_a and gaps_b with allocator.free().
 pub fn invertMatches(allocator: std.mem.Allocator, matches: []const Match, len_a: usize, len_b: usize) !GapResult {
 	// Compute gaps in A: walk matches by offset_a
-	var gaps_a_list: std.ArrayList(GapRegion) = .{};
+	var gaps_a_list: std.ArrayList(GapRegion) = .empty;
 	defer gaps_a_list.deinit(allocator);
 
 	var pos_a: usize = 0;
@@ -156,7 +156,7 @@ pub fn invertMatches(allocator: std.mem.Allocator, matches: []const Match, len_a
 		}
 	}.lessThan);
 
-	var gaps_b_list: std.ArrayList(GapRegion) = .{};
+	var gaps_b_list: std.ArrayList(GapRegion) = .empty;
 	defer gaps_b_list.deinit(allocator);
 
 	var pos_b: usize = 0;

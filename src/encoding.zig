@@ -256,7 +256,7 @@ pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult, compres
 	defer allocator.free(metadata_data);
 
 	// 3. Build instruction DATA elements
-	var instr_elements_list: std.ArrayList([]u8) = .{};
+	var instr_elements_list: std.ArrayList([]u8) = .empty;
 	defer {
 		for (instr_elements_list.items) |item| allocator.free(item);
 		instr_elements_list.deinit(allocator);
