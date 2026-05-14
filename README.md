@@ -18,7 +18,7 @@ Benchmarked on Apple M4 (aarch64), deterministic random binary data (using defau
 | **20 MB** | 50%  | **496 ms** | 1,131 ms | 43 ms | 20,677 ms | **10,240 KB** | 10,241 KB | 10,252 KB | 10,285 KB |
 | **20 MB** | 99%  | 127 ms | 51 ms | **37 ms** | 2,759 ms | **205 KB** | 205 KB | 228 KB | 206 KB |
 
-**difz produces the smallest diffs** across all test cases. zstd `--patch-from` is the fastest differ (dictionary compression, not true delta encoding) but produces 1-11% larger patches. difz is 1.1x-2.3x faster than xdelta3 and 27x-51x faster than bsdiff. Patch application is 4x-16x faster than bspatch and comparable to xdelta3 and zstd.
+**difz produces the smallest diffs** across all test cases. zstd `--patch-from` is the fastest differ (dictionary compression, not true delta encoding) but produces 1-11% larger patches. difz is 1.1x-2.3x faster than xdelta3 on larger/less-similar inputs (xdelta3 leads on small or highly-similar files) and 17x-51x faster than bsdiff. Patch application is up to 16x faster than bspatch and comparable to xdelta3 and zstd.
 
 Hyperfine statistical benchmark (10 MB, 90% similar, 10+ runs):
 
