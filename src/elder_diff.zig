@@ -125,6 +125,7 @@ pub fn diff(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]DiffO
 			if (x == @as(isize, @intCast(n)) and y == @as(isize, @intCast(m))) {
 				// Save this final V state
 				const v_copy = try allocator.alloc(isize, v_size);
+				errdefer allocator.free(v_copy);
 				@memcpy(v_copy, v);
 				try appendVHistory(allocator, &v_history_buf, &v_history_len, &v_history_cap, v_copy);
 				final_d = d;
@@ -135,6 +136,7 @@ pub fn diff(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]DiffO
 
 		// Save V state for this d
 		const v_copy = try allocator.alloc(isize, v_size);
+		errdefer allocator.free(v_copy);
 		@memcpy(v_copy, v);
 		try appendVHistory(allocator, &v_history_buf, &v_history_len, &v_history_cap, v_copy);
 	}
@@ -490,4 +492,20 @@ test "edit distance cap still produces fine-grained ops for similar data" {
 	const result = try applyOps(testing.allocator, a, ops);
 	defer testing.allocator.free(result);
 	try testing.expectEqualStrings(b, result);
+}
+
+test "diff has no memory leak when an allocation fails" {
+	// Edit distance ~20 (10 scattered substitutions) forces appendVHistory to be
+	// called many times and to realloc its buffer (8 -> 16 -> 32). An OOM injected
+	// at that realloc happens *after* v_copy is allocated but before it is installed
+	// in v_history, which is exactly the leak window. checkAllAllocationFailures
+	// injects OOM at every allocation index and flags any leak.
+	const a = "a.b.c.d.e.f.g.h.i.j.";
+	const b = "a-b-c-d-e-f-g-h-i-j-";
+	try testing.checkAllAllocationFailures(testing.allocator, struct {
+		fn run(alloc: std.mem.Allocator, x: []const u8, y: []const u8) !void {
+			const ops = try diff(alloc, x, y);
+			defer alloc.free(ops);
+		}
+	}.run, .{ a, b });
 }
