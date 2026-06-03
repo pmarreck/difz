@@ -1,25 +1,25 @@
 .{
-	.fingerprint = 0x51711be4db89c40d,
-	.name = .difz,
-	.version = "0.1.0",
-	.minimum_zig_version = "0.16.0",
-	.dependencies = .{
-		.blar = .{
-			.url = "https://github.com/pmarreck/blar/archive/60e68579e44b9ad619619a6d19f3f9f385f89afc.tar.gz",
-			.hash = "blar-3.0.0-3Hgr7RD9EABYrWxFWf_otH8rbkRxBSfGxUexC3OTS6zb",
-		},
-		.printable_binary = .{
-			.url = "https://github.com/pmarreck/printable-binary/archive/3baa3ef9ac2bde838af65e384ab49605d3f95d92.tar.gz",
-			.hash = "printable_binary-1.0.0-SdPiyhM8FwC-Cu8V1e8Joio4mTcFZ2N6eTmnHg7knIsr",
-		},
-		.progrez = .{
-			.url = "https://github.com/pmarreck/progrez/archive/7d70ce8.tar.gz",
-			.hash = "progrez-0.1.0-0YJXrpMFAgARHkoD6RpFfS8kNgQEiYNu2ZbswsuBm2hf",
-		},
-	},
-	.paths = .{
-		"build.zig",
-		"build.zig.zon",
-		"src",
-	},
+    .fingerprint = 0x51711be4db89c40d,
+    .name = .difz,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .blar = .{
+            .url = "https://github.com/pmarreck/blar/archive/14fbf3f5fa1613e58f9dd35cece1d573be71d7f7.tar.gz",
+            .hash = "blar-3.0.0-3Hgr7fRSEQA4jjpVh1e6tB2cKaB03Cq2BKCcRWz-A6yE",
+        },
+        .printable_binary = .{
+            .url = "https://github.com/pmarreck/printable-binary/archive/9f9f34e5d39e2d66a13e523b0937ffba7defe4be.tar.gz",
+            .hash = "printable_binary-1.0.0-SdPiysBfFwCbsO4huFn9vlBrkVq11kzxChHw3chlpCeA",
+        },
+        .progrez = .{
+            .url = "https://github.com/pmarreck/progrez/archive/7d70ce8.tar.gz",
+            .hash = "progrez-0.1.0-0YJXrpMFAgARHkoD6RpFfS8kNgQEiYNu2ZbswsuBm2hf",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
 }
