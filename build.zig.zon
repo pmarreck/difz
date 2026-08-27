@@ -16,6 +16,10 @@
             .url = "https://github.com/pmarreck/progrez/archive/7d70ce8.tar.gz",
             .hash = "progrez-0.1.0-0YJXrpMFAgARHkoD6RpFfS8kNgQEiYNu2ZbswsuBm2hf",
         },
+        .pcre2 = .{
+            .url = "https://github.com/pmarreck/pcre2/archive/refs/tags/zig-0.16.0.tar.gz",
+            .hash = "pcre2-10.47.0-S7QTbvnVMgDsA1ipkKNj5kVoEda9wcIuZYUpdrTuDaCh",
+        },
     },
     .paths = .{
         "build.zig",
