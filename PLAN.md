@@ -4,7 +4,7 @@
 
 - [x] Add a flake contract proving the benchmark selects `random-luajit` at definitive upstream commit `8ddd6aac19be75cacf09128cd3ea75faf9a08dc4`. The exact-set assertion rejects both the aggregate alias and aggregate-plus-Lua combinations. (2026-08-27 3:52pm EDT)
 - [x] Repin `random`, replace the aggregate selector, and prove the benchmark's declared inputs and installed closure exclude the other language implementations. The selected closure has 31 paths totaling 125,312,944 bytes; separate direct-input and transitive-runtime checks find no Zig, Rust/Cargo, Lean, or their `random` packages. (2026-08-27 3:52pm EDT)
-- [ ] Run the focused contract and canonical suite, commit the known-green change, notify `random`, and recoverably clear all four handled notes. Curiosity poke: corrected and superseded notes must not leave stale obligations in the inbox.
+- [x] Run the focused contract and canonical suite, commit the known-green change as `8323413`, notify `random`, and recoverably clear all four handled notes. `./test` passed all 61 CLI cases and the benchmark contract; every declared flake system evaluated, the completion note is in `random`'s inbox, and `difz/inbox` is empty. (2026-08-27 3:53pm EDT)
 
 ## Active Work — Benchmark Corpus and Generator Repair
 
