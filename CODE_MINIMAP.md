@@ -86,27 +86,28 @@ All business logic lives in Zig, and the C CLI dogfoods the FFI. File diffing an
 
 ### `src/diff.zig` — Two-stage orchestrator: CDC -> Elder -> instruction list
 - `DiffOptions` — struct: `{ seed: [32]u8, target_chunk_size: usize }`
-- `DiffResult` — struct: `{ ops, options, size_a, size_b }`
+- `DiffResult` — struct: `{ ops, options, size_a, size_b, source_blake3, target_blake3 }`
+- `fileIdentity(data)` — whole-file BLAKE3 identity used to bind patches to both endpoints
 - `computeDiff(allocator, a, b, options)` — Stage 1: CDC chunk matching, Stage 2: Elder diff on gaps; matches walked in B-order to support moved/rearranged blocks (monotonic gaps get Elder diff, non-monotonic gaps get raw Insert)
 - `freeDiffResult(allocator, result)` — free the ops array
 - `applyDiff(allocator, a, ops)` — convenience wrapper around elder_diff.applyOps
 - 8 tests: identical, different round-trip, shared regions, empty A/B, metadata, multiple scattered edits, moved/rearranged sections
 
 ### `src/encoding.zig` — BLIP serialization of diff instructions
-- `DecodeResult` — struct: `{ ops, seed, target_chunk_size, size_a, size_b }`
-- `encode(allocator, DiffResult)` — serialize to ZDIF v1 wire format (BLIP ARRAY container)
+- `DecodeResult` — struct: `{ ops, seed, target_chunk_size, size_a, size_b, source_blake3, target_blake3 }`
+- `encode(allocator, DiffResult)` — serialize to source- and target-bound ZDIF v2 (BLIP ARRAY container)
 - `decode(allocator, data)` — deserialize BLIP bytes back to ops + metadata
 - `freeDecoded(allocator, result)` — free decoded ops (including insert data allocations)
 - `serializeRaw(allocator, payload)` — build a RAW container manually
 - `parseRaw(buf)` — extract RAW container payload (zero-copy)
-- Wire format: `ARRAY[RAW "ZDIF\x01", RAW metadata(seed+BLIPs), ARRAY[RAW per instruction]]`
+- Wire format: `ARRAY[DATA "ZDIF\x02", DATA metadata(seed+source BLAKE3+target BLAKE3+BLIPs), ARRAY[DATA per instruction]]`
 - Opcodes: 0x00 = Copy(offset, length), 0x01 = Insert(length, data)
 - 7 tests: round-trip, BLIP sentinel, invalid magic, empty ops, large insert, interleaved, metadata
 
 ### `src/patch.zig` — Apply diff to reconstruct target file
-- `PatchInfo` — struct: `{ size_a, size_b, seed, target_chunk_size, num_ops }`
+- `PatchInfo` — struct: `{ size_a, size_b, seed, target_chunk_size, num_ops, source_blake3, target_blake3 }`
 - `PatchError` — error set for patch failures
-- `patch(allocator, a, diff_blob)` — decode + verify sizes + apply ops + verify output size
+- `patch(allocator, a, diff_blob)` — decode, verify source length and identity, apply ops, then verify target length and identity
 - `patchInfo(allocator, diff_blob)` — extract metadata without applying
 - 6 tests: round-trip, malformed diff, wrong size, empty, patchInfo, large random
 

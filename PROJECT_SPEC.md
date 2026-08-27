@@ -31,16 +31,20 @@ For each gap between matched chunks, the Myers O(ND) diff algorithm runs on the 
 
 Reference: https://blog.robertelder.org/diff-algorithm/
 
-## Output Format (ZDIF v1)
+## File output format (ZDIF v2)
 
 The diff is encoded as a BLIP container:
 
 ```
 ARRAY (top-level, with xxHash64 integrity)
-+-- [0] RAW: magic "ZDIF" + version byte (0x01)
-+-- [1] RAW: metadata (32-byte seed + BLIP(chunk_size) + BLIP(size_a) + BLIP(size_b))
++-- [0] DATA: magic "ZDIF" + version byte (0x02)
++-- [1] DATA: metadata
+|   +-- 32-byte CDC seed
+|   +-- 32-byte BLAKE3 source identity
+|   +-- 32-byte BLAKE3 target identity
+|   +-- BLIP(chunk_size) + BLIP(size_a) + BLIP(size_b)
 +-- [2] ARRAY: instructions
-    +-- [i] RAW: opcode + BLIP fields [+ data]
+    +-- [i] DATA: opcode + BLIP fields [+ data]
 
 Opcodes:
   0x00 = Copy(offset_in_A, length)     — BLIP(offset) + BLIP(length)
@@ -48,6 +52,8 @@ Opcodes:
 ```
 
 BLIP is a variable-length integer encoding + container format. See [pmarreck/BLIP](https://github.com/pmarreck/BLIP).
+
+Apply checks the source length and BLAKE3 identity before allocating the reconstruction output. It checks the target length and BLAKE3 identity before returning bytes to the caller. ZDIF v1 is intentionally incompatible because it stored lengths but no file identities.
 
 ## CLI Interface
 
@@ -78,4 +84,4 @@ difz --about
 
 ## Status
 
-v0.1.0 — file and directory diff/patch paths are functional. The canonical suite has 91 Zig tests and 59 CLI integration checks. Filesystem metadata outside portable mode bits, including xattrs, ACLs, timestamps, hardlink identity, sparse layout, Finder flags, and external notarization state, remains outside DIFZTREE v1.
+v0.1.0 — file and directory diff/patch paths are functional. The canonical suite has 92 Zig tests and 61 CLI integration checks. Filesystem metadata outside portable mode bits, including xattrs, ACLs, timestamps, hardlink identity, sparse layout, Finder flags, and external notarization state, remains outside DIFZTREE v1.

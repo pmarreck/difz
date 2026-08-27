@@ -6,8 +6,8 @@ const diff_mod = @import("diff.zig");
 
 pub const DiffOp = diff_mod.DiffOp;
 
-/// Magic bytes identifying a ZDIF v1 container.
-const MAGIC = "ZDIF\x01";
+/// Magic bytes identifying the source- and target-bound ZDIF v2 container.
+const MAGIC = "ZDIF\x02";
 
 pub const DecodeResult = struct {
     ops: []DiffOp,
@@ -15,6 +15,8 @@ pub const DecodeResult = struct {
     target_chunk_size: usize,
     size_a: usize,
     size_b: usize,
+    source_blake3: [32]u8,
+    target_blake3: [32]u8,
 };
 
 pub const CompressionMode = enum(u8) {
@@ -237,8 +239,9 @@ fn compressOutput(allocator: std.mem.Allocator, top_array: []u8, mode: Compressi
 ///
 /// Format:
 ///   ARRAY (top-level)
-///   +-- [0] DATA: magic "ZDIF\x01"
-///   +-- [1] DATA: metadata (seed[32] + BLIP(chunk_size) + BLIP(size_a) + BLIP(size_b))
+///   +-- [0] DATA: magic "ZDIF\x02"
+///   +-- [1] DATA: metadata (seed[32] + source_blake3[32] + target_blake3[32]
+///                         + BLIP(chunk_size) + BLIP(size_a) + BLIP(size_b))
 ///   +-- [2] ARRAY: instructions
 ///       +-- [i] DATA: opcode + BLIP fields [+ data]
 pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult, compression: CompressionMode) EncodeError![]u8 {
@@ -246,10 +249,12 @@ pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult, compres
     const magic_data = try serializeDataContainer(allocator, MAGIC);
     defer allocator.free(magic_data);
 
-    // 2. Build metadata element: seed[32] + BLIP(chunk_size) + BLIP(size_a) + BLIP(size_b)
-    var meta_buf: [32 + 9 + 9 + 9]u8 = undefined; // 32 bytes seed + max 9 bytes each for 3 BLIP values
+    // 2. Build metadata element: seed and identities, then the three BLIP values.
+    var meta_buf: [96 + 9 + 9 + 9]u8 = undefined;
     @memcpy(meta_buf[0..32], &result.options.seed);
-    var meta_pos: usize = 32;
+    @memcpy(meta_buf[32..64], &result.source_blake3);
+    @memcpy(meta_buf[64..96], &result.target_blake3);
+    var meta_pos: usize = 96;
     meta_pos += try blipEncodeValue(@intCast(result.options.target_chunk_size), meta_buf[meta_pos..]);
     meta_pos += try blipEncodeValue(@intCast(result.size_a), meta_buf[meta_pos..]);
     meta_pos += try blipEncodeValue(@intCast(result.size_b), meta_buf[meta_pos..]);
@@ -340,7 +345,7 @@ pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!Decode
     // Parse outer ARRAY
     const outer = blip.array_mod.ArrayReader.init(inner_data) catch return error.InvalidMagic;
 
-    if (outer.elementCount() < 3) return error.InvalidMagic;
+    if (outer.elementCount() != 3) return error.InvalidMagic;
 
     // Element 0: magic (DATA container)
     const magic_view = outer.elementAt(0) catch return error.InvalidMagic;
@@ -350,11 +355,15 @@ pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!Decode
     // Element 1: metadata (DATA container)
     const meta_view = outer.elementAt(1) catch return error.InvalidLength;
     const meta_payload = meta_view.payloadSlice();
-    if (meta_payload.len < 32) return error.InvalidLength;
+    if (meta_payload.len < 96) return error.InvalidLength;
 
     var seed: [32]u8 = undefined;
     @memcpy(&seed, meta_payload[0..32]);
-    var mpos: usize = 32;
+    var source_blake3: [32]u8 = undefined;
+    @memcpy(&source_blake3, meta_payload[32..64]);
+    var target_blake3: [32]u8 = undefined;
+    @memcpy(&target_blake3, meta_payload[64..96]);
+    var mpos: usize = 96;
 
     const chunk_result = try blipDecodeValue(meta_payload[mpos..]);
     mpos += chunk_result.bytes_read;
@@ -365,7 +374,9 @@ pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!Decode
     const size_a: usize = @intCast(size_a_result.value);
 
     const size_b_result = try blipDecodeValue(meta_payload[mpos..]);
+    mpos += size_b_result.bytes_read;
     const size_b: usize = @intCast(size_b_result.value);
+    if (mpos != meta_payload.len) return error.InvalidLength;
 
     // Element 2: instructions array (ARRAY container)
     const instr_view = outer.elementAt(2) catch return error.InvalidLength;
@@ -441,6 +452,8 @@ pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!Decode
         .target_chunk_size = target_chunk_size,
         .size_a = size_a,
         .size_b = size_b,
+        .source_blake3 = source_blake3,
+        .target_blake3 = target_blake3,
     };
 }
 
@@ -481,6 +494,8 @@ test "encode then decode produces identical ops" {
     try testing.expectEqual(result.ops.len, decoded.ops.len);
     try testing.expectEqual(result.size_a, decoded.size_a);
     try testing.expectEqual(result.size_b, decoded.size_b);
+    try testing.expectEqualSlices(u8, &result.source_blake3, &decoded.source_blake3);
+    try testing.expectEqualSlices(u8, &result.target_blake3, &decoded.target_blake3);
     try testing.expectEqualSlices(u8, &result.options.seed, &decoded.seed);
     try testing.expectEqual(result.options.target_chunk_size, decoded.target_chunk_size);
 

@@ -1,10 +1,10 @@
 # difz
 
 [![CI](https://github.com/pmarreck/difz/actions/workflows/ci.yml/badge.svg?branch=yolo)](https://github.com/pmarreck/difz/actions/workflows/ci.yml)
-[![Garnix](https://img.shields.io/endpoint.svg?url=https://garnix.io/api/badges/pmarreck/difz&style=flat)](https://garnix.io/repo/pmarreck/difz)
+[![Garnix CI](https://img.shields.io/endpoint?url=https://garnix.io/api/badges/pmarreck/difz)](https://garnix.io/repo/pmarreck/difz)
 [![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 
-A fast binary differ for files and directory trees. File patches encode Copy and Insert instructions. Directory patches add a canonical manifest, ordered path filters, and BLAKE3 source, target, and patch identities. Directory apply writes a new sibling stage and commits it only after an independent filesystem re-snapshot matches the target identity.
+A fast binary differ for files and directory trees. File patches encode Copy and Insert instructions and bind them to BLAKE3 identities for both files. Apply rejects a wrong source before reconstruction and verifies the completed target. Directory patches add a canonical manifest, ordered path filters, and a whole-patch identity. Directory apply writes a new sibling stage and commits it only after an independent filesystem re-snapshot matches the target identity.
 
 ## Performance
 
@@ -37,7 +37,7 @@ Two-stage algorithm:
 
 2. **Elder/Myers O(ND) byte diff** — For gaps between matched chunks, a fine-grained byte-level diff produces compact Copy+Insert instructions. An edit distance cap prevents quadratic blowup on dissimilar regions.
 
-Output is encoded in [BLIP](https://github.com/pmarreck/BLIP) format with selectable compression (LZMA2, bzip2, LZ4, or none). By default (`--compress best`), LZMA2 and bzip2 are both tried and the smallest result is kept. LZ4 is available for speed-over-size use cases but is not included in `best` mode since it never wins on ratio.
+Output is encoded as source- and target-bound ZDIF v2 in [BLIP](https://github.com/pmarreck/BLIP) format with selectable compression (LZMA2, bzip2, LZ4, or none). By default (`--compress best`), LZMA2 and bzip2 are both tried and the smallest result is kept. LZ4 is available for speed-over-size use cases but is not included in `best` mode since it never wins on ratio. ZDIF v1 patches are rejected because that format has no cryptographic file identities.
 
 ## Usage
 
@@ -117,7 +117,7 @@ src/
 
 **Diff:** `(A, B) → CDC chunk both → BLAKE3 match → sort by B-offset → Elder diff gaps → encode ops → compress (best of lzma2/bzip2) → output`
 
-**Patch:** `(A, diff) → decompress (auto-detect algorithm) → decode ops → apply Copy/Insert against A → output B`
+**Patch:** `(A, diff) → decompress → decode → verify BLAKE3(A) → apply Copy/Insert → verify BLAKE3(B) → output B`
 
 ### Design decisions
 

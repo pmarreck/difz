@@ -25,6 +25,8 @@ pub const PatchError = error{
 	CompressionFailed,
 	DecompressionFailed,
 	UnsupportedCompression,
+	SourceHashMismatch,
+	TargetHashMismatch,
 };
 
 pub const PatchInfo = struct {
@@ -33,6 +35,8 @@ pub const PatchInfo = struct {
 	seed: [32]u8,
 	target_chunk_size: usize,
 	num_ops: usize,
+	source_blake3: [32]u8,
+	target_blake3: [32]u8,
 };
 
 /// Decode a BLIP-encoded diff blob and apply it to source file A to reconstruct file B.
@@ -40,9 +44,10 @@ pub const PatchInfo = struct {
 /// Steps:
 /// 1. Decode the BLIP diff blob using encoding.decode()
 /// 2. Verify size_a matches a.len (return error.SizeMismatch if not)
-/// 3. Walk the decoded ops: Copy -> append a[offset..offset+length], Insert -> append data
-/// 4. Verify result length matches size_b from metadata
-/// 5. Return the reconstructed B as an owned slice
+/// 3. Verify the BLAKE3 source identity before allocating reconstruction output
+/// 4. Walk the decoded ops: Copy -> append a[offset..offset+length], Insert -> append data
+/// 5. Verify result length and BLAKE3 target identity
+/// 6. Return the reconstructed B as an owned slice
 pub fn patch(allocator: std.mem.Allocator, a: []const u8, diff_blob: []const u8) PatchError![]u8 {
 	// 1. Decode the diff blob
 	const decoded = try encoding.decode(allocator, diff_blob);
@@ -52,6 +57,8 @@ pub fn patch(allocator: std.mem.Allocator, a: []const u8, diff_blob: []const u8)
 	if (decoded.size_a != a.len) {
 		return error.SizeMismatch;
 	}
+	const source_blake3 = diff_mod.fileIdentity(a);
+	if (!std.mem.eql(u8, &source_blake3, &decoded.source_blake3)) return error.SourceHashMismatch;
 
 	// 3. Walk ops and build output
 	const output = allocator.alloc(u8, decoded.size_b) catch return error.OutOfMemory;
@@ -88,6 +95,8 @@ pub fn patch(allocator: std.mem.Allocator, a: []const u8, diff_blob: []const u8)
 	if (pos != decoded.size_b) {
 		return error.SizeMismatch;
 	}
+	const target_blake3 = diff_mod.fileIdentity(output);
+	if (!std.mem.eql(u8, &target_blake3, &decoded.target_blake3)) return error.TargetHashMismatch;
 
 	return output;
 }
@@ -104,6 +113,8 @@ pub fn patchInfo(allocator: std.mem.Allocator, diff_blob: []const u8) PatchError
 		.seed = decoded.seed,
 		.target_chunk_size = decoded.target_chunk_size,
 		.num_ops = decoded.ops.len,
+		.source_blake3 = decoded.source_blake3,
+		.target_blake3 = decoded.target_blake3,
 	};
 }
 
@@ -143,6 +154,19 @@ test "patch with wrong source file size returns error" {
 	try testing.expectError(error.SizeMismatch, patch_result);
 }
 
+test "patch rejects a wrong same-sized source before reconstruction" {
+	const source = "the correct source bytes";
+	const target = "the desired target bytes";
+	const wrong_source = "Xhe correct source bytes";
+	try testing.expectEqual(source.len, wrong_source.len);
+	const options = diff_mod.DiffOptions{ .seed = [_]u8{0} ** 32, .target_chunk_size = 64 };
+	const result = try diff_mod.computeDiff(testing.allocator, source, target, options);
+	defer diff_mod.freeDiffResult(testing.allocator, result);
+	const encoded = try encoding.encode(testing.allocator, result, .none);
+	defer testing.allocator.free(encoded);
+	try testing.expectError(error.SourceHashMismatch, patch(testing.allocator, wrong_source, encoded));
+}
+
 test "patch empty files" {
 	const options = diff_mod.DiffOptions{ .seed = [_]u8{0} ** 32, .target_chunk_size = 64 };
 	const result = try diff_mod.computeDiff(testing.allocator, "", "", options);
@@ -167,6 +191,20 @@ test "patchInfo returns correct metadata" {
 	try testing.expectEqual(@as(usize, 11), info.size_b);
 	try testing.expectEqualSlices(u8, &([_]u8{42} ** 32), &info.seed);
 	try testing.expectEqual(@as(usize, 256), info.target_chunk_size);
+	try testing.expectEqualSlices(u8, &diff_mod.fileIdentity(a), &info.source_blake3);
+	try testing.expectEqualSlices(u8, &diff_mod.fileIdentity(b), &info.target_blake3);
+}
+
+test "patch rejects a valid container with the wrong target identity" {
+	const source = "source bytes";
+	const target = "target bytes";
+	const options = diff_mod.DiffOptions{ .seed = [_]u8{0} ** 32, .target_chunk_size = 64 };
+	var result = try diff_mod.computeDiff(testing.allocator, source, target, options);
+	defer diff_mod.freeDiffResult(testing.allocator, result);
+	result.target_blake3[0] ^= 1;
+	const encoded = try encoding.encode(testing.allocator, result, .none);
+	defer testing.allocator.free(encoded);
+	try testing.expectError(error.TargetHashMismatch, patch(testing.allocator, source, encoded));
 }
 
 test "round-trip with large random data" {

@@ -15,7 +15,15 @@ pub const DiffResult = struct {
 	options: DiffOptions,
 	size_a: usize,
 	size_b: usize,
+	source_blake3: [32]u8 = [_]u8{0} ** 32,
+	target_blake3: [32]u8 = [_]u8{0} ** 32,
 };
+
+pub fn fileIdentity(data: []const u8) [32]u8 {
+	var digest: [32]u8 = undefined;
+	std.crypto.hash.Blake3.hash(data, &digest, .{});
+	return digest;
+}
 
 /// Threshold above which a gap uses the rolling hash matcher instead of Elder diff.
 /// Myers O(ND) is O(D*N) — for a 100KB gap with D=2000, that's 200M ops.
@@ -314,6 +322,8 @@ pub fn computeDiff(allocator: std.mem.Allocator, a: []const u8, b: []const u8, o
 		.options = options,
 		.size_a = a.len,
 		.size_b = b.len,
+		.source_blake3 = fileIdentity(a),
+		.target_blake3 = fileIdentity(b),
 	};
 }
 
@@ -440,4 +450,6 @@ test "diff stores correct metadata" {
 	try testing.expectEqual(@as(usize, 3), result.size_b);
 	try testing.expectEqualSlices(u8, &([_]u8{42} ** 32), &result.options.seed);
 	try testing.expectEqual(@as(usize, 128), result.options.target_chunk_size);
+	try testing.expectEqualSlices(u8, &fileIdentity("abc"), &result.source_blake3);
+	try testing.expectEqualSlices(u8, &fileIdentity("xyz"), &result.target_blake3);
 }

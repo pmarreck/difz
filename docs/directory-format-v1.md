@@ -4,7 +4,7 @@ Status: implementation contract for the first directory-capable difz release.
 
 ## Scope
 
-Existing file-to-file patches keep the current `ZDIF\x01` format. Directory-to-directory patches use `DIFZTREE` v1. Inputs must have matching kinds. A file and a directory cannot be diffed, and sockets, devices, FIFOs, and other special files are rejected.
+File-to-file patches use source- and target-bound `ZDIF\x02`. Directory-to-directory patches use `DIFZTREE` v1 and embed ZDIF v2 for file deltas. Inputs must have matching kinds. A file and a directory cannot be diffed, and sockets, devices, FIFOs, and other special files are rejected.
 
 A directory patch reconstructs a new target under a staging root. It never changes the source tree. After reconstruction, difz snapshots and hashes the staging tree again. Success requires the new hash to match the target identity stored in the patch. The caller decides whether and how to replace a live application tree.
 

@@ -165,12 +165,33 @@ else
 	fail "patch exits 0" "got exit code $PATCH_RC, stderr: $PATCH_STDERR"
 fi
 
-# Compare
-if diff -q "$TEST_DIR/b.txt" "$TEST_DIR/b_reconstructed.txt" >/dev/null 2>&1; then
-	pass "round-trip: reconstructed matches original b"
+# Compare through an external cryptographic oracle rather than difz internals.
+TARGET_SHA256=$(sha256sum "$TEST_DIR/b.txt" | cut -d ' ' -f 1)
+RECONSTRUCTED_SHA256=$(sha256sum "$TEST_DIR/b_reconstructed.txt" | cut -d ' ' -f 1)
+if [ "$TARGET_SHA256" = "$RECONSTRUCTED_SHA256" ]; then
+	pass "round-trip: external SHA-256 matches original b"
 else
-	fail "round-trip: reconstructed matches original b" \
-		"expected: $(cat "$TEST_DIR/b.txt"), got: $(cat "$TEST_DIR/b_reconstructed.txt")"
+	fail "round-trip: external SHA-256 matches original b" \
+		"expected: $TARGET_SHA256, got: $RECONSTRUCTED_SHA256"
+fi
+
+{
+	printf 'X'
+	tail -c +2 "$TEST_DIR/a.txt"
+} > "$TEST_DIR/wrong_same_size.txt"
+if [ "$(wc -c < "$TEST_DIR/a.txt")" = "$(wc -c < "$TEST_DIR/wrong_same_size.txt")" ] &&
+	! cmp -s "$TEST_DIR/a.txt" "$TEST_DIR/wrong_same_size.txt"; then
+	pass "wrong-source fixture has equal length and different bytes"
+else
+	fail "wrong-source fixture has equal length and different bytes"
+fi
+WRONG_FILE_STDERR=$("$DIFZ" --patch --no-progress \
+	"$TEST_DIR/wrong_same_size.txt" "$TEST_DIR/diff.bin" -o "$TEST_DIR/wrong_file_output.txt" 2>&1)
+WRONG_FILE_RC=$?
+if [ $WRONG_FILE_RC -ne 0 ] && [ ! -e "$TEST_DIR/wrong_file_output.txt" ]; then
+	pass "wrong same-sized file source creates no output"
+else
+	fail "wrong same-sized file source creates no output" "rc=$WRONG_FILE_RC, stderr: $WRONG_FILE_STDERR"
 fi
 
 # ── Test: round-trip with larger/binary data ───────────────────────────
