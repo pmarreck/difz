@@ -46,7 +46,7 @@ Glob behavior matches dirtree's PCRE2-backed path globs:
 - `\*`, `\?`, and `\[` are literals, including when embedded in a pattern;
 - matching is case-sensitive on every platform and applies to the complete canonical relative path.
 
-Traversal does not stop at an excluded directory because a later rule may re-include a descendant. Any included descendant forces its directory ancestors into the snapshot as structural entries. The patch stores the normalized ordered rules so apply uses the same source scope. Changes outside that scope do not affect the source or target identity.
+Traversal does not stop at an excluded directory because a later rule may re-include a descendant. Any included descendant forces its directory ancestors into the snapshot as structural entries. The patch stores ordered rule actions and patterns as supplied, including a leading `!`, so apply uses the same source scope. Changes outside that scope do not affect the source or target identity.
 
 ## Tree identity
 
@@ -79,7 +79,10 @@ rule_count                  u32
 entry_count                 u32
 source_tree_blake3          32 bytes
 target_tree_blake3          32 bytes
+patch_blake3                32 bytes
 ```
+
+`patch_blake3` is BLAKE3 over domain `DIFZTREE-PATCH\x01`, the preceding 88 header bytes, and the complete body. It binds every encoded byte, including file-delta metadata that does not affect reconstruction.
 
 Each ordered filter rule follows:
 

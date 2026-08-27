@@ -3,6 +3,7 @@ ver=1.2
 annotate=[
 	docs/directory-format-v1.md = DIFZTREE v1 path, filter, identity, encoding, parser-limit, and staging contract
 	src/directory.zig = Canonical directory entries, path and hierarchy validation, and BLAKE3 tree identity
+	src/directory_patch.zig = DIFZTREE v1 deterministic encoder, bounded parser, mutation checksum, and in-memory applicator
 	src/glob.zig = Dirtree-compatible glob-to-PCRE2 conversion with escaped wildcard handling
 	src/path_filter.zig = Ordered include and exclude filter classifier with later-rule precedence
 	src/pcre2.zig = UTF-8 PCRE2 wrapper for anchored path classification

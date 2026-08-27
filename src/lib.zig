@@ -132,7 +132,8 @@ test {
     _ = @import("patch.zig");
     _ = @import("inspect.zig");
     _ = @import("directory.zig");
-    _ = @import("path_filter.zig");
+	_ = @import("path_filter.zig");
+	_ = @import("directory_patch.zig");
 }
 
 test "C FFI: difz_diff and difz_patch round-trip" {
