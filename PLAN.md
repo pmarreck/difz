@@ -1,5 +1,11 @@
 # Difz Implementation Plan
 
+## Active Work — LuaJIT-only Random Dependency
+
+- [x] Add a flake contract proving the benchmark selects `random-luajit` at definitive upstream commit `8ddd6aac19be75cacf09128cd3ea75faf9a08dc4`. The exact-set assertion rejects both the aggregate alias and aggregate-plus-Lua combinations. (2026-08-27 3:52pm EDT)
+- [x] Repin `random`, replace the aggregate selector, and prove the benchmark's declared inputs and installed closure exclude the other language implementations. The selected closure has 31 paths totaling 125,312,944 bytes; separate direct-input and transitive-runtime checks find no Zig, Rust/Cargo, Lean, or their `random` packages. (2026-08-27 3:52pm EDT)
+- [ ] Run the focused contract and canonical suite, commit the known-green change, notify `random`, and recoverably clear all four handled notes. Curiosity poke: corrected and superseded notes must not leave stale obligations in the inbox.
+
 ## Active Work — Benchmark Corpus and Generator Repair
 
 - [x] Reproduce the broken `random` invocation with a persistent fail-closed fixture-generation test: nonzero generator exits and successful truncation both stop before benchmarking, and captured diagnostics distinguish the failures. The test also exposed the unchecked protected-`dd` overwrite, now replaced by checked prefix/suffix assembly. (2026-08-27 12:32pm EDT)

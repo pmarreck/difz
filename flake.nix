@@ -18,7 +18,7 @@
 		] (system:
 			let
 				pkgs = import nixpkgs { inherit system; };
-				randomPackage = random.packages.${system}.default;
+				randomPackage = random.packages.${system}.random-luajit;
 
 				# Single hash for the entire Zig dependency tree.
 				# To update: set to "" or pkgs.lib.fakeHash, run `nix build`,
