@@ -21,10 +21,19 @@ NC='\033[0m'
 # ── Paths ─────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DIFZ="$SCRIPT_DIR/zig-out/bin/difz"
+DIFZ="${DIFZ:-$SCRIPT_DIR/zig-out/bin/difz}"
+RANDOM_BIN="${RANDOM_BIN:-random}"
+BUILD_SCRIPT="${BUILD_SCRIPT:-$SCRIPT_DIR/build}"
+GNU_TIME_BIN="${GNU_TIME_BIN:-$(type -P time)}"
 TMPDIR_BM="${TMPDIR:-/tmp}/difz-bench-$$"
 LOG_DIR="$SCRIPT_DIR/tests/benchmark"
-LOG_FILE="$LOG_DIR/benchmark_log.csv"
+LEGACY_LOG_FILE="$LOG_DIR/benchmark_log.csv"
+LOG_FILE="$LOG_DIR/benchmark_log_v2.csv"
+
+# shellcheck source=tests/benchmark/corpus.bash
+source "$SCRIPT_DIR/tests/benchmark/corpus.bash"
+# shellcheck source=tests/benchmark/results.bash
+source "$SCRIPT_DIR/tests/benchmark/results.bash"
 
 mkdir -p "$TMPDIR_BM" "$LOG_DIR"
 trap 'rm -rf "$TMPDIR_BM"' EXIT
@@ -49,7 +58,7 @@ warn() {
 }
 
 err() {
-	echo -e "  ${RED}ERROR${NC} $1"
+	echo -e "  ${RED}ERROR${NC} $1" >&2
 }
 
 # Format bytes in human-readable form
@@ -71,17 +80,58 @@ generate_test_pair() {
 	local name="$1" size="$2" similarity="$3" seed="$4"
 	local file_a="$TMPDIR_BM/${name}_a"
 	local file_b="$TMPDIR_BM/${name}_b"
+	local actual_size
+
+	if [ "$size" -le 0 ]; then
+		err "$name declares a non-positive fixture size: $size"
+		return 1
+	fi
 
 	# Create file_a from deterministic seeded random bytes
-	random --seed "$seed" 0 255 -c "$size" -b > "$file_a" 2>/dev/null
+	if ! "$RANDOM_BIN" --seed "$seed" -b -c "$size" > "$file_a" 2>/dev/null; then
+		err "random failed while generating $file_a"
+		return 1
+	fi
+	actual_size=$(wc -c < "$file_a" | tr -d ' ')
+	if [ "$actual_size" -ne "$size" ]; then
+		err "$file_a has $actual_size bytes; expected $size"
+		return 1
+	fi
 
 	# Create file_b: deterministic but different (seed + 10000)
-	random --seed "$(( seed + 10000 ))" 0 255 -c "$size" -b > "$file_b" 2>/dev/null
+	if ! "$RANDOM_BIN" --seed "$(( seed + 10000 ))" -b -c "$size" > "$file_b" 2>/dev/null; then
+		err "random failed while generating $file_b"
+		return 1
+	fi
+	actual_size=$(wc -c < "$file_b" | tr -d ' ')
+	if [ "$actual_size" -ne "$size" ]; then
+		err "$file_b has $actual_size bytes; expected $size"
+		return 1
+	fi
 
-	# Then overwrite the first (similarity)% of _b with bytes from _a
+	# Rebuild B from A's shared prefix plus B's random suffix. Avoid bytewise
+	# in-place writes, which are slow and can be rejected by safe dd wrappers.
 	local keep=$(( size * similarity / 100 ))
 	if [ "$keep" -gt 0 ]; then
-		dd if="$file_a" of="$file_b" bs=1 count="$keep" conv=notrunc 2>/dev/null
+		local rebuilt_b="$TMPDIR_BM/${name}_b.rebuilt"
+		if ! head -c "$keep" "$file_a" > "$rebuilt_b"; then
+			err "could not read the shared prefix for $name"
+			return 1
+		fi
+		if [ "$keep" -lt "$size" ] &&
+			! tail -c "+$(( keep + 1 ))" "$file_b" >> "$rebuilt_b"; then
+			err "could not read the random suffix for $name"
+			return 1
+		fi
+		if ! mv "$rebuilt_b" "$file_b"; then
+			err "could not install rebuilt target for $name"
+			return 1
+		fi
+	fi
+	actual_size=$(wc -c < "$file_b" | tr -d ' ')
+	if [ "$actual_size" -ne "$size" ]; then
+		err "$file_b has $actual_size bytes after prefix assembly; expected $size"
+		return 1
 	fi
 
 	info "  ${name}: $(human_bytes "$size"), ${similarity}% similar (seed=$seed)"
@@ -108,16 +158,21 @@ now_ns() {
 	fi
 }
 
-# Run a single timed command and capture wall-clock time in milliseconds.
-# Outputs: <milliseconds> <exit_code>
+# Run a single timed command and capture wall time plus peak resident memory.
+# Outputs: <milliseconds> <peak_rss_kib> <exit_code>
 time_cmd() {
-	local start end elapsed rc
+	local start end elapsed rc peak_rss
+	local rss_file="$TMPDIR_BM/time-rss"
 	start=$(now_ns)
-	"$@" > /dev/null 2>&1
+	"$GNU_TIME_BIN" -f '%M' -o "$rss_file" "$@" > /dev/null 2>&1
 	rc=$?
 	end=$(now_ns)
 	elapsed=$(( (end - start) / 1000000 ))
-	echo "$elapsed $rc"
+	peak_rss=$(tr -d '[:space:]' < "$rss_file")
+	if ! echo "$peak_rss" | grep -qE '^[0-9]+$'; then
+		peak_rss=0
+	fi
+	echo "$elapsed $peak_rss $rc"
 }
 
 # Format a time value: append "ms" only for numeric values
@@ -134,7 +189,7 @@ fmt_time() {
 
 header "Building difz (ReleaseFast)"
 
-if ! zig build 2>&1; then
+if ! "$BUILD_SCRIPT" 2>&1; then
 	err "Build failed!"
 	exit 1
 fi
@@ -161,12 +216,14 @@ info "$about_output"
 header "Generating test data"
 
 # Name              Size        Similarity  Seed
-generate_test_pair "1M_90"     1048576    90          42
-generate_test_pair "10M_90"    10485760   90          43
-generate_test_pair "20M_90"    20971520   90          44
-generate_test_pair "50M_90"    52428800   90          45
-generate_test_pair "20M_99"    20971520   99          46
-generate_test_pair "20M_50"    20971520   50          47
+generate_test_pair "1M_90"     1048576    90          42 || exit 1
+generate_test_pair "10M_90"    10485760   90          43 || exit 1
+generate_test_pair "20M_90"    20971520   90          44 || exit 1
+generate_test_pair "50M_90"    52428800   90          45 || exit 1
+generate_test_pair "20M_99"    20971520   99          46 || exit 1
+generate_test_pair "20M_50"    20971520   50          47 || exit 1
+generate_interleaved_pair "$RANDOM_BIN" "$TMPDIR_BM" "1M_interleaved" 1048576 9001 || exit 1
+generate_binary_shape_pair "$TMPDIR_BM" "rebuilt_binary" "$DIFZ" || exit 1
 
 ok "Test data generated in $TMPDIR_BM"
 
@@ -187,13 +244,26 @@ declare -a BM_ZSTD_DIFF_MS=()
 declare -a BM_ZSTD_PATCH_MS=()
 declare -a BM_ZSTD_SIZE=()
 declare -a BM_FILE_SIZE=()
+declare -a BM_TARGET_SIZE=()
+declare -a BM_CORPUS_SHAPE=()
+declare -a BM_OP_COUNT=()
+declare -a BM_MIN_OPS=()
+declare -a BM_DIFZ_DIFF_RSS_KB=()
+declare -a BM_DIFZ_PATCH_RSS_KB=()
 
 run_benchmark() {
 	local name="$1"
+	local corpus_shape="$2"
+	local min_ops="$3"
 	local file_a="$TMPDIR_BM/${name}_a"
 	local file_b="$TMPDIR_BM/${name}_b"
-	local file_size
+	local file_size target_size
 	file_size=$(wc -c < "$file_a" | tr -d ' ')
+	target_size=$(wc -c < "$file_b" | tr -d ' ')
+	if [ "$file_size" -le 0 ] || [ "$target_size" -le 0 ]; then
+		err "$name contains an empty benchmark input"
+		return 1
+	fi
 
 	local difz_diff="$TMPDIR_BM/${name}_difz.diff"
 	local bsdiff_diff="$TMPDIR_BM/${name}_bsdiff.diff"
@@ -215,18 +285,39 @@ run_benchmark() {
 	# difz diff
 	result=$(time_cmd "$DIFZ" --no-progress "$file_a" "$file_b" -o "$difz_diff")
 	ms=$(echo "$result" | cut -d' ' -f1)
-	rc=$(echo "$result" | cut -d' ' -f2)
+	local difz_diff_rss_kb
+	difz_diff_rss_kb=$(echo "$result" | cut -d' ' -f2)
+	rc=$(echo "$result" | cut -d' ' -f3)
 	if [ "$rc" -ne 0 ]; then
 		warn "difz diff failed (rc=$rc)"
 		ms="FAIL"
 	fi
 	local difz_diff_ms="$ms"
-	info "  difz:   $(fmt_time "$difz_diff_ms")"
+	info "  difz:   $(fmt_time "$difz_diff_ms"), peak RSS ${difz_diff_rss_kb} KiB"
+
+	local op_count=0
+	if [ "$difz_diff_ms" != "FAIL" ] && [ -f "$difz_diff" ]; then
+		local inspect_file="$TMPDIR_BM/${name}_inspect.txt"
+		if ! "$DIFZ" --inspect --truncate 0 "$difz_diff" > "$inspect_file" 2>/dev/null; then
+			err "$name operation count inspection failed"
+			return 1
+		fi
+		op_count=$(sed -n 's/^difz inspect: \([0-9][0-9]*\) ops,.*/\1/p' "$inspect_file")
+		if ! echo "$op_count" | grep -qE '^[0-9]+$'; then
+			err "$name operation count could not be parsed"
+			return 1
+		fi
+		if [ "$op_count" -lt "$min_ops" ]; then
+			err "$name produced $op_count operations; minimum is $min_ops"
+			return 1
+		fi
+		info "  operations: $op_count (minimum $min_ops)"
+	fi
 
 	# bsdiff diff
 	result=$(time_cmd bsdiff "$file_a" "$file_b" "$bsdiff_diff")
 	ms=$(echo "$result" | cut -d' ' -f1)
-	rc=$(echo "$result" | cut -d' ' -f2)
+	rc=$(echo "$result" | cut -d' ' -f3)
 	if [ "$rc" -ne 0 ]; then
 		warn "bsdiff failed (rc=$rc)"
 		ms="FAIL"
@@ -237,7 +328,7 @@ run_benchmark() {
 	# xdelta3 diff
 	result=$(time_cmd xdelta3 -f -e -s "$file_a" "$file_b" "$xdelta_diff")
 	ms=$(echo "$result" | cut -d' ' -f1)
-	rc=$(echo "$result" | cut -d' ' -f2)
+	rc=$(echo "$result" | cut -d' ' -f3)
 	if [ "$rc" -ne 0 ]; then
 		warn "xdelta3 failed (rc=$rc)"
 		ms="FAIL"
@@ -248,7 +339,7 @@ run_benchmark() {
 	# zstd --patch-from diff
 	result=$(time_cmd zstd -f --patch-from="$file_a" "$file_b" -o "$zstd_diff")
 	ms=$(echo "$result" | cut -d' ' -f1)
-	rc=$(echo "$result" | cut -d' ' -f2)
+	rc=$(echo "$result" | cut -d' ' -f3)
 	if [ "$rc" -ne 0 ]; then
 		warn "zstd --patch-from failed (rc=$rc)"
 		ms="FAIL"
@@ -263,7 +354,9 @@ run_benchmark() {
 	if [ -f "$difz_diff" ]; then
 		result=$(time_cmd "$DIFZ" --patch --no-progress "$file_a" "$difz_diff" -o "$difz_recon")
 		ms=$(echo "$result" | cut -d' ' -f1)
-		rc=$(echo "$result" | cut -d' ' -f2)
+		local difz_patch_rss_kb
+		difz_patch_rss_kb=$(echo "$result" | cut -d' ' -f2)
+		rc=$(echo "$result" | cut -d' ' -f3)
 		if [ "$rc" -ne 0 ]; then
 			warn "difz patch failed (rc=$rc)"
 			ms="FAIL"
@@ -276,15 +369,16 @@ run_benchmark() {
 		fi
 	else
 		ms="SKIP"
+		difz_patch_rss_kb=0
 	fi
 	local difz_patch_ms="$ms"
-	info "  difz:   $(fmt_time "$difz_patch_ms")"
+	info "  difz:   $(fmt_time "$difz_patch_ms"), peak RSS ${difz_patch_rss_kb} KiB"
 
 	# bspatch
 	if [ -f "$bsdiff_diff" ]; then
 		result=$(time_cmd bspatch "$file_a" "$bsdiff_recon" "$bsdiff_diff")
 		ms=$(echo "$result" | cut -d' ' -f1)
-		rc=$(echo "$result" | cut -d' ' -f2)
+		rc=$(echo "$result" | cut -d' ' -f3)
 		if [ "$rc" -ne 0 ]; then
 			warn "bspatch failed (rc=$rc)"
 			ms="FAIL"
@@ -304,7 +398,7 @@ run_benchmark() {
 	if [ -f "$xdelta_diff" ]; then
 		result=$(time_cmd xdelta3 -f -d -s "$file_a" "$xdelta_diff" "$xdelta_recon")
 		ms=$(echo "$result" | cut -d' ' -f1)
-		rc=$(echo "$result" | cut -d' ' -f2)
+		rc=$(echo "$result" | cut -d' ' -f3)
 		if [ "$rc" -ne 0 ]; then
 			warn "xdelta3 decode failed (rc=$rc)"
 			ms="FAIL"
@@ -324,7 +418,7 @@ run_benchmark() {
 	if [ -f "$zstd_diff" ]; then
 		result=$(time_cmd zstd -d -f --patch-from="$file_a" "$zstd_diff" -o "$zstd_recon")
 		ms=$(echo "$result" | cut -d' ' -f1)
-		rc=$(echo "$result" | cut -d' ' -f2)
+		rc=$(echo "$result" | cut -d' ' -f3)
 		if [ "$rc" -ne 0 ]; then
 			warn "zstd decode failed (rc=$rc)"
 			ms="FAIL"
@@ -373,10 +467,16 @@ run_benchmark() {
 	# Accumulate results
 	BM_NAMES+=("$name")
 	BM_FILE_SIZE+=("$file_size")
+	BM_TARGET_SIZE+=("$target_size")
+	BM_CORPUS_SHAPE+=("$corpus_shape")
+	BM_OP_COUNT+=("$op_count")
+	BM_MIN_OPS+=("$min_ops")
 	BM_DIFZ_DIFF_MS+=("$difz_diff_ms")
+	BM_DIFZ_DIFF_RSS_KB+=("$difz_diff_rss_kb")
 	BM_BSDIFF_DIFF_MS+=("$bsdiff_diff_ms")
 	BM_XDELTA_DIFF_MS+=("$xdelta_diff_ms")
 	BM_DIFZ_PATCH_MS+=("$difz_patch_ms")
+	BM_DIFZ_PATCH_RSS_KB+=("$difz_patch_rss_kb")
 	BM_BSPATCH_PATCH_MS+=("$bspatch_patch_ms")
 	BM_XDELTA_PATCH_MS+=("$xdelta_patch_ms")
 	BM_DIFZ_SIZE+=("$difz_sz")
@@ -447,12 +547,14 @@ hyperfine \
 
 # ── 6. Run quick benchmarks for all test cases ───────────────────────
 
-run_benchmark "1M_90"
-run_benchmark "10M_90"
-run_benchmark "20M_90"
-run_benchmark "50M_90"
-run_benchmark "20M_99"
-run_benchmark "20M_50"
+run_benchmark "1M_90" "shared_prefix" 1 || exit 1
+run_benchmark "10M_90" "shared_prefix" 1 || exit 1
+run_benchmark "20M_90" "shared_prefix" 1 || exit 1
+run_benchmark "50M_90" "shared_prefix" 1 || exit 1
+run_benchmark "20M_99" "shared_prefix" 1 || exit 1
+run_benchmark "20M_50" "shared_prefix" 1 || exit 1
+run_benchmark "1M_interleaved" "seeded_interleaved" 5000 || exit 1
+run_benchmark "rebuilt_binary" "releasefast_binary_shape" 10000 || exit 1
 
 # ── 7. Summary table ─────────────────────────────────────────────────
 
@@ -494,87 +596,91 @@ done
 printf "\n"
 echo -e "  ${DIM}zd=difz  bs=bsdiff  xd=xdelta3  zs=zstd  diff=create  pat=patch/apply  sz=diff file size${NC}"
 
+printf "\n  ${BOLD}%-20s %12s %12s %14s %14s${NC}\n" \
+	"Test" "Ops" "Minimum" "Diff RSS KiB" "Patch RSS KiB"
+for i in "${!BM_NAMES[@]}"; do
+	printf "  %-20s %12s %12s %14s %14s\n" \
+		"${BM_NAMES[$i]}" "${BM_OP_COUNT[$i]}" "${BM_MIN_OPS[$i]}" \
+		"${BM_DIFZ_DIFF_RSS_KB[$i]}" "${BM_DIFZ_PATCH_RSS_KB[$i]}"
+done
+
 # ── 8. Log results to CSV ────────────────────────────────────────────
 
 header "Logging results"
 
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# Create CSV header if file doesn't exist
-if [ ! -f "$LOG_FILE" ]; then
-	echo "timestamp,test_name,file_size,difz_diff_ms,bsdiff_diff_ms,xdelta_diff_ms,zstd_diff_ms,difz_patch_ms,bspatch_patch_ms,xdelta_patch_ms,zstd_patch_ms,difz_size,bsdiff_size,xdelta_size,zstd_size" > "$LOG_FILE"
-fi
+init_benchmark_log_v2 "$LOG_FILE"
 
 for i in "${!BM_NAMES[@]}"; do
-	echo "${TIMESTAMP},${BM_NAMES[$i]},${BM_FILE_SIZE[$i]},${BM_DIFZ_DIFF_MS[$i]},${BM_BSDIFF_DIFF_MS[$i]},${BM_XDELTA_DIFF_MS[$i]},${BM_ZSTD_DIFF_MS[$i]},${BM_DIFZ_PATCH_MS[$i]},${BM_BSPATCH_PATCH_MS[$i]},${BM_XDELTA_PATCH_MS[$i]},${BM_ZSTD_PATCH_MS[$i]},${BM_DIFZ_SIZE[$i]},${BM_BSDIFF_SIZE[$i]},${BM_XDELTA_SIZE[$i]},${BM_ZSTD_SIZE[$i]}" >> "$LOG_FILE"
+	echo "${TIMESTAMP},${BM_NAMES[$i]},${BM_CORPUS_SHAPE[$i]},${BM_FILE_SIZE[$i]},${BM_TARGET_SIZE[$i]},${BM_OP_COUNT[$i]},${BM_MIN_OPS[$i]},${BM_DIFZ_DIFF_MS[$i]},${BM_DIFZ_DIFF_RSS_KB[$i]},${BM_BSDIFF_DIFF_MS[$i]},${BM_XDELTA_DIFF_MS[$i]},${BM_ZSTD_DIFF_MS[$i]},${BM_DIFZ_PATCH_MS[$i]},${BM_DIFZ_PATCH_RSS_KB[$i]},${BM_BSPATCH_PATCH_MS[$i]},${BM_XDELTA_PATCH_MS[$i]},${BM_ZSTD_PATCH_MS[$i]},${BM_DIFZ_SIZE[$i]},${BM_BSDIFF_SIZE[$i]},${BM_XDELTA_SIZE[$i]},${BM_ZSTD_SIZE[$i]}" >> "$LOG_FILE"
 done
 
 ok "Results appended to $LOG_FILE"
+info "Historical results remain unchanged in $LEGACY_LOG_FILE"
 
 # ── 9. Regression detection ──────────────────────────────────────────
 
 header "Regression check"
 
-# Find the previous run's timestamp (second-most-recent unique timestamp)
-if [ -f "$LOG_FILE" ]; then
-	# Get unique timestamps, skip header
-	PREV_TIMESTAMP=$(tail -n +2 "$LOG_FILE" | cut -d',' -f1 | sort -u | tail -n2 | head -n1)
+PREV_TIMESTAMP=$(tail -n +2 "$LOG_FILE" | cut -d',' -f1 | sort -u | tail -n2 | head -n1)
+REGRESSIONS=0
 
-	if [ "$PREV_TIMESTAMP" != "$TIMESTAMP" ] && [ -n "$PREV_TIMESTAMP" ]; then
-		info "Comparing against previous run: $PREV_TIMESTAMP"
+if [ "$PREV_TIMESTAMP" != "$TIMESTAMP" ] && [ -n "$PREV_TIMESTAMP" ]; then
+	info "Comparing against previous v2 run: $PREV_TIMESTAMP"
 
-		REGRESSIONS=0
+	for i in "${!BM_NAMES[@]}"; do
+		test_name="${BM_NAMES[$i]}"
+		prev_row=$(grep "^${PREV_TIMESTAMP},${test_name}," "$LOG_FILE" | head -1)
+		if [ -z "$prev_row" ]; then
+			continue
+		fi
 
-		for i in "${!BM_NAMES[@]}"; do
-			test_name="${BM_NAMES[$i]}"
+		prev_ops=$(echo "$prev_row" | cut -d',' -f6)
+		prev_diff_ms=$(echo "$prev_row" | cut -d',' -f8)
+		prev_patch_ms=$(echo "$prev_row" | cut -d',' -f13)
+		prev_patch_rss_kb=$(echo "$prev_row" | cut -d',' -f14)
+		prev_difz_size=$(echo "$prev_row" | cut -d',' -f18)
+		curr_ops="${BM_OP_COUNT[$i]}"
+		curr_diff_ms="${BM_DIFZ_DIFF_MS[$i]}"
+		curr_patch_ms="${BM_DIFZ_PATCH_MS[$i]}"
+		curr_patch_rss_kb="${BM_DIFZ_PATCH_RSS_KB[$i]}"
+		curr_difz_size="${BM_DIFZ_SIZE[$i]}"
 
-			# Find the previous row for this test
-			prev_row=$(grep "^${PREV_TIMESTAMP},${test_name}," "$LOG_FILE" | head -1)
-			if [ -z "$prev_row" ]; then
-				continue
-			fi
-
-			# Extract previous difz values
-			prev_difz_diff_ms=$(echo "$prev_row" | cut -d',' -f4)
-			prev_difz_size=$(echo "$prev_row" | cut -d',' -f10)
-			curr_difz_diff_ms="${BM_DIFZ_DIFF_MS[$i]}"
-			curr_difz_size="${BM_DIFZ_SIZE[$i]}"
-
-			# Skip non-numeric values
-			if ! echo "$prev_difz_diff_ms" | grep -qE '^[0-9]+$'; then continue; fi
-			if ! echo "$curr_difz_diff_ms" | grep -qE '^[0-9]+$'; then continue; fi
-			if ! echo "$prev_difz_size" | grep -qE '^[0-9]+$'; then continue; fi
-			if ! echo "$curr_difz_size" | grep -qE '^[0-9]+$'; then continue; fi
-
-			# Check speed regression (>10% slower)
-			if [ "$prev_difz_diff_ms" -gt 0 ]; then
-				threshold=$(( prev_difz_diff_ms * 110 / 100 ))
-				if [ "$curr_difz_diff_ms" -gt "$threshold" ]; then
-					warn "$test_name: difz diff speed regressed: ${prev_difz_diff_ms}ms -> ${curr_difz_diff_ms}ms (>10%)"
-					REGRESSIONS=$((REGRESSIONS + 1))
-				fi
-			fi
-
-			# Check size regression (>10% larger)
-			if [ "$prev_difz_size" -gt 0 ]; then
-				size_threshold=$(( prev_difz_size * 110 / 100 ))
-				if [ "$curr_difz_size" -gt "$size_threshold" ]; then
-					warn "$test_name: difz diff size regressed: ${prev_difz_size} -> ${curr_difz_size} bytes (>10%)"
-					REGRESSIONS=$((REGRESSIONS + 1))
-				fi
+		for value in "$prev_ops" "$prev_diff_ms" "$prev_patch_ms" \
+			"$prev_patch_rss_kb" "$prev_difz_size" "$curr_ops" "$curr_diff_ms" \
+			"$curr_patch_ms" "$curr_patch_rss_kb" "$curr_difz_size"; do
+			if ! echo "$value" | grep -qE '^[0-9]+$'; then
+				warn "$test_name: skipped regression checks because a metric is non-numeric"
+				continue 2
 			fi
 		done
 
-		if [ "$REGRESSIONS" -eq 0 ]; then
-			ok "No regressions detected (within 10% of previous run)"
-		else
-			warn "$REGRESSIONS regression(s) detected!"
+		if metric_regressed "$prev_diff_ms" "$curr_diff_ms" 10; then
+			warn "$test_name: diff time regressed: ${prev_diff_ms}ms -> ${curr_diff_ms}ms (>10%)"
+			REGRESSIONS=$((REGRESSIONS + 1))
 		fi
+		if apply_complexity_regressed "$prev_patch_ms" "$prev_ops" "$curr_patch_ms" "$curr_ops" 25; then
+			warn "$test_name: apply milliseconds per operation regressed by more than 25%"
+			REGRESSIONS=$((REGRESSIONS + 1))
+		fi
+		if metric_regressed "$prev_patch_rss_kb" "$curr_patch_rss_kb" 25; then
+			warn "$test_name: apply peak RSS regressed: ${prev_patch_rss_kb} -> ${curr_patch_rss_kb} KiB (>25%)"
+			REGRESSIONS=$((REGRESSIONS + 1))
+		fi
+		if metric_regressed "$prev_difz_size" "$curr_difz_size" 10; then
+			warn "$test_name: patch size regressed: ${prev_difz_size} -> ${curr_difz_size} bytes (>10%)"
+			REGRESSIONS=$((REGRESSIONS + 1))
+		fi
+	done
+
+	if [ "$REGRESSIONS" -eq 0 ]; then
+		ok "No time, per-operation apply, peak-RSS, or patch-size regressions"
 	else
-		info "No previous run to compare against (first run)"
+		err "$REGRESSIONS benchmark regression(s) exceeded their thresholds"
 	fi
 else
-	info "No previous run to compare against (first run)"
+	info "No previous v2 run to compare against"
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────
@@ -583,3 +689,7 @@ header "Done"
 echo -e "  ${GREEN}Benchmark complete.${NC} Results logged to:"
 info "$LOG_FILE"
 echo ""
+
+if [ "$REGRESSIONS" -ne 0 ]; then
+	exit 1
+fi

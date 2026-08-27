@@ -8,7 +8,7 @@ A fast binary differ for files and directory trees. File patches encode Copy and
 
 ## Performance
 
-Benchmarked on Apple M4 (aarch64), deterministic random binary data (using default `--compress best`):
+This is a historical Apple M4 (aarch64) snapshot using default `--compress best`. Its historical shared-prefix corpus constructed each target as one contiguous prefix from the source followed by a random suffix. A current reproduction of the 10 MiB, 90%-similar case yields only three operations, so this table does not measure scattered edits, rebuilt binaries, or high-operation apply behavior.
 
 | File size | Sim. | difz | xdelta3 | zstd | bsdiff | difz size | xdelta3 size | zstd size | bsdiff size |
 |-----------|------|-------|---------|------|--------|-----------|-------------|----------|------------|
@@ -18,9 +18,9 @@ Benchmarked on Apple M4 (aarch64), deterministic random binary data (using defau
 | **20 MB** | 50%  | **496 ms** | 1,131 ms | 43 ms | 20,677 ms | **10,240 KB** | 10,241 KB | 10,252 KB | 10,285 KB |
 | **20 MB** | 99%  | 127 ms | 51 ms | **37 ms** | 2,759 ms | **205 KB** | 205 KB | 228 KB | 206 KB |
 
-**difz produces the smallest diffs** across all test cases. zstd `--patch-from` is the fastest differ (dictionary compression, not true delta encoding) but produces 1-11% larger patches. difz is 1.1x-2.3x faster than xdelta3 on larger/less-similar inputs (xdelta3 leads on small or highly-similar files) and 17x-51x faster than bsdiff. Patch application is up to 16x faster than bspatch and comparable to xdelta3 and zstd.
+Within the five displayed shared-prefix cases, difz produced the smallest patches. zstd `--patch-from` was the fastest differ but produced patches 1-11% larger in this table. difz measured 1.1x-2.3x faster than xdelta3 on the larger or less-similar rows, while xdelta3 led on the small or highly similar rows; difz measured 17x-51x faster than bsdiff. These observations describe this corpus and machine only.
 
-Hyperfine statistical benchmark (10 MB, 90% similar, 10+ runs):
+Historical hyperfine result for the same 10 MiB shared-prefix shape (10+ runs):
 
 ```
 zstd      16.6 ms ± 1.0 ms
@@ -143,7 +143,7 @@ Requires [Nix](https://nixos.org/) with flakes enabled:
 nix develop -c bash bm
 ```
 
-Compares difz against bsdiff and xdelta3 across multiple file sizes and similarity levels. Results are logged to `tests/benchmark/benchmark_log.csv` with automatic regression detection.
+Compares difz against bsdiff, xdelta3, and zstd across six exact-size shared-prefix pairs, a 1 MiB seeded interleaved-edit pair, and a representative rebuilt-binary shape derived from the current ReleaseFast executable. The added shapes must clear minimum operation-count gates. New results, including source and target sizes, operation count, wall time, peak RSS, and patch size, go to `tests/benchmark/benchmark_log_v2.csv`. The original `tests/benchmark/benchmark_log.csv` remains as the unmodified historical record. Regression checks cover diff time, apply milliseconds per operation, apply peak RSS, and patch size.
 
 ## Dependencies
 

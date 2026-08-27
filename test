@@ -4,5 +4,17 @@
 
 set -u
 
+errors=0
+
+if ! tests/nix/test_flake_outputs.bash; then
+	errors=$((errors + 1))
+fi
+
 system="$(nix eval --impure --raw --expr builtins.currentSystem)"
-nix build -L ".#checks.${system}.test"
+if ! nix build -L \
+	".#checks.${system}.test" \
+	".#checks.${system}.benchmark-contract"; then
+	errors=$((errors + 1))
+fi
+
+exit "$errors"

@@ -1,5 +1,13 @@
 # Difz Implementation Plan
 
+## Active Work — Benchmark Corpus and Generator Repair
+
+- [x] Reproduce the broken `random` invocation with a persistent fail-closed fixture-generation test: nonzero generator exits and successful truncation both stop before benchmarking, and captured diagnostics distinguish the failures. The test also exposed the unchecked protected-`dd` overwrite, now replaced by checked prefix/suffix assembly. (2026-08-27 12:32pm EDT)
+- [x] Pin `github:pmarreck/random/yolo` at `eadf4e5d2c6a1b295053bc08b2add4ba432c827c`, restrict flake outputs to `x86_64-linux`, `aarch64-linux`, and `aarch64-darwin`, and prove the pinned CLI emits exactly 4,097 binary bytes. `flake-utils` follows the root; `random` retains its own nixpkgs because its Rust 1.97 MSRV fails against difz's Rust 1.94.1 lock. (2026-08-27 12:32pm EDT)
+- [x] Add deterministic high-operation interleaved and representative rebuilt-binary corpus shapes, with exact-size and minimum-operation gates. The first v2 run records 7,731 ops for the 1 MiB interleaved pair and 106,285 ops for the 3,427,272-byte executable-shaped pair; every legacy shared-prefix case has only 3 ops. (2026-08-27 12:32pm EDT)
+- [x] Record operation count and peak RSS beside time and patch size, then add deterministic corpus floors plus a 25% operation-normalized apply regression threshold. The ReleaseFast benchmark contract avoids timing-dependent assertions while the source-controlled v2 history tracks measured time and RSS. (2026-08-27 12:32pm EDT)
+- [ ] Qualify README performance claims to the measured corpus, preserve the historical CSV, run focused and canonical Nix checks, commit known-green work locally, and reply to Einstein without pushing. Curiosity poke: extending the old CSV schema in place would make historical rows ambiguous.
+
 ## Active Overnight Work — Validate GUI Directory Updates
 
 - [x] Reconcile the detached `c93648e` checkout and preserve all Peter/agent-owned edits; establish a recoverable working branch before committing. The dirty `elder_diff` bytes matched existing `yolo` commit `9a28ab7`; both symlink edits remain untouched. (2026-08-27 12:26am EDT)

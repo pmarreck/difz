@@ -4,12 +4,21 @@
 	inputs = {
 		nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 		flake-utils.url = "github:numtide/flake-utils";
+		random = {
+			url = "github:pmarreck/random/yolo";
+			inputs.flake-utils.follows = "flake-utils";
+		};
 	};
 
-	outputs = { self, nixpkgs, flake-utils }:
-		flake-utils.lib.eachDefaultSystem (system:
+	outputs = { self, nixpkgs, flake-utils, random }:
+		flake-utils.lib.eachSystem [
+			"x86_64-linux"
+			"aarch64-linux"
+			"aarch64-darwin"
+		] (system:
 			let
 				pkgs = import nixpkgs { inherit system; };
+				randomPackage = random.packages.${system}.default;
 
 				# Single hash for the entire Zig dependency tree.
 				# To update: set to "" or pkgs.lib.fakeHash, run `nix build`,
@@ -47,7 +56,7 @@
 					src = ./.;
 
 					nativeBuildInputs = [ pkgs.zig ];
-					nativeCheckInputs = with pkgs; [ bash coreutils diffutils gnugrep ];
+				nativeCheckInputs = with pkgs; [ bash coreutils diffutils gnugrep ];
 
 					dontConfigure = true;
 					dontInstall = true;
@@ -69,28 +78,47 @@
 						if ! zig build test -Doptimize=${optimize} ${zlibFlags} 2>&1; then
 							errors=$((errors + 1))
 						fi
-						if ! DIFZ="$out/bin/difz" DIFZ_PREBUILT=1 bash tests/cli/test_cli.bash; then
-							errors=$((errors + 1))
-						fi
-						exit "$errors"
-					'';
-				};
-			in
+					if ! DIFZ="$out/bin/difz" DIFZ_PREBUILT=1 bash tests/cli/test_cli.bash; then
+						errors=$((errors + 1))
+					fi
+					exit "$errors"
+				'';
+			};
+
+			releaseFast = zigBuild {};
+		in
 			{
-				packages.default = zigBuild {};
+				packages.default = releaseFast;
 
 				checks = {
-					build = zigBuild {};
+					build = releaseFast;
 					test = zigBuild { optimize = "Debug"; doCheck = true; };
+					benchmark-contract = pkgs.runCommand "difz-benchmark-contract"
+						{
+							nativeBuildInputs = with pkgs; [
+								bash coreutils gnugrep gnused gawk time randomPackage
+							];
+						} ''
+							cp -r ${./.} work
+							chmod -R u+w work
+							cd work
+							DIFZ=${releaseFast}/bin/difz \
+								RANDOM_BIN=${randomPackage}/bin/random \
+								GNU_TIME_BIN=${pkgs.time}/bin/time \
+								bash tests/benchmark/test_bm.bash
+							touch $out
+						'';
 				};
 
 				devShells.default = pkgs.mkShell {
-					buildInputs = with pkgs; [
+					packages = with pkgs; [
 						zig
 						hyperfine
 						bsdiff
 						xdelta
 						zstd
+						time
+						randomPackage
 					];
 				};
 			}
