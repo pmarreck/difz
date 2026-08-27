@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "difz.h"
@@ -49,8 +50,8 @@
 
 static void print_usage(FILE *out) {
 	fprintf(out,
-		"Usage: difz [options] <file_a> <file_b>\n"
-		"       difz --patch [options] <file_a> <diff_file>\n"
+		"Usage: difz [options] <file_or_dir_a> <file_or_dir_b>\n"
+		"       difz --patch [options] <file_or_dir_a> <diff_file>\n"
 		"       difz --inspect [options] <diff_file>\n"
 		"\n"
 		"Modes:\n"
@@ -65,6 +66,8 @@ static void print_usage(FILE *out) {
 		"  --seed <hex>       32-byte seed as 64-char hex string\n"
 		"  --chunk-size <n>   Target CDC chunk size (default: 4096)\n"
 		"  --compress <algo>  Compression: best, lzma2, bzip2, lz4, zstd, none (default: best)\n"
+		"  --allow <glob>      Include matching directory paths (repeatable, ordered)\n"
+		"  --deny <glob>       Exclude matching directory paths (repeatable, ordered)\n"
 		"  --truncate <n>     Max bytes of INSERT data to display (default: 64)\n"
 		"  --hexlike          Use hexlike encoding for binary data display\n"
 		"  --no-progress      Suppress progress/stats output\n"
@@ -76,6 +79,30 @@ static void print_usage(FILE *out) {
 		"  -  or @stdout  Write to stdout\n"
 		"  @stderr        Write to stderr\n"
 	);
+}
+
+enum path_kind {
+	PATH_KIND_ERROR = -1,
+	PATH_KIND_STREAM = 0,
+	PATH_KIND_FILE = 1,
+	PATH_KIND_DIRECTORY = 2,
+	PATH_KIND_SPECIAL = 3
+};
+
+static enum path_kind classify_path(const char *path) {
+	struct stat info;
+	if (strcmp(path, "-") == 0 || strcmp(path, "@stdin") == 0) return PATH_KIND_STREAM;
+#if defined(_WIN32) || defined(_WIN64)
+	if (stat(path, &info) != 0) {
+#else
+	if (lstat(path, &info) != 0) {
+#endif
+		fprintf(stderr, "difz: cannot open or inspect '%s': %s\n", path, strerror(errno));
+		return PATH_KIND_ERROR;
+	}
+	if (S_ISREG(info.st_mode)) return PATH_KIND_FILE;
+	if (S_ISDIR(info.st_mode)) return PATH_KIND_DIRECTORY;
+	return PATH_KIND_SPECIAL;
 }
 
 static void print_about(void) {
@@ -205,6 +232,56 @@ static void format_size(size_t bytes, char *buf, size_t buf_size) {
 	}
 }
 
+static int is_stdout_path(const char *path) {
+	return path == NULL || strcmp(path, "-") == 0 || strcmp(path, "@stdout") == 0;
+}
+
+static int run_directory_diff(
+	const char *source_path,
+	const char *target_path,
+	const char *output_path,
+	const difz_path_rule *rules,
+	size_t rule_count,
+	const uint8_t *seed,
+	size_t chunk_size,
+	uint8_t compression
+) {
+	uint8_t *patch = NULL;
+	size_t patch_len = 0;
+	int rc = difz_directory_diff(
+		source_path, target_path, rules, rule_count, seed,
+		chunk_size, compression, &patch, &patch_len);
+	if (rc != 0) {
+		fprintf(stderr, "difz: directory diff failed\n");
+		return 1;
+	}
+	if (is_stdout_path(output_path)) {
+		rc = write_output(output_path, patch, patch_len);
+	} else {
+		rc = difz_write_new_file_atomic(output_path, patch, patch_len);
+		if (rc == -3) fprintf(stderr, "difz: output already exists: '%s'\n", output_path);
+		else if (rc != 0) fprintf(stderr, "difz: cannot commit output: '%s'\n", output_path);
+	}
+	difz_free(patch, patch_len);
+	return rc == 0 ? 0 : 1;
+}
+
+static int run_directory_patch(
+	const char *source_path,
+	const char *patch_path,
+	const char *output_path
+) {
+	size_t patch_len = 0;
+	uint8_t *patch = read_file(patch_path, &patch_len);
+	if (!patch) return 1;
+	int rc = difz_directory_patch(source_path, patch, patch_len, output_path);
+	free(patch);
+	if (rc == -2) fprintf(stderr, "difz: directory patch source identity does not match\n");
+	else if (rc == -3) fprintf(stderr, "difz: output already exists: '%s'\n", output_path);
+	else if (rc != 0) fprintf(stderr, "difz: directory patch failed\n");
+	return rc == 0 ? 0 : 1;
+}
+
 /* ── Main ──────────────────────────────────────────────────────────── */
 
 int main(int argc, char *argv[]) {
@@ -227,6 +304,8 @@ int main(int argc, char *argv[]) {
 	size_t truncate_bytes = 64;
 	int hexlike = 0;
 	int no_progress = 0;
+	difz_path_rule rules[4096];
+	size_t rule_count = 0;
 	/* int no_ansi = 0; */  /* reserved for future use */
 	/* int simple = 0; */   /* reserved for future use */
 
@@ -318,6 +397,20 @@ int main(int argc, char *argv[]) {
 			}
 			continue;
 		}
+		if (strcmp(argv[i], "--allow") == 0 || strcmp(argv[i], "--deny") == 0) {
+			if (i + 1 >= argc) {
+				fprintf(stderr, "difz: %s requires a glob argument\n", argv[i]);
+				return 1;
+			}
+			if (rule_count == sizeof(rules) / sizeof(rules[0])) {
+				fprintf(stderr, "difz: too many path rules (maximum 4096)\n");
+				return 1;
+			}
+			rules[rule_count].action = (strcmp(argv[i], "--allow") == 0) ? 1 : 2;
+			rules[rule_count].pattern = argv[++i];
+			rule_count++;
+			continue;
+		}
 		if (strcmp(argv[i], "--no-progress") == 0) {
 			no_progress = 1;
 			continue;
@@ -384,6 +477,51 @@ int main(int argc, char *argv[]) {
 	}
 
 	int exit_code = 0;
+
+	if (!inspect_mode) {
+		enum path_kind first_kind = classify_path(positional[0]);
+		if (first_kind == PATH_KIND_ERROR) return 1;
+		if (patch_mode && first_kind == PATH_KIND_DIRECTORY) {
+			if (rule_count != 0) {
+				fprintf(stderr, "difz: --allow and --deny are stored when a directory patch is created\n");
+				return 1;
+			}
+			if (is_stdout_path(output_path) || strcmp(output_path, "@stderr") == 0) {
+				fprintf(stderr, "difz: directory patch requires -o with a new directory path\n");
+				return 1;
+			}
+			enum path_kind patch_kind = classify_path(positional[1]);
+			if (patch_kind != PATH_KIND_FILE && patch_kind != PATH_KIND_STREAM) {
+				fprintf(stderr, "difz: a directory source requires a regular DIFZTREE patch file\n");
+				return 1;
+			}
+			return run_directory_patch(positional[0], positional[1], output_path);
+		}
+		if (!patch_mode) {
+			enum path_kind second_kind = classify_path(positional[1]);
+			if (second_kind == PATH_KIND_ERROR) return 1;
+			if (first_kind == PATH_KIND_DIRECTORY || second_kind == PATH_KIND_DIRECTORY) {
+				if (first_kind != PATH_KIND_DIRECTORY || second_kind != PATH_KIND_DIRECTORY) {
+					fprintf(stderr, "difz: inputs must both be files or both be directories\n");
+					return 1;
+				}
+				return run_directory_diff(
+					positional[0], positional[1], output_path,
+					rules, rule_count, seed_ptr, chunk_size, compression);
+			}
+			if (first_kind == PATH_KIND_SPECIAL || second_kind == PATH_KIND_SPECIAL) {
+				fprintf(stderr, "difz: unsupported special input file\n");
+				return 1;
+			}
+		} else if (first_kind == PATH_KIND_SPECIAL) {
+			fprintf(stderr, "difz: unsupported special source file\n");
+			return 1;
+		}
+		if (rule_count != 0) {
+			fprintf(stderr, "difz: --allow and --deny require directory inputs\n");
+			return 1;
+		}
+	}
 
 	if (inspect_mode) {
 		/* ── Inspect mode ───────────────────────────────── */

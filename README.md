@@ -4,7 +4,7 @@
 [![Garnix](https://img.shields.io/endpoint.svg?url=https://garnix.io/api/badges/pmarreck/difz&style=flat)](https://garnix.io/repo/pmarreck/difz)
 [![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 
-A fast binary differ. Given two files A and B, difz produces a compact diff — an encoded list of Copy and Insert instructions to transform A into B. Applying the diff to A reconstructs B exactly.
+A fast binary differ for files and directory trees. File patches encode Copy and Insert instructions. Directory patches add a canonical manifest, ordered path filters, and BLAKE3 source, target, and patch identities. Directory apply writes a new sibling stage and commits it only after an independent filesystem re-snapshot matches the target identity.
 
 ## Performance
 
@@ -48,6 +48,13 @@ difz old_file new_file -o patch.difz
 # Apply a diff
 difz --patch old_file patch.difz -o new_file
 
+# Diff and reconstruct directory trees
+difz old_directory new_directory -o update.difz
+difz --patch old_directory update.difz -o reconstructed_directory
+
+# Scope a directory snapshot; rules are ordered and later matches win
+difz --allow 'Contents/**' --deny '**/*.tmp' old.app new.app -o update.difz
+
 # Pipe to stdout
 difz old_file new_file > patch.difz
 difz --patch old_file patch.difz > new_file
@@ -68,23 +75,26 @@ difz --inspect --truncate 128 --hexlike patch.difz
 --hexlike            Use hexlike encoding for binary data display
 --seed <hex>         32-byte seed as 64-char hex string
 --chunk-size <n>     Target CDC chunk size (default: 4096)
+--allow <glob>       Include matching directory paths (repeatable, ordered)
+--deny <glob>        Exclude matching directory paths (repeatable, ordered)
 --no-progress        Suppress progress output
 --about              Show version, platform, architecture
 ```
 
 ## Architecture
 
-```
-difz CLI (C) ──> C FFI boundary ──> Zig core (pure logic, no I/O)
+```text
+difz CLI (C) -> C FFI -> pure file and canonical-tree cores
+                         -> no-follow snapshot/staging adapter
 ```
 
-The Zig core is a pure library — it takes two byte slices and returns a BLIP-encoded diff as a byte slice. No file I/O, no allocation policy decisions, no CLI concerns. All I/O lives in the C CLI, which calls the Zig library through its C FFI header. This dogfoods the same interface any external consumer would use.
+The file algorithm and canonical directory patch logic remain pure in-memory Zig. A narrow Zig filesystem adapter snapshots directory handles without following links and reconstructs through a new sibling stage. The C CLI calls both paths through the public FFI, so external consumers exercise the same boundary.
 
 ### Source layout
 
 ```
 src/
-├── lib.zig          # C FFI exports: difz_diff(), difz_patch(), difz_inspect(), difz_free()
+├── lib.zig          # Buffer and filesystem C FFI exports
 ├── difz.h          # C header for FFI consumers
 ├── difz.c          # CLI: file I/O, arg parsing, progress display (uses progrez)
 ├── diff.zig         # Two-stage orchestrator: CDC matching + Elder gap refinement
@@ -94,7 +104,13 @@ src/
 ├── elder_diff.zig   # Myers O(ND) byte-level diff with edit distance cap
 ├── encoding.zig     # BLIP serialization + selectable compression (lzma2/bzip2/lz4/best/none)
 ├── inspect.zig      # Diff file pretty-printer (decode + human-readable op dump)
-└── patch.zig        # Diff application (decode + reconstruct)
+├── patch.zig        # File diff application (decode + reconstruct)
+├── directory.zig    # Canonical paths, entries, validation, and tree identity
+├── directory_patch.zig # DIFZTREE encoder, bounded parser, and pure applicator
+├── directory_fs.zig # No-follow snapshots and verified staged reconstruction
+├── path_filter.zig  # Ordered include/exclude classifier
+├── glob.zig         # dirtree-compatible glob-to-PCRE2 conversion
+└── pcre2.zig        # Small PCRE2 wrapper
 ```
 
 ### Data flow
@@ -116,9 +132,8 @@ src/
 Requires [Nix](https://nixos.org/) with flakes enabled:
 
 ```bash
-nix develop    # enter dev shell with Zig 0.15 + benchmark tools
-zig build      # build difz
-zig build test # run all tests
+./build  # reproducible optimized Nix build
+./test   # canonical Nix unit and CLI checks
 ```
 
 ## Running benchmarks
@@ -131,8 +146,9 @@ Compares difz against bsdiff and xdelta3 across multiple file sizes and similari
 
 ## Dependencies
 
-- **Zig 0.15.x** (via Nix flake)
+- **Zig 0.16.0** (via Nix flake)
 - **[BLIP](https://github.com/pmarreck/BLIP)** — variable-length integer encoding + container format (Zig package)
+- **PCRE2** — dirtree-compatible ordered path filters
 
 ## License
 

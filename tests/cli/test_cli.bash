@@ -508,6 +508,142 @@ else
 	fail "both-empty round-trip produces empty file" "rc=$PATCH_RC, stderr: $PATCH_STDERR"
 fi
 
+# ── Test: directory diff + staged patch ───────────────────────────────
+
+printf "\n[Directory diff + staged patch]\n"
+
+mkdir -p "$TEST_DIR/tree source/bin" "$TEST_DIR/tree target/bin" "$TEST_DIR/tree target/empty"
+printf 'old application with shared suffix\n' > "$TEST_DIR/tree source/bin/app"
+printf 'delete me\n' > "$TEST_DIR/tree source/deleted.txt"
+printf 'unchanged\n' > "$TEST_DIR/tree source/same.txt"
+printf 'new application with shared suffix\n' > "$TEST_DIR/tree target/bin/app"
+printf 'new file\x00bytes\n' > "$TEST_DIR/tree target/new.bin"
+printf 'unchanged\n' > "$TEST_DIR/tree target/same.txt"
+ln -s bin "$TEST_DIR/tree target/current"
+chmod 711 "$TEST_DIR/tree target/empty"
+
+TREE_DIFF_STDERR=$("$DIFZ" --no-progress --seed "$SEED_HEX" \
+	"$TEST_DIR/tree source" "$TEST_DIR/tree target" -o "$TEST_DIR/tree.patch" 2>&1)
+TREE_DIFF_RC=$?
+if [ $TREE_DIFF_RC -eq 0 ] && [ -s "$TEST_DIR/tree.patch" ]; then
+	pass "directory diff creates a nonempty patch"
+else
+	fail "directory diff creates a nonempty patch" "rc=$TREE_DIFF_RC, stderr: $TREE_DIFF_STDERR"
+fi
+
+TREE_MAGIC=$(dd if="$TEST_DIR/tree.patch" bs=1 count=8 2>/dev/null)
+if [ "$TREE_MAGIC" = "DIFZTREE" ]; then
+	pass "directory patch uses DIFZTREE magic"
+else
+	fail "directory patch uses DIFZTREE magic" "magic: $TREE_MAGIC"
+fi
+
+TREE_DIFF_2_STDERR=$("$DIFZ" --no-progress --seed "$SEED_HEX" \
+	"$TEST_DIR/tree source" "$TEST_DIR/tree target" -o "$TEST_DIR/tree-2.patch" 2>&1)
+TREE_DIFF_2_RC=$?
+if [ $TREE_DIFF_2_RC -eq 0 ] && cmp -s "$TEST_DIR/tree.patch" "$TEST_DIR/tree-2.patch"; then
+	pass "directory encoding is deterministic"
+else
+	fail "directory encoding is deterministic" "rc=$TREE_DIFF_2_RC, stderr: $TREE_DIFF_2_STDERR"
+fi
+
+printf 'preserve patch output\n' > "$TEST_DIR/existing.patch"
+EXISTING_PATCH_STDERR=$("$DIFZ" --no-progress \
+	"$TEST_DIR/tree source" "$TEST_DIR/tree target" -o "$TEST_DIR/existing.patch" 2>&1)
+EXISTING_PATCH_RC=$?
+if [ $EXISTING_PATCH_RC -ne 0 ] && [ "$(cat "$TEST_DIR/existing.patch")" = "preserve patch output" ]; then
+	pass "preexisting directory patch file is preserved"
+else
+	fail "preexisting directory patch file is preserved" "rc=$EXISTING_PATCH_RC, stderr: $EXISTING_PATCH_STDERR"
+fi
+
+TREE_PATCH_STDERR=$("$DIFZ" --patch --no-progress \
+	"$TEST_DIR/tree source" "$TEST_DIR/tree.patch" -o "$TEST_DIR/tree output" 2>&1)
+TREE_PATCH_RC=$?
+if [ $TREE_PATCH_RC -eq 0 ]; then
+	pass "directory patch exits 0"
+else
+	fail "directory patch exits 0" "rc=$TREE_PATCH_RC, stderr: $TREE_PATCH_STDERR"
+fi
+
+if diff -r --no-dereference "$TEST_DIR/tree target" "$TEST_DIR/tree output" >/dev/null 2>&1; then
+	pass "independent recursive comparison matches the target tree"
+else
+	fail "independent recursive comparison matches the target tree" \
+		"$(diff -r --no-dereference "$TEST_DIR/tree target" "$TEST_DIR/tree output" 2>&1)"
+fi
+
+TARGET_EMPTY_MODE=$(stat -c '%a' "$TEST_DIR/tree target/empty")
+OUTPUT_EMPTY_MODE=$(stat -c '%a' "$TEST_DIR/tree output/empty")
+if [ "$TARGET_EMPTY_MODE" = "$OUTPUT_EMPTY_MODE" ]; then
+	pass "directory mode round-trips"
+else
+	fail "directory mode round-trips" "expected $TARGET_EMPTY_MODE, got $OUTPUT_EMPTY_MODE"
+fi
+
+if [ -f "$TEST_DIR/tree source/deleted.txt" ]; then
+	pass "directory patch leaves its source unchanged"
+else
+	fail "directory patch leaves its source unchanged" "source deletion was mutated"
+fi
+
+cp -R "$TEST_DIR/tree source" "$TEST_DIR/tree wrong"
+printf 'BAD application with shared suffix\n' > "$TEST_DIR/tree wrong/bin/app"
+WRONG_TREE_STDERR=$("$DIFZ" --patch --no-progress \
+	"$TEST_DIR/tree wrong" "$TEST_DIR/tree.patch" -o "$TEST_DIR/wrong output" 2>&1)
+WRONG_TREE_RC=$?
+if [ $WRONG_TREE_RC -ne 0 ] && [ ! -e "$TEST_DIR/wrong output" ]; then
+	pass "wrong directory source creates no output"
+else
+	fail "wrong directory source creates no output" "rc=$WRONG_TREE_RC, stderr: $WRONG_TREE_STDERR"
+fi
+
+mkdir "$TEST_DIR/existing tree output"
+printf 'preserve\n' > "$TEST_DIR/existing tree output/sentinel"
+EXISTING_TREE_STDERR=$("$DIFZ" --patch --no-progress \
+	"$TEST_DIR/tree source" "$TEST_DIR/tree.patch" -o "$TEST_DIR/existing tree output" 2>&1)
+EXISTING_TREE_RC=$?
+if [ $EXISTING_TREE_RC -ne 0 ] && [ "$(cat "$TEST_DIR/existing tree output/sentinel")" = "preserve" ]; then
+	pass "preexisting directory output is preserved"
+else
+	fail "preexisting directory output is preserved" "rc=$EXISTING_TREE_RC, stderr: $EXISTING_TREE_STDERR"
+fi
+
+MISMATCH_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/tree target" -o "$TEST_DIR/mismatch.patch" 2>&1)
+MISMATCH_RC=$?
+if [ $MISMATCH_RC -ne 0 ] && [ ! -e "$TEST_DIR/mismatch.patch" ]; then
+	pass "file-to-directory diff is rejected"
+else
+	fail "file-to-directory diff is rejected" "rc=$MISMATCH_RC, stderr: $MISMATCH_STDERR"
+fi
+
+mkdir -p "$TEST_DIR/filter source/kept" "$TEST_DIR/filter target/kept"
+printf 'old\n' > "$TEST_DIR/filter source/kept/data.txt"
+printf 'old cache\n' > "$TEST_DIR/filter source/kept/cache.tmp"
+printf 'new\n' > "$TEST_DIR/filter target/kept/data.txt"
+printf 'new cache\n' > "$TEST_DIR/filter target/kept/cache.tmp"
+FILTER_DIFF_STDERR=$("$DIFZ" --no-progress --allow 'kept/**' --deny '**/*.tmp' \
+	"$TEST_DIR/filter source" "$TEST_DIR/filter target" -o "$TEST_DIR/filter.patch" 2>&1)
+FILTER_DIFF_RC=$?
+FILTER_PATCH_STDERR=$("$DIFZ" --patch --no-progress \
+	"$TEST_DIR/filter source" "$TEST_DIR/filter.patch" -o "$TEST_DIR/filter output" 2>&1)
+FILTER_PATCH_RC=$?
+if [ $FILTER_DIFF_RC -eq 0 ] && [ $FILTER_PATCH_RC -eq 0 ] \
+	&& [ "$(cat "$TEST_DIR/filter output/kept/data.txt")" = "new" ] \
+	&& [ ! -e "$TEST_DIR/filter output/kept/cache.tmp" ]; then
+	pass "ordered allow and deny rules scope directory output"
+else
+	fail "ordered allow and deny rules scope directory output" \
+		"diff rc=$FILTER_DIFF_RC, patch rc=$FILTER_PATCH_RC, diff stderr: $FILTER_DIFF_STDERR, patch stderr: $FILTER_PATCH_STDERR"
+fi
+
+STAGE_LEFTOVERS=$(find "$TEST_DIR" -name '*.difz-stage-*' -print)
+if [ -z "$STAGE_LEFTOVERS" ]; then
+	pass "directory failures leave no owned staging paths"
+else
+	fail "directory failures leave no owned staging paths" "paths: $STAGE_LEFTOVERS"
+fi
+
 # ── Test: stderr output cleanliness ───────────────────────────────────
 
 printf "\n[Stderr cleanliness]\n"

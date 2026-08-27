@@ -12,6 +12,7 @@
 - [ ] Add independent round-trip, mutation/corruption, traversal, truncation, deterministic-repeat, and wrong-source controls; extend fuzzing where useful. Curiosity poke: pair rejection mutations with known-good specificity cases so reject-everything cannot pass.
 - [ ] Dogfood the directory core through the C FFI/CLI where practical, document API/format decisions and limitations, update `dirtree` notes, and replace obsolete Garnix CI metadata through the Mechatron workflow if present. Curiosity poke: determine which packaging metadata is outside difz's portable tree model.
 - [ ] Run `./test`, optimized `./build`, exact Nix checks, and applicable cross-platform builds; commit each known-good unit, push after green, and reply to Einstein with hashes and evidence. Curiosity poke: verify whether a canonically packaged notarized `.app` can be reconstructed byte-for-byte without claiming preservation of external notarization state.
+- [ ] After the directory deliverable is shipped, reproduce Einstein's >3-minute apply pathology on the 36,508,624-byte raw Validate GUI client with a persistent performance regression test, profile the file patch decoder/applicator, and fix it TDD-first without regressing the 16 MB fused-client result. Curiosity poke: distinguish decompression/decoding cost from instruction application, and obtain the exact source/patch artifacts or a deterministic shape-equivalent fixture if they are not already in scope.
 
 ## Completed Tasks
 

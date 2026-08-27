@@ -1,14 +1,21 @@
 # Difz - Project Specification
 
-Difz is a fast, concise binary differ. Given 2 files of some unknown similarity A and B, it outputs a compact diff — an encoded list of Copy and Insert instructions to transform A into B. Delete is implicit (anything in A not covered by a Copy is discarded).
+Difz is a fast binary differ for files and directory trees. Given two files, it emits Copy and Insert instructions. Given two directories, it emits a canonical target manifest whose changed regular files use the same file delta core. Directory deletion is implicit because reconstruction starts from an empty stage.
 
 ## Architecture
 
-```
-difz CLI (C) ──> C FFI boundary ──> Zig core (pure logic, no I/O)
+```text
+difz CLI (C) -> C FFI -> pure file and canonical-tree cores
+                         -> no-follow snapshot/staging adapter
 ```
 
-The Zig core takes two byte slices and returns a BLIP-encoded diff as a byte slice. All I/O is done by the C CLI. The FFI is dogfooded — the C CLI calls the Zig library through the C header, never importing Zig directly.
+The C CLI calls the Zig library through the C header. File algorithms and canonical tree encoding take in-memory values. A separate Zig adapter owns directory traversal and staged filesystem writes.
+
+## Directory patches
+
+`DIFZTREE` v1 stores sorted relative UTF-8 paths, directories, regular files, contained relative symlinks, portable modes, ordered filter rules, and BLAKE3 identities for the source tree, target tree, and complete patch bytes. The parser rejects traversal, duplicates, unsupported special files, truncation, mutation, incompatible versions, and declared sizes beyond its limits.
+
+Apply verifies the source identity before creating output. It reconstructs into a uniquely named sibling stage, snapshots that filesystem tree again, compares the target identity, and performs a non-replacing rename. It never edits the source or replaces a live tree. See `docs/directory-format-v1.md` for the byte format and platform limitations.
 
 ## The Algorithm
 
@@ -47,6 +54,8 @@ BLIP is a variable-length integer encoding + container format. See [pmarreck/BLI
 ```
 difz <file_a> <file_b> [-o output | -]       # produce diff
 difz --patch <file_a> <diff> [-o output | -]  # apply diff
+difz [--allow GLOB] [--deny GLOB] <dir_a> <dir_b> -o patch
+difz --patch <dir_a> <patch> -o <new_dir>
 difz -h / --help
 difz --about
 ```
@@ -62,11 +71,11 @@ difz --about
 
 ## Dependencies
 
-- **Zig 0.15.x** (via Nix flake)
+- **Zig 0.16.0** (via Nix flake)
 - **BLIP** (Zig package via pmarreck/BLIP)
 - **std.crypto.hash.Blake3** (Zig stdlib)
 - **hyperfine, bsdiff, xdelta3** (benchmarking, in devShell)
 
 ## Status
 
-v0.1.0 — functional, all tests pass (50 Zig unit + 46 CLI integration). Performance needs optimization for large files with low similarity (Elder/Myers O(ND) is quadratic in edit distance).
+v0.1.0 — file and directory diff/patch paths are functional. The canonical suite has 91 Zig tests and 59 CLI integration checks. Filesystem metadata outside portable mode bits, including xattrs, ACLs, timestamps, hardlink identity, sparse layout, Finder flags, and external notarization state, remains outside DIFZTREE v1.

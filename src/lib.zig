@@ -5,6 +5,9 @@ const diff_mod = @import("diff.zig");
 const encoding = @import("encoding.zig");
 const patch_mod = @import("patch.zig");
 const inspect_mod = @import("inspect.zig");
+const directory_fs = @import("directory_fs.zig");
+const directory_patch = @import("directory_patch.zig");
+const path_filter = @import("path_filter.zig");
 
 pub const version = "0.1.0";
 
@@ -84,6 +87,154 @@ export fn difz_patch(
     return 0;
 }
 
+const DifzPathRule = extern struct {
+    action: u8,
+    pattern: [*:0]const u8,
+};
+
+export fn difz_directory_diff(
+    source_path_z: [*:0]const u8,
+    target_path_z: [*:0]const u8,
+    rules_ptr: ?[*]const DifzPathRule,
+    rule_count: usize,
+    seed: ?*const [32]u8,
+    target_chunk_size: usize,
+    compression: u8,
+    out_ptr: *[*]u8,
+    out_len: *usize,
+) callconv(.c) i32 {
+    const allocator = std.heap.page_allocator;
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const source_path = std.mem.span(source_path_z);
+    const target_path = std.mem.span(target_path_z);
+    var source = std.Io.Dir.cwd().openDir(io, source_path, .{
+        .iterate = true,
+        .follow_symlinks = false,
+    }) catch return -1;
+    defer source.close(io);
+    var target = std.Io.Dir.cwd().openDir(io, target_path, .{
+        .iterate = true,
+        .follow_symlinks = false,
+    }) catch return -1;
+    defer target.close(io);
+
+    const rules = allocator.alloc(path_filter.Rule, rule_count) catch return -1;
+    defer allocator.free(rules);
+    if (rule_count > 0) {
+        const ffi_rules = rules_ptr orelse return -1;
+        for (ffi_rules[0..rule_count], rules) |source_rule, *rule| {
+            const action = std.enums.fromInt(path_filter.Action, source_rule.action) orelse return -1;
+            rule.* = .{ .action = action, .pattern = std.mem.span(source_rule.pattern) };
+        }
+    }
+    const comp_mode = std.enums.fromInt(encoding.CompressionMode, compression) orelse return -1;
+    const patch_bytes = directory_fs.createPatchFromDirs(allocator, io, source, target, .{
+        .rules = rules,
+        .seed = if (seed) |value| value.* else [_]u8{0} ** 32,
+        .target_chunk_size = target_chunk_size,
+        .compression = comp_mode,
+    }) catch return -1;
+    out_ptr.* = patch_bytes.ptr;
+    out_len.* = patch_bytes.len;
+    return 0;
+}
+
+export fn difz_directory_patch(
+    source_path_z: [*:0]const u8,
+    patch_ptr: [*]const u8,
+    patch_len: usize,
+    output_path_z: [*:0]const u8,
+) callconv(.c) i32 {
+    const allocator = std.heap.page_allocator;
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const source_path = std.mem.span(source_path_z);
+    const output_path = std.mem.span(output_path_z);
+    var source = std.Io.Dir.cwd().openDir(io, source_path, .{
+        .iterate = true,
+        .follow_symlinks = false,
+    }) catch return -1;
+    defer source.close(io);
+    const parent_path = std.fs.path.dirname(output_path) orelse ".";
+    const output_name = std.fs.path.basename(output_path);
+    var parent = std.Io.Dir.cwd().openDir(io, parent_path, .{
+        .iterate = true,
+        .follow_symlinks = false,
+    }) catch return -1;
+    defer parent.close(io);
+    var random: u64 = undefined;
+    io.randomSecure(std.mem.asBytes(&random)) catch io.random(std.mem.asBytes(&random));
+    var staging_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const staging_name = std.fmt.bufPrint(
+        &staging_buffer,
+        ".{s}.difz-stage-{x:0>16}",
+        .{ output_name, random },
+    ) catch return -1;
+    directory_fs.applyPatchToNewDir(
+        allocator,
+        io,
+        source,
+        parent,
+        output_name,
+        staging_name,
+        patch_ptr[0..patch_len],
+        .{},
+    ) catch |err| return switch (err) {
+        error.SourceHashMismatch => -2,
+        error.OutputAlreadyExists => -3,
+        else => -1,
+    };
+    return 0;
+}
+
+export fn difz_write_new_file_atomic(
+    output_path_z: [*:0]const u8,
+    data_ptr: [*]const u8,
+    data_len: usize,
+) callconv(.c) i32 {
+    writeNewFileAtomic(
+        std.Io.Threaded.global_single_threaded.io(),
+        std.mem.span(output_path_z),
+        data_ptr[0..data_len],
+    ) catch |err| return switch (err) {
+        error.PathAlreadyExists => -3,
+        else => -1,
+    };
+    return 0;
+}
+
+fn writeNewFileAtomic(io: std.Io, output_path: []const u8, data: []const u8) !void {
+    const parent_path = std.fs.path.dirname(output_path) orelse ".";
+    const output_name = std.fs.path.basename(output_path);
+    var parent = try std.Io.Dir.cwd().openDir(io, parent_path, .{
+        .iterate = true,
+        .follow_symlinks = false,
+    });
+    defer parent.close(io);
+    var random: u64 = undefined;
+    io.randomSecure(std.mem.asBytes(&random)) catch io.random(std.mem.asBytes(&random));
+    var staging_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const staging_name = try std.fmt.bufPrint(
+        &staging_buffer,
+        ".{s}.difz-stage-{x:0>16}",
+        .{ output_name, random },
+    );
+    var file = try parent.createFile(io, staging_name, .{
+        .exclusive = true,
+        .permissions = .default_file,
+        .resolve_beneath = true,
+    });
+    var file_open = true;
+    defer if (file_open) file.close(io);
+    var owns_stage = true;
+    errdefer if (owns_stage) parent.deleteFile(io, staging_name) catch {};
+    try file.writeStreamingAll(io, data);
+    try file.sync(io);
+    file.close(io);
+    file_open = false;
+    try parent.renamePreserve(staging_name, parent, output_name, io);
+    owns_stage = false;
+}
+
 /// Inspect a diff blob and produce a human-readable text description.
 /// max_data_bytes: truncate INSERT data display to this many bytes (0 = no limit).
 /// hexlike: if non-zero, use hexlike encoding instead of standard printable-binary.
@@ -132,9 +283,9 @@ test {
     _ = @import("patch.zig");
     _ = @import("inspect.zig");
     _ = @import("directory.zig");
-	_ = @import("path_filter.zig");
-	_ = @import("directory_patch.zig");
-	_ = @import("directory_fs.zig");
+    _ = @import("path_filter.zig");
+    _ = @import("directory_patch.zig");
+    _ = @import("directory_fs.zig");
 }
 
 test "C FFI: difz_diff and difz_patch round-trip" {
