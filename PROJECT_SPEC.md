@@ -84,4 +84,4 @@ difz --about
 
 ## Status
 
-v0.1.0 — file and directory diff/patch paths are functional. The canonical suite has 92 Zig tests and 61 CLI integration checks. Filesystem metadata outside portable mode bits, including xattrs, ACLs, timestamps, hardlink identity, sparse layout, Finder flags, and external notarization state, remains outside DIFZTREE v1.
+v0.1.0 — file and directory diff/patch paths are functional. The project has 94 Zig tests and 61 CLI integration checks. Filesystem metadata outside portable mode bits, including xattrs, ACLs, timestamps, hardlink identity, sparse layout, Finder flags, and external notarization state, remains outside DIFZTREE v1.

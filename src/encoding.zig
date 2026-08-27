@@ -11,6 +11,7 @@ const MAGIC = "ZDIF\x02";
 
 pub const DecodeResult = struct {
     ops: []DiffOp,
+    insert_storage: []u8,
     seed: [32]u8,
     target_chunk_size: usize,
     size_a: usize,
@@ -121,6 +122,77 @@ fn blipDecodeValue(buf: []const u8) EncodeError!blip.DecodeResult {
         error.UnexpectedEndOfInput => return error.UnexpectedEndOfInput,
         error.Overflow => return error.Overflow,
         error.BufferTooSmall => return error.BufferTooSmall,
+    };
+}
+
+/// Stateful ARRAY traversal. BLIP's random-access elementAt(i) rescans the
+/// offset index from its beginning, so using it in an increasing loop is O(n²).
+const SequentialArrayCursor = struct {
+    reader: blip.array_mod.ArrayReader,
+    index_pos: usize,
+    total: usize,
+    remaining: usize,
+    offsets_consumed: usize = 0,
+
+    fn init(reader: blip.array_mod.ArrayReader) EncodeError!SequentialArrayCursor {
+        const total = std.math.cast(usize, reader.lp_view.total_length) orelse return error.LengthExceedsBounds;
+        const index_pos = std.math.cast(usize, reader.index_offset) orelse return error.LengthExceedsBounds;
+        if (index_pos >= total) return error.InvalidLength;
+        const count = try blipDecodeValue(reader.lp_view.buf[index_pos..total]);
+        if (count.value != reader.elementCount()) return error.InvalidLength;
+        return .{
+            .reader = reader,
+            .index_pos = index_pos + count.bytes_read,
+            .total = total,
+            .remaining = std.math.cast(usize, count.value) orelse return error.LengthExceedsBounds,
+        };
+    }
+
+    fn next(self: *SequentialArrayCursor) EncodeError!?blip.container_mod.LPContainerView {
+        if (self.remaining == 0) return null;
+        const offset_result = try blipDecodeValue(self.reader.lp_view.buf[self.index_pos..self.total]);
+        self.index_pos += offset_result.bytes_read;
+        self.remaining -= 1;
+        self.offsets_consumed += 1;
+
+        const offset = std.math.cast(usize, offset_result.value) orelse return error.LengthExceedsBounds;
+        const index_offset = std.math.cast(usize, self.reader.index_offset) orelse return error.LengthExceedsBounds;
+        if (offset < self.reader.header_size or offset >= index_offset) return error.IndexOutOfBounds;
+        const view = blip.container_mod.parseLPHeader(self.reader.lp_view.buf[offset..index_offset]) catch |err| return err;
+        if (view.total_length > index_offset - offset) return error.InvalidLength;
+        return view;
+    }
+};
+
+const DecodedInstructionView = union(enum) {
+    copy: struct { offset: usize, length: usize },
+    insert: []const u8,
+};
+
+fn decodeInstructionView(element: blip.container_mod.LPContainerView) EncodeError!DecodedInstructionView {
+    const payload = element.payloadSlice();
+    if (payload.len < 1) return error.InvalidLength;
+    var pos: usize = 1;
+    return switch (payload[0]) {
+        0x00 => blk: {
+            const offset = try blipDecodeValue(payload[pos..]);
+            pos += offset.bytes_read;
+            const length = try blipDecodeValue(payload[pos..]);
+            pos += length.bytes_read;
+            if (pos != payload.len) return error.InvalidLength;
+            break :blk .{ .copy = .{
+                .offset = std.math.cast(usize, offset.value) orelse return error.LengthExceedsBounds,
+                .length = std.math.cast(usize, length.value) orelse return error.LengthExceedsBounds,
+            } };
+        },
+        0x01 => blk: {
+            const length = try blipDecodeValue(payload[pos..]);
+            pos += length.bytes_read;
+            const data_len = std.math.cast(usize, length.value) orelse return error.LengthExceedsBounds;
+            if (payload.len - pos != data_len) return error.InvalidLength;
+            break :blk .{ .insert = payload[pos..] };
+        },
+        else => error.InvalidLength,
     };
 }
 
@@ -367,15 +439,15 @@ pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!Decode
 
     const chunk_result = try blipDecodeValue(meta_payload[mpos..]);
     mpos += chunk_result.bytes_read;
-    const target_chunk_size: usize = @intCast(chunk_result.value);
+    const target_chunk_size = std.math.cast(usize, chunk_result.value) orelse return error.LengthExceedsBounds;
 
     const size_a_result = try blipDecodeValue(meta_payload[mpos..]);
     mpos += size_a_result.bytes_read;
-    const size_a: usize = @intCast(size_a_result.value);
+    const size_a = std.math.cast(usize, size_a_result.value) orelse return error.LengthExceedsBounds;
 
     const size_b_result = try blipDecodeValue(meta_payload[mpos..]);
     mpos += size_b_result.bytes_read;
-    const size_b: usize = @intCast(size_b_result.value);
+    const size_b = std.math.cast(usize, size_b_result.value) orelse return error.LengthExceedsBounds;
     if (mpos != meta_payload.len) return error.InvalidLength;
 
     // Element 2: instructions array (ARRAY container)
@@ -383,71 +455,52 @@ pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!Decode
     const instr_buf = instr_view.buf[0..@intCast(instr_view.total_length)];
     const instr_reader = blip.array_mod.ArrayReader.init(instr_buf) catch return error.InvalidLength;
 
-    const op_count: usize = @intCast(instr_reader.elementCount());
-    const ops = try allocator.alloc(DiffOp, op_count);
-    var parsed_count: usize = 0;
-    errdefer {
-        // Free already-parsed insert data on error, then the ops array
-        for (ops[0..parsed_count]) |op| {
-            if (op.tag == .insert) {
-                if (op.data) |d| {
-                    allocator.free(d);
-                }
-            }
+    const op_count = std.math.cast(usize, instr_reader.elementCount()) orelse return error.LengthExceedsBounds;
+    var instruction_cursor = try SequentialArrayCursor.init(instr_reader);
+    var total_insert_bytes: usize = 0;
+    for (0..op_count) |_| {
+        const element = (try instruction_cursor.next()) orelse return error.InvalidLength;
+        switch (try decodeInstructionView(element)) {
+            .copy => {},
+            .insert => |inserted_bytes| total_insert_bytes = std.math.add(usize, total_insert_bytes, inserted_bytes.len) catch return error.LengthExceedsBounds,
         }
-        allocator.free(ops);
     }
 
+    const ops = try allocator.alloc(DiffOp, op_count);
+    errdefer allocator.free(ops);
+    const insert_storage = try allocator.alloc(u8, total_insert_bytes);
+    errdefer allocator.free(insert_storage);
+
+    instruction_cursor = try SequentialArrayCursor.init(instr_reader);
+    var insert_pos: usize = 0;
     for (0..op_count) |i| {
-        const elem_view = instr_reader.elementAt(@intCast(i)) catch return error.InvalidLength;
-        const elem_payload = elem_view.payloadSlice();
-
-        if (elem_payload.len < 1) return error.InvalidLength;
-        const opcode = elem_payload[0];
-
-        switch (opcode) {
-            0x00 => {
-                // Copy: BLIP(offset) + BLIP(length)
-                var epos: usize = 1;
-                const off_result = try blipDecodeValue(elem_payload[epos..]);
-                epos += off_result.bytes_read;
-                const len_result = try blipDecodeValue(elem_payload[epos..]);
-
+        const element = (try instruction_cursor.next()) orelse return error.InvalidLength;
+        switch (try decodeInstructionView(element)) {
+            .copy => |copy| {
                 ops[i] = .{
                     .tag = .copy,
-                    .offset = @intCast(off_result.value),
-                    .length = @intCast(len_result.value),
+                    .offset = copy.offset,
+                    .length = copy.length,
                     .data = null,
                 };
-                parsed_count = i + 1;
             },
-            0x01 => {
-                // Insert: BLIP(length) + raw data
-                var epos: usize = 1;
-                const len_result = try blipDecodeValue(elem_payload[epos..]);
-                epos += len_result.bytes_read;
-                const data_len: usize = @intCast(len_result.value);
-                const remaining = elem_payload[epos..];
-                if (remaining.len < data_len) return error.InvalidLength;
-
-                // Allocate and copy the data (since source buffer may be freed)
-                const data_copy = try allocator.alloc(u8, data_len);
-                @memcpy(data_copy, remaining[0..data_len]);
-
+            .insert => |inserted_bytes| {
+                const owned_data = insert_storage[insert_pos..][0..inserted_bytes.len];
+                @memcpy(owned_data, inserted_bytes);
                 ops[i] = .{
                     .tag = .insert,
                     .offset = 0,
-                    .length = data_len,
-                    .data = data_copy,
+                    .length = inserted_bytes.len,
+                    .data = owned_data,
                 };
-                parsed_count = i + 1;
+                insert_pos += inserted_bytes.len;
             },
-            else => return error.InvalidLength,
         }
     }
 
     return DecodeResult{
         .ops = ops,
+        .insert_storage = insert_storage,
         .seed = seed,
         .target_chunk_size = target_chunk_size,
         .size_a = size_a,
@@ -457,15 +510,9 @@ pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!Decode
     };
 }
 
-/// Free decoded result -- free each insert's data, then free ops array.
+/// Free the contiguous INSERT storage and operation array.
 pub fn freeDecoded(allocator: std.mem.Allocator, result: DecodeResult) void {
-    for (result.ops) |op| {
-        if (op.tag == .insert) {
-            if (op.data) |d| {
-                allocator.free(d);
-            }
-        }
-    }
+    allocator.free(result.insert_storage);
     allocator.free(result.ops);
 }
 
@@ -509,6 +556,59 @@ test "encode then decode produces identical ops" {
             try testing.expectEqualStrings(orig.data.?, dec.data.?);
         }
     }
+}
+
+test "instruction array cursor consumes each offset exactly once" {
+    const op_count = 257;
+    const ops = try testing.allocator.alloc(DiffOp, op_count);
+    defer testing.allocator.free(ops);
+    for (ops) |*op| {
+        op.* = .{ .tag = .copy, .offset = 0, .length = 0, .data = null };
+    }
+    const result = diff_mod.DiffResult{
+        .ops = ops,
+        .options = .{ .seed = [_]u8{0} ** 32, .target_chunk_size = 64 },
+        .size_a = 0,
+        .size_b = 0,
+    };
+    const encoded = try encode(testing.allocator, result, .none);
+    defer testing.allocator.free(encoded);
+
+    const outer = try blip.array_mod.ArrayReader.init(encoded);
+    const instruction_view = try outer.elementAt(2);
+    const instruction_buf = instruction_view.buf[0..@intCast(instruction_view.total_length)];
+    const instruction_reader = try blip.array_mod.ArrayReader.init(instruction_buf);
+    var cursor = try SequentialArrayCursor.init(instruction_reader);
+
+    for (0..op_count) |_| {
+        const element = (try cursor.next()).?;
+        try testing.expectEqual(@as(u8, 0x00), element.payloadSlice()[0]);
+    }
+    try testing.expect((try cursor.next()) == null);
+    try testing.expectEqual(op_count, cursor.offsets_consumed);
+}
+
+test "decoding many inserts uses one contiguous data allocation" {
+    const op_count = 16;
+    const ops = try testing.allocator.alloc(DiffOp, op_count);
+    defer testing.allocator.free(ops);
+    for (ops) |*op| {
+        op.* = .{ .tag = .insert, .offset = 0, .length = 1, .data = "x" };
+    }
+    const result = diff_mod.DiffResult{
+        .ops = ops,
+        .options = .{ .seed = [_]u8{0} ** 32, .target_chunk_size = 64 },
+        .size_a = 0,
+        .size_b = op_count,
+    };
+    const encoded = try encode(testing.allocator, result, .none);
+    defer testing.allocator.free(encoded);
+
+    var allocation_gate = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 2 });
+    const decoded = try decode(allocation_gate.allocator(), encoded);
+    defer freeDecoded(allocation_gate.allocator(), decoded);
+    try testing.expectEqual(@as(usize, 2), allocation_gate.allocations);
+    try testing.expectEqual(op_count, decoded.ops.len);
 }
 
 test "encoded diff is a valid LP container" {

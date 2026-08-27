@@ -94,22 +94,22 @@ All business logic lives in Zig, and the C CLI dogfoods the FFI. File diffing an
 - 8 tests: identical, different round-trip, shared regions, empty A/B, metadata, multiple scattered edits, moved/rearranged sections
 
 ### `src/encoding.zig` — BLIP serialization of diff instructions
-- `DecodeResult` — struct: `{ ops, seed, target_chunk_size, size_a, size_b, source_blake3, target_blake3 }`
+- `DecodeResult` — struct: `{ ops, insert_storage, seed, target_chunk_size, size_a, size_b, source_blake3, target_blake3 }`
 - `encode(allocator, DiffResult)` — serialize to source- and target-bound ZDIF v2 (BLIP ARRAY container)
-- `decode(allocator, data)` — deserialize BLIP bytes back to ops + metadata
-- `freeDecoded(allocator, result)` — free decoded ops (including insert data allocations)
+- `decode(allocator, data)` — deserialize metadata and instructions using an O(op_count) stateful index cursor; all INSERT bytes are copied into one owned allocation
+- `freeDecoded(allocator, result)` — free contiguous INSERT storage and the decoded operation array
 - `serializeRaw(allocator, payload)` — build a RAW container manually
 - `parseRaw(buf)` — extract RAW container payload (zero-copy)
 - Wire format: `ARRAY[DATA "ZDIF\x02", DATA metadata(seed+source BLAKE3+target BLAKE3+BLIPs), ARRAY[DATA per instruction]]`
 - Opcodes: 0x00 = Copy(offset, length), 0x01 = Insert(length, data)
-- 7 tests: round-trip, BLIP sentinel, invalid magic, empty ops, large insert, interleaved, metadata
+- 18 tests, including compression modes, malformed input, metadata and identity preservation, sequential index traversal, and bounded decoder allocations
 
 ### `src/patch.zig` — Apply diff to reconstruct target file
 - `PatchInfo` — struct: `{ size_a, size_b, seed, target_chunk_size, num_ops, source_blake3, target_blake3 }`
 - `PatchError` — error set for patch failures
 - `patch(allocator, a, diff_blob)` — decode, verify source length and identity, apply ops, then verify target length and identity
 - `patchInfo(allocator, diff_blob)` — extract metadata without applying
-- 6 tests: round-trip, malformed diff, wrong size, empty, patchInfo, large random
+- 8 tests: round-trip, malformed diff, wrong size and identity, empty, patchInfo, target identity, and large random data
 
 ## Build & Config Files
 

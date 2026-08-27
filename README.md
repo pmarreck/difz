@@ -126,6 +126,7 @@ src/
 - **Edit distance cap.** Myers O(ND) is capped at `sqrt(N+M)*2+16` (max 8192) to prevent quadratic blowup on dissimilar gap regions. When exceeded, the gap falls back to a raw Insert.
 - **Try-best compression.** By default, LZMA2 and bzip2 are both tried (using a distributed sampling heuristic for large diffs) and the smallest result is kept. LZ4 is available via `--compress lz4` for speed-over-size scenarios but is excluded from `best` since it never wins on ratio. Random/incompressible data passes through uncompressed.
 - **Deterministic seeds.** The CDC Gear hash table is seeded via BLAKE3, so the same seed produces the same chunking. Seeds can be specified explicitly for reproducible diffs.
+- **Linear patch decoding.** ZDIF instruction offsets are consumed by a stateful cursor in O(op_count), and decoded INSERT bytes share one contiguous allocation. This avoids quadratic index rescans and per-INSERT page-allocation overhead on patches with hundreds of thousands of small operations.
 
 ## Building
 
