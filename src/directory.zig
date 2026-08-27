@@ -28,6 +28,7 @@ pub const SnapshotError = error{
     ParentNotDirectory,
     InvalidMode,
     InvalidEntryData,
+    SymlinkEscapesRoot,
     TooManyEntries,
     PathTooLong,
 };
@@ -63,6 +64,7 @@ pub fn validateSnapshot(entries: []const Entry) SnapshotError!void {
         if (entry.mode & ~@as(u16, 0o777) != 0) return error.InvalidMode;
         if (entry.kind == .directory and entry.data.len != 0) return error.InvalidEntryData;
         if (entry.kind == .symlink and entry.mode != 0o777) return error.InvalidMode;
+        if (entry.kind == .symlink) try validateSymlinkTarget(entry.path, entry.data);
 
         if (index > 0) {
             switch (std.mem.order(u8, entries[index - 1].path, entry.path)) {
@@ -76,6 +78,28 @@ pub fn validateSnapshot(entries: []const Entry) SnapshotError!void {
             const parent_path = entry.path[0..slash];
             const parent_index = findPath(entries[0..index], parent_path) orelse return error.MissingParent;
             if (entries[parent_index].kind != .directory) return error.ParentNotDirectory;
+        }
+    }
+}
+
+fn validateSymlinkTarget(link_path: []const u8, target: []const u8) SnapshotError!void {
+    if (target.len == 0) return error.InvalidEntryData;
+    if (!std.unicode.utf8ValidateSlice(target)) return error.InvalidUtf8;
+    if (target[0] == '/') return error.AbsolutePath;
+    if (std.mem.indexOfScalar(u8, target, '\\') != null) return error.BackslashSeparator;
+    if (std.mem.indexOfScalar(u8, target, 0) != null) return error.NulByte;
+    if (target.len >= 2 and std.ascii.isAlphabetic(target[0]) and target[1] == ':') return error.DrivePrefix;
+
+    var depth: usize = std.mem.count(u8, link_path, "/");
+    var components = std.mem.splitScalar(u8, target, '/');
+    while (components.next()) |component| {
+        if (component.len == 0) return error.InvalidComponent;
+        if (std.mem.eql(u8, component, ".")) continue;
+        if (std.mem.eql(u8, component, "..")) {
+            if (depth == 0) return error.SymlinkEscapesRoot;
+            depth -= 1;
+        } else {
+            depth += 1;
         }
     }
 }
@@ -179,6 +203,19 @@ test "snapshots classify sorted hierarchy and entry invariants over sets" {
     const directory_data = [_]Entry{
         .{ .path = "a", .kind = .directory, .mode = 0o755, .data = "forbidden" },
     };
+    const symlink_with_nul = [_]Entry{
+        .{ .path = "link", .kind = .symlink, .mode = 0o777, .data = "bad\x00target" },
+    };
+    const symlink_escape = [_]Entry{
+        .{ .path = "link", .kind = .symlink, .mode = 0o777, .data = "../../outside" },
+    };
+    const absolute_symlink = [_]Entry{
+        .{ .path = "link", .kind = .symlink, .mode = 0o777, .data = "/outside" },
+    };
+    const contained_parent_symlink = [_]Entry{
+        .{ .path = "dir", .kind = .directory, .mode = 0o755 },
+        .{ .path = "dir/link", .kind = .symlink, .mode = 0o777, .data = "../inside" },
+    };
     const Case = struct { entries: []const Entry, valid: bool };
     const cases = [_]Case{
         .{ .entries = &valid, .valid = true },
@@ -188,6 +225,10 @@ test "snapshots classify sorted hierarchy and entry invariants over sets" {
         .{ .entries = &non_directory_parent, .valid = false },
         .{ .entries = &invalid_mode, .valid = false },
         .{ .entries = &directory_data, .valid = false },
+        .{ .entries = &symlink_with_nul, .valid = false },
+        .{ .entries = &symlink_escape, .valid = false },
+        .{ .entries = &absolute_symlink, .valid = false },
+        .{ .entries = &contained_parent_symlink, .valid = true },
     };
 
     for (cases) |case| {

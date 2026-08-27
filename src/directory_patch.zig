@@ -48,6 +48,36 @@ pub const OwnedSnapshot = struct {
     }
 };
 
+pub const OwnedRules = struct {
+    arena: std.heap.ArenaAllocator,
+    rules: []path_filter.Rule,
+
+    pub fn deinit(self: *OwnedRules) void {
+        self.arena.deinit();
+        self.* = undefined;
+    }
+};
+
+pub fn readRules(
+    allocator: std.mem.Allocator,
+    patch_bytes: []const u8,
+    limits: Limits,
+) !OwnedRules {
+    var decoded = try decodePatch(allocator, patch_bytes, limits);
+    defer decoded.deinit();
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    errdefer arena.deinit();
+    const arena_allocator = arena.allocator();
+    const rules = try arena_allocator.alloc(path_filter.Rule, decoded.rules.len);
+    for (decoded.rules, rules) |source, *target| {
+        target.* = .{
+            .action = source.action,
+            .pattern = try arena_allocator.dupe(u8, source.pattern),
+        };
+    }
+    return .{ .arena = arena, .rules = rules };
+}
+
 pub fn createPatch(
     allocator: std.mem.Allocator,
     source: []const directory.Entry,

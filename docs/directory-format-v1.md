@@ -15,7 +15,7 @@ The snapshot excludes the root itself. Each entry has:
 - a relative path;
 - a kind: directory, regular file, or symbolic link;
 - a portable mode;
-- regular-file bytes or the uninterpreted symlink-target bytes.
+- regular-file bytes or portable symlink-target bytes.
 
 Paths use these rules:
 
@@ -28,7 +28,9 @@ Paths use these rules:
 
 These rules reject path aliases before a patch can create anything. The same validation runs when snapshots are created, patches are decoded, and staging paths are joined.
 
-On Linux and macOS, v1 stores the low nine POSIX permission bits. Symlinks use canonical mode `0777`; difz does not follow or chmod them. On Windows, snapshots assign `0755` to directories, `0644` to regular files, and `0777` to symlinks. Windows reconstruction rejects a patch whose modes cannot map to those values and otherwise ignores chmod. Platform artifacts should therefore be patched on their target platform.
+Symlink targets must be nonempty UTF-8 relative paths using `/`. Absolute, drive-prefixed, backslash-separated, NUL-containing, and lexically root-escaping targets are rejected. `.` and contained `..` components remain valid, so bundle-internal links such as `Versions/Current` and `../Frameworks` can round-trip without allowing a staged link to escape the reconstructed root.
+
+On Linux and macOS, v1 stores the low nine POSIX permission bits. Symlinks use canonical mode `0777`; difz does not follow or chmod them. On Windows, snapshots assign `0755` to directories, `0644` to regular files, and `0777` to symlinks. Windows reconstruction rejects a patch whose modes cannot map to those values and otherwise ignores chmod. It marks a symlink as directory-valued when its normalized target names a directory in the target snapshot; a dangling Windows directory symlink cannot be distinguished and is unsupported in v1. Platform artifacts should therefore be patched on their target platform.
 
 Owner, group, timestamps, ACLs, extended attributes, Finder flags, sparse extents, and hardlink identity are outside v1. Hardlinks snapshot as independent regular files.
 

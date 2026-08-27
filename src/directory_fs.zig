@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 const directory = @import("directory.zig");
+const directory_patch = @import("directory_patch.zig");
 const path_filter = @import("path_filter.zig");
 
 pub const OwnedSnapshot = struct {
@@ -35,6 +36,193 @@ pub fn snapshotDir(
         try selectEntries(arena_allocator, raw.items, rules);
     try directory.validateSnapshot(entries);
     return .{ .arena = arena, .entries = entries };
+}
+
+pub fn createPatchFromDirs(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    source: std.Io.Dir,
+    target: std.Io.Dir,
+    options: directory_patch.CreateOptions,
+) ![]u8 {
+    var source_snapshot = try snapshotDir(allocator, io, source, options.rules);
+    defer source_snapshot.deinit();
+    var target_snapshot = try snapshotDir(allocator, io, target, options.rules);
+    defer target_snapshot.deinit();
+    return directory_patch.createPatch(
+        allocator,
+        source_snapshot.entries,
+        target_snapshot.entries,
+        options,
+    );
+}
+
+pub fn applyPatchToNewDir(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    source: std.Io.Dir,
+    output_parent: std.Io.Dir,
+    output_name: []const u8,
+    staging_name: []const u8,
+    patch_bytes: []const u8,
+    limits: directory_patch.Limits,
+) !void {
+    try validateBasename(output_name);
+    try validateBasename(staging_name);
+    if (std.mem.eql(u8, output_name, staging_name)) return error.StagingNameConflict;
+    if (output_parent.statFile(io, output_name, .{ .follow_symlinks = false })) |_| {
+        return error.OutputAlreadyExists;
+    } else |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    }
+
+    var owned_rules = try directory_patch.readRules(allocator, patch_bytes, limits);
+    defer owned_rules.deinit();
+    var source_snapshot = try snapshotDir(allocator, io, source, owned_rules.rules);
+    defer source_snapshot.deinit();
+    var reconstructed = try directory_patch.applyPatch(
+        allocator,
+        source_snapshot.entries,
+        patch_bytes,
+        limits,
+    );
+    defer reconstructed.deinit();
+
+    try output_parent.createDir(io, staging_name, writableDirectoryPermissions());
+    var owns_stage = true;
+    errdefer if (owns_stage) deleteOwnedTree(io, output_parent, staging_name) catch {};
+    var stage = try output_parent.openDir(io, staging_name, .{
+        .iterate = true,
+        .follow_symlinks = false,
+    });
+    defer stage.close(io);
+    try writeSnapshot(allocator, io, stage, reconstructed.entries);
+
+    var staged_snapshot = try snapshotDir(allocator, io, stage, &.{});
+    defer staged_snapshot.deinit();
+    const expected_hash = try directory.treeHash(reconstructed.entries);
+    const staged_hash = try directory.treeHash(staged_snapshot.entries);
+    if (!std.mem.eql(u8, &expected_hash, &staged_hash)) return error.StagedHashMismatch;
+
+    try output_parent.renamePreserve(staging_name, output_parent, output_name, io);
+    owns_stage = false;
+}
+
+fn deleteOwnedTree(io: std.Io, parent: std.Io.Dir, name: []const u8) !void {
+    {
+        var root = try parent.openDir(io, name, .{ .iterate = true, .follow_symlinks = false });
+        defer root.close(io);
+        try makeDirectoriesWritable(io, root);
+    }
+    try parent.deleteTree(io, name);
+}
+
+fn makeDirectoriesWritable(io: std.Io, root: std.Io.Dir) !void {
+    var iterator = root.iterate();
+    while (try iterator.next(io)) |entry| {
+        const stat = try root.statFile(io, entry.name, .{ .follow_symlinks = false });
+        if (stat.kind != .directory) continue;
+        try root.setFilePermissions(
+            io,
+            entry.name,
+            writableDirectoryPermissions(),
+            .{ .follow_symlinks = false },
+        );
+        var child = try root.openDir(io, entry.name, .{ .iterate = true, .follow_symlinks = false });
+        defer child.close(io);
+        try makeDirectoriesWritable(io, child);
+    }
+}
+
+fn writeSnapshot(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    root: std.Io.Dir,
+    entries: []const directory.Entry,
+) !void {
+    try directory.validateSnapshot(entries);
+    for (entries) |entry| {
+        switch (entry.kind) {
+            .directory => try root.createDir(io, entry.path, writableDirectoryPermissions()),
+            .file => {
+                var file = try root.createFile(io, entry.path, .{
+                    .exclusive = true,
+                    .permissions = writableFilePermissions(),
+                    .resolve_beneath = true,
+                });
+                defer file.close(io);
+                try file.writeStreamingAll(io, entry.data);
+                try file.setPermissions(io, try permissionsForMode(entry.mode, .file));
+            },
+            .symlink => try root.symLink(io, entry.data, entry.path, .{
+                .is_directory = try symlinkPointsToDirectory(allocator, entries, entry),
+            }),
+        }
+    }
+    var index = entries.len;
+    while (index > 0) {
+        index -= 1;
+        const entry = entries[index];
+        if (entry.kind == .directory) {
+            try root.setFilePermissions(
+                io,
+                entry.path,
+                try permissionsForMode(entry.mode, .directory),
+                .{ .follow_symlinks = false },
+            );
+        }
+    }
+}
+
+fn symlinkPointsToDirectory(
+    allocator: std.mem.Allocator,
+    entries: []const directory.Entry,
+    link: directory.Entry,
+) !bool {
+    if (comptime builtin.os.tag != .windows) return false;
+    const parent_path = if (std.mem.lastIndexOfScalar(u8, link.path, '/')) |slash|
+        try std.fmt.allocPrint(allocator, "/{s}", .{link.path[0..slash]})
+    else
+        try allocator.dupe(u8, "/");
+    defer allocator.free(parent_path);
+    const resolved = try std.fs.path.resolvePosix(allocator, &.{ parent_path, link.data });
+    defer allocator.free(resolved);
+    const target_path = std.mem.trimLeft(u8, resolved, "/");
+    if (target_path.len == 0) return true;
+    const target_index = findEntry(entries, target_path) orelse return false;
+    return entries[target_index].kind == .directory;
+}
+
+fn validateBasename(name: []const u8) !void {
+    try directory.validatePath(name);
+    if (std.mem.indexOfScalar(u8, name, '/') != null) return error.NotBasename;
+}
+
+fn writableDirectoryPermissions() std.Io.File.Permissions {
+    if (comptime builtin.os.tag == .windows) return .default_dir;
+    return .fromMode(0o700);
+}
+
+fn writableFilePermissions() std.Io.File.Permissions {
+    if (comptime builtin.os.tag == .windows) return .default_file;
+    return .fromMode(0o600);
+}
+
+fn permissionsForMode(mode: u16, kind: directory.EntryKind) !std.Io.File.Permissions {
+    if (comptime builtin.os.tag == .windows) {
+        const expected: u16 = switch (kind) {
+            .directory => 0o755,
+            .file => 0o644,
+            .symlink => 0o777,
+        };
+        if (mode != expected) return error.UnsupportedMode;
+        return switch (kind) {
+            .directory, .symlink => .default_dir,
+            .file => .default_file,
+        };
+    }
+    return .fromMode(@intCast(mode));
 }
 
 fn walk(
@@ -149,8 +337,9 @@ fn entryLessThan(_: void, left: directory.Entry, right: directory.Entry) bool {
 fn canonicalMode(stat: std.Io.File.Stat, kind: directory.EntryKind) u16 {
     if (comptime builtin.os.tag == .windows) {
         return switch (kind) {
-            .directory, .symlink => 0o777,
-            .file => if (stat.permissions.readOnly()) 0o444 else 0o666,
+            .directory => 0o755,
+            .file => 0o644,
+            .symlink => 0o777,
         };
     }
     return @intCast(stat.permissions.toMode() & 0o777);
@@ -258,4 +447,223 @@ test "snapshot releases every injected allocation failure" {
             defer snapshot.deinit();
         }
     }.run, .{ io, tmp.dir, &rules });
+}
+
+test "filesystem directory patch round-trip is deterministic and staged" {
+    var tmp = testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try tmp.dir.createDir(io, "source", .default_dir);
+    try tmp.dir.createDir(io, "target", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true, .follow_symlinks = false });
+    defer source.close(io);
+    var target = try tmp.dir.openDir(io, "target", .{ .iterate = true, .follow_symlinks = false });
+    defer target.close(io);
+
+    try source.createDir(io, "bin", .default_dir);
+    try source.writeFile(io, .{ .sub_path = "bin/app", .data = "old application with shared suffix" });
+    try source.writeFile(io, .{ .sub_path = "deleted.txt", .data = "gone" });
+    try source.writeFile(io, .{ .sub_path = "same.txt", .data = "same" });
+    try target.createDir(io, "bin", .default_dir);
+    try target.writeFile(io, .{ .sub_path = "bin/app", .data = "new application with shared suffix" });
+    try target.createDir(io, "empty", .default_dir);
+    try target.writeFile(io, .{ .sub_path = "new.txt", .data = "new" });
+    try target.writeFile(io, .{ .sub_path = "same.txt", .data = "same" });
+    if (comptime builtin.os.tag != .windows) {
+        try target.setFilePermissions(
+            io,
+            "empty",
+            .fromMode(0o711),
+            .{ .follow_symlinks = false },
+        );
+    }
+    target.symLink(io, "bin", "current", .{ .is_directory = true }) catch |err| switch (err) {
+        error.AccessDenied => {},
+        else => return err,
+    };
+
+    const first = try createPatchFromDirs(testing.allocator, io, source, target, .{});
+    defer testing.allocator.free(first);
+    const second = try createPatchFromDirs(testing.allocator, io, source, target, .{});
+    defer testing.allocator.free(second);
+    try testing.expectEqualSlices(u8, first, second);
+
+    try applyPatchToNewDir(
+        testing.allocator,
+        io,
+        source,
+        tmp.dir,
+        "output",
+        ".output.difz-stage-test",
+        first,
+        .{},
+    );
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, ".output.difz-stage-test", .{}));
+    var source_buffer: [16]u8 = undefined;
+    try testing.expectEqualStrings(
+        "gone",
+        try readFileIntoBuffer(io, source, "deleted.txt", &source_buffer),
+    );
+    var output = try tmp.dir.openDir(io, "output", .{ .iterate = true, .follow_symlinks = false });
+    defer output.close(io);
+    var expected = try snapshotDir(testing.allocator, io, target, &.{});
+    defer expected.deinit();
+    var actual = try snapshotDir(testing.allocator, io, output, &.{});
+    defer actual.deinit();
+    try testing.expectEqualSlices(
+        u8,
+        &(try directory.treeHash(expected.entries)),
+        &(try directory.treeHash(actual.entries)),
+    );
+}
+
+test "filesystem patch rejects wrong sources and staging collisions without partial output" {
+    var tmp = testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try tmp.dir.createDir(io, "source", .default_dir);
+    try tmp.dir.createDir(io, "wrong", .default_dir);
+    try tmp.dir.createDir(io, "target", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true, .follow_symlinks = false });
+    defer source.close(io);
+    var wrong = try tmp.dir.openDir(io, "wrong", .{ .iterate = true, .follow_symlinks = false });
+    defer wrong.close(io);
+    var target = try tmp.dir.openDir(io, "target", .{ .iterate = true, .follow_symlinks = false });
+    defer target.close(io);
+    try source.writeFile(io, .{ .sub_path = "data", .data = "right" });
+    try wrong.writeFile(io, .{ .sub_path = "data", .data = "WRONG" });
+    try target.writeFile(io, .{ .sub_path = "data", .data = "new!!" });
+    const patch_bytes = try createPatchFromDirs(testing.allocator, io, source, target, .{});
+    defer testing.allocator.free(patch_bytes);
+
+    try testing.expectError(error.SourceHashMismatch, applyPatchToNewDir(
+        testing.allocator,
+        io,
+        wrong,
+        tmp.dir,
+        "output",
+        ".output.difz-stage-test",
+        patch_bytes,
+        .{},
+    ));
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, "output", .{}));
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, ".output.difz-stage-test", .{}));
+
+    const corrupted = try testing.allocator.dupe(u8, patch_bytes);
+    defer testing.allocator.free(corrupted);
+    corrupted[88] ^= 1;
+    try testing.expectError(error.PatchHashMismatch, applyPatchToNewDir(
+        testing.allocator,
+        io,
+        source,
+        tmp.dir,
+        "output",
+        ".output.difz-stage-test",
+        corrupted,
+        .{},
+    ));
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, "output", .{}));
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, ".output.difz-stage-test", .{}));
+
+    try tmp.dir.createDir(io, "existing-output", .default_dir);
+    try tmp.dir.writeFile(io, .{ .sub_path = "existing-output/sentinel", .data = "preserve" });
+    try testing.expectError(error.OutputAlreadyExists, applyPatchToNewDir(
+        testing.allocator,
+        io,
+        source,
+        tmp.dir,
+        "existing-output",
+        ".existing-output.difz-stage-test",
+        patch_bytes,
+        .{},
+    ));
+    var output_buffer: [16]u8 = undefined;
+    try testing.expectEqualStrings(
+        "preserve",
+        try readFileIntoBuffer(io, tmp.dir, "existing-output/sentinel", &output_buffer),
+    );
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, ".existing-output.difz-stage-test", .{}));
+
+    try tmp.dir.createDir(io, ".output.difz-stage-test", .default_dir);
+    try tmp.dir.writeFile(io, .{ .sub_path = ".output.difz-stage-test/owned-by-someone-else", .data = "keep" });
+    try testing.expectError(error.PathAlreadyExists, applyPatchToNewDir(
+        testing.allocator,
+        io,
+        source,
+        tmp.dir,
+        "output",
+        ".output.difz-stage-test",
+        patch_bytes,
+        .{},
+    ));
+    const preserved = try tmp.dir.readFileAlloc(
+        io,
+        ".output.difz-stage-test/owned-by-someone-else",
+        testing.allocator,
+        .limited(16),
+    );
+    defer testing.allocator.free(preserved);
+    try testing.expectEqualStrings("keep", preserved);
+}
+
+fn readFileIntoBuffer(io: std.Io, dir: std.Io.Dir, path: []const u8, buffer: []u8) ![]const u8 {
+    var file = try dir.openFile(io, path, .{
+        .allow_directory = false,
+        .follow_symlinks = false,
+        .resolve_beneath = true,
+    });
+    defer file.close(io);
+    const stat = try file.stat(io);
+    if (stat.size > buffer.len) return error.BufferTooSmall;
+    var reader = file.reader(io, buffer);
+    return try reader.interface.take(@intCast(stat.size));
+}
+
+test "staged filesystem apply cleans up every injected allocation failure" {
+    var tmp = testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try tmp.dir.createDir(io, "source", .default_dir);
+    try tmp.dir.createDir(io, "target", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true, .follow_symlinks = false });
+    defer source.close(io);
+    var target = try tmp.dir.openDir(io, "target", .{ .iterate = true, .follow_symlinks = false });
+    defer target.close(io);
+    try source.writeFile(io, .{ .sub_path = "data", .data = "old payload" });
+    try target.createDir(io, "locked", .default_dir);
+    try target.writeFile(io, .{ .sub_path = "locked/data", .data = "new payload" });
+    if (comptime builtin.os.tag != .windows) {
+        try target.setFilePermissions(
+            io,
+            "locked",
+            .fromMode(0o500),
+            .{ .follow_symlinks = false },
+        );
+    }
+    const patch_bytes = try createPatchFromDirs(testing.allocator, io, source, target, .{});
+    defer testing.allocator.free(patch_bytes);
+
+    try testing.checkAllAllocationFailures(testing.allocator, struct {
+        fn run(
+            allocator: std.mem.Allocator,
+            test_io: std.Io,
+            source_dir: std.Io.Dir,
+            parent_dir: std.Io.Dir,
+            bytes: []const u8,
+        ) !void {
+            try applyPatchToNewDir(
+                allocator,
+                test_io,
+                source_dir,
+                parent_dir,
+                "output",
+                ".output.difz-stage-allocation-test",
+                bytes,
+                .{},
+            );
+            try deleteOwnedTree(test_io, parent_dir, "output");
+        }
+    }.run, .{ io, source, tmp.dir, patch_bytes });
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, "output", .{}));
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, ".output.difz-stage-allocation-test", .{}));
 }
