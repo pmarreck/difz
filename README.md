@@ -1,7 +1,7 @@
 # difz
 
 [![CI](https://github.com/pmarreck/difz/actions/workflows/ci.yml/badge.svg?branch=yolo)](https://github.com/pmarreck/difz/actions/workflows/ci.yml)
-[![Garnix CI](https://img.shields.io/endpoint?url=https://garnix.io/api/badges/pmarreck/difz)](https://garnix.io/repo/pmarreck/difz)
+[![Mechatron Prime CI](https://img.shields.io/endpoint?url=https%3A%2F%2Fthelio-nixos.tail66c90.ts.net%2Fbadges%2Fdifz.json&style=for-the-badge)](https://thelio-nixos.tail66c90.ts.net/mechatron-prime/)
 [![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 
 A fast binary differ for files and directory trees. File patches encode Copy and Insert instructions and bind them to BLAKE3 identities for both files. Apply rejects a wrong source before reconstruction and verifies the completed target. Directory patches add a canonical manifest, ordered path filters, and a whole-patch identity. Directory apply writes a new sibling stage and commits it only after an independent filesystem re-snapshot matches the target identity.
