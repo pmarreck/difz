@@ -1,5 +1,12 @@
 # Difz Implementation Plan
 
+## Active Work — GitHub CI Check Drift
+
+- [x] Reproduce GitHub run `33112172154` with a persistent workflow contract requiring the Test step to call canonical `./test`. The RED control reported the exact stale `nix build .#checks.x86_64-linux.tests` command from GitHub's log. (2026-08-27 4:33pm EDT)
+- [x] Replace the stale `checks.x86_64-linux.tests` command and run focused and canonical gates. `./test` now owns both the Debug test derivation and benchmark contract; 61 CLI and 12 benchmark cases pass. (2026-08-27 4:33pm EDT)
+- [x] Confirm the existing linked `yolo` GitHub Actions badge and make active-workflow badge presence a regression contract. The contract binds README to `ci.yml` and the `yolo` branch. (2026-08-27 4:33pm EDT)
+- [ ] Verify both GitHub Actions and Mechatron Prime against the exact repair commit. Curiosity poke: a green result from either system cannot stand in for the other.
+
 ## Active Work — LuaJIT-only Random Dependency
 
 - [x] Add a flake contract proving the benchmark selects `random-luajit` at definitive upstream commit `8ddd6aac19be75cacf09128cd3ea75faf9a08dc4`. The exact-set assertion rejects both the aggregate alias and aggregate-plus-Lua combinations. (2026-08-27 3:52pm EDT)

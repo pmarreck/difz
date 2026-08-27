@@ -19,4 +19,4 @@ jobs:
         run: nix build
 
       - name: Test
-        run: nix build .#checks.x86_64-linux.tests
+        run: ./test
