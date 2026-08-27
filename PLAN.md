@@ -5,7 +5,7 @@
 - [x] Reproduce GitHub run `33112172154` with a persistent workflow contract requiring the Test step to call canonical `./test`. The RED control reported the exact stale `nix build .#checks.x86_64-linux.tests` command from GitHub's log. (2026-08-27 4:33pm EDT)
 - [x] Replace the stale `checks.x86_64-linux.tests` command and run focused and canonical gates. `./test` now owns both the Debug test derivation and benchmark contract; 61 CLI and 12 benchmark cases pass. (2026-08-27 4:33pm EDT)
 - [x] Confirm the existing linked `yolo` GitHub Actions badge and make active-workflow badge presence a regression contract. The contract binds README to `ci.yml` and the `yolo` branch. (2026-08-27 4:33pm EDT)
-- [ ] Verify both GitHub Actions and Mechatron Prime against the exact repair commit. Curiosity poke: a green result from either system cannot stand in for the other.
+- [x] Verify both GitHub Actions and Mechatron Prime against exact repair commit `e28097c`. GitHub run `33113939884` and Mechatron's 234-second run both passed; the prior Mechatron success no longer masks a separate GitHub failure. (2026-08-27 4:39pm EDT)
 
 ## Active Work — LuaJIT-only Random Dependency
 
