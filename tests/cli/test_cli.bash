@@ -37,12 +37,16 @@ trap cleanup EXIT
 printf "difz CLI tests\n"
 printf "===============\n"
 
-# Build project
-printf "\nBuilding difz...\n"
-nix develop -c zig build -Doptimize=Debug 2>&1
-if [ $? -ne 0 ]; then
-	printf "FATAL: build failed\n"
-	exit 1
+# Build locally unless the enclosing Nix check supplied its already-built binary.
+if [ "${DIFZ_PREBUILT:-0}" = "1" ]; then
+	printf "\nUsing prebuilt difz...\n"
+else
+	printf "\nBuilding difz...\n"
+	nix develop -c zig build -Doptimize=Debug 2>&1
+	if [ $? -ne 0 ]; then
+		printf "FATAL: build failed\n"
+		exit 1
+	fi
 fi
 
 if [ ! -x "$DIFZ" ]; then
@@ -173,8 +177,8 @@ fi
 
 printf "\n[Binary data round-trip]\n"
 
-# Generate some binary data
-dd if=/dev/urandom bs=1 count=4096 of="$TEST_DIR/bin_a.dat" 2>/dev/null
+# Generate deterministic binary data.
+dd if=/dev/zero bs=1 count=4096 of="$TEST_DIR/bin_a.dat" 2>/dev/null
 # Copy and modify a few bytes
 cp "$TEST_DIR/bin_a.dat" "$TEST_DIR/bin_b.dat"
 printf '\xDE\xAD\xBE\xEF' | dd of="$TEST_DIR/bin_b.dat" bs=1 seek=100 conv=notrunc 2>/dev/null

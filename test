@@ -1,24 +1,8 @@
 #!/usr/bin/env bash
 
-# Run all difz tests in Debug mode
-# Accumulates errors across all test suites; exit code = total failures.
+# Run all difz tests in Debug mode through the canonical Nix check.
 
 set -u
 
-ERRORS=0
-
-printf "=== Zig unit tests ===\n"
-nix develop -c zig build test -Doptimize=Debug
-ERRORS=$((ERRORS + $?))
-
-printf "\n=== CLI integration tests ===\n"
-nix develop -c bash tests/cli/test_cli.bash
-ERRORS=$((ERRORS + $?))
-
-if [ "$ERRORS" -eq 0 ]; then
-	printf "\nAll test suites passed.\n"
-else
-	printf "\nTotal failures: %d\n" "$ERRORS"
-fi
-
-exit "$ERRORS"
+system="$(nix eval --impure --raw --expr builtins.currentSystem)"
+nix build -L ".#checks.${system}.test"

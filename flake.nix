@@ -47,6 +47,7 @@
 					src = ./.;
 
 					nativeBuildInputs = [ pkgs.zig ];
+					nativeCheckInputs = with pkgs; [ bash coreutils diffutils gnugrep ];
 
 					dontConfigure = true;
 					dontInstall = true;
@@ -64,7 +65,14 @@
 					doCheck = doCheck;
 					checkPhase = ''
 						export HOME=$TMPDIR
-						zig build test -Doptimize=ReleaseFast ${zlibFlags} 2>&1
+						errors=0
+						if ! zig build test -Doptimize=${optimize} ${zlibFlags} 2>&1; then
+							errors=$((errors + 1))
+						fi
+						if ! DIFZ="$out/bin/difz" DIFZ_PREBUILT=1 bash tests/cli/test_cli.bash; then
+							errors=$((errors + 1))
+						fi
+						exit "$errors"
 					'';
 				};
 			in
@@ -73,7 +81,7 @@
 
 				checks = {
 					build = zigBuild {};
-					tests = zigBuild { doCheck = true; };
+					test = zigBuild { optimize = "Debug"; doCheck = true; };
 				};
 
 				devShells.default = pkgs.mkShell {

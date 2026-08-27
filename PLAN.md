@@ -1,5 +1,18 @@
 # Difz Implementation Plan
 
+## Active Overnight Work — Validate GUI Directory Updates
+
+- [x] Reconcile the detached `c93648e` checkout and preserve all Peter/agent-owned edits; establish a recoverable working branch before committing. The dirty `elder_diff` bytes matched existing `yolo` commit `9a28ab7`; both symlink edits remain untouched. (2026-08-27 12:26am EDT)
+- [x] Reproduce the canonical `./test` zlib-path failure with a persistent failing harness test, then minimally fix the test path and run `./test` plus the exact Nix checks. `./test` now builds `checks.<system>.test`, whose pinned Debug derivation runs Zig units and all 46 CLI cases against static zlib. (2026-08-27 12:26am EDT)
+- [ ] Prove the existing `elder_diff` allocation-failure regression test RED without its two `errdefer`s and GREEN with them, then commit only from a fully green state. Curiosity poke: ensure every injected allocation failure is leak-checked, including growth after the initial history capacity.
+- [ ] Specify the versioned directory patch contract: canonical bytewise UTF-8 paths, supported entry types/modes, Windows behavior, parser limits, source/target BLAKE3 identities, and staging-only reconstruction. Curiosity poke: reject separator aliases, duplicate canonical paths, and symlink-mediated escapes before writing anything.
+- [ ] Add TDD-first deterministic snapshotting and ordered allowlist/denylist classification compatible with `dirtree` PCRE2 glob behavior. Isolate or repair `dirtree`'s documented escaped-wildcard `isGlobPattern` defect and carry that case into difz's classifier-over-sets suite. Curiosity poke: classify representative path sets spanning excluded parents, re-included descendants, dotfiles, Unicode, separators, negation, and platform case rules.
+- [ ] Add TDD-first directory patch encoding and parsing for files, directories, symlinks, mode changes, additions, omissions/deletions, and empty trees. Curiosity poke: bound every decoded length/count before allocation and reject duplicate or unsorted paths.
+- [ ] Add TDD-first staged reconstruction using the existing file delta core, with preflight source-tree identity and post-write target-tree identity checks. Curiosity poke: wrong same-sized sources and interrupted output must leave no accepted partial target.
+- [ ] Add independent round-trip, mutation/corruption, traversal, truncation, deterministic-repeat, and wrong-source controls; extend fuzzing where useful. Curiosity poke: pair rejection mutations with known-good specificity cases so reject-everything cannot pass.
+- [ ] Dogfood the directory core through the C FFI/CLI where practical, document API/format decisions and limitations, update `dirtree` notes, and replace obsolete Garnix CI metadata through the Mechatron workflow if present. Curiosity poke: determine which packaging metadata is outside difz's portable tree model.
+- [ ] Run `./test`, optimized `./build`, exact Nix checks, and applicable cross-platform builds; commit each known-good unit, push after green, and reply to Einstein with hashes and evidence. Curiosity poke: verify whether a canonically packaged notarized `.app` can be reconstructed byte-for-byte without claiming preservation of external notarization state.
+
 ## Completed Tasks
 
 - [x] Task 1: Project Scaffolding — flake.nix, build.zig, build.zig.zon, src/lib.zig, shell scripts, .gitignore (2026-02-25 ~10:30pm EST)
