@@ -1,13 +1,18 @@
 # Dirtree: Stateful directory trees in the CLI for humans and LLMs. https://github.com/pmarreck/dirtree
 ver=1.2
 annotate=[
+	.mechatron-prime/targets = Exact Nix package and test attributes admitted by Mechatron Prime CI
+	README.md = Usage, architecture, security contract, limitations, build instructions, and dynamic CI badges
 	docs/directory-format-v1.md = DIFZTREE v1 path, filter, identity, encoding, parser-limit, and staging contract
+	src/diff.zig = File delta computation plus BLAKE3 source and target identities
 	src/difz.c = C CLI for file and directory diff/patch through the public FFI
 	src/directory.zig = Canonical directory entries, path and hierarchy validation, and BLAKE3 tree identity
 	src/directory_fs.zig = No-follow snapshots plus staged, independently rehashed filesystem reconstruction and cleanup
 	src/directory_patch.zig = DIFZTREE v1 encoder, bounded parser, rule reader, checksum, and in-memory applicator
+	src/encoding.zig = Source- and target-bound ZDIF v2 BLIP codec with selectable compression
 	src/glob.zig = Dirtree-compatible glob-to-PCRE2 conversion with escaped wildcard handling
 	src/lib.zig = Public C FFI for in-memory file deltas and staged directory patches
+	src/patch.zig = Verified file reconstruction with pre-apply source and post-apply target identity checks
 	src/path_filter.zig = Ordered include and exclude filter classifier with later-rule precedence
 	src/pcre2.zig = UTF-8 PCRE2 wrapper for anchored path classification
 	tests/cli/test_cli.bash = File and directory CLI integration suite with independent recursive controls
