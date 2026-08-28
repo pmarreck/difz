@@ -25,10 +25,17 @@ DIFZ="${DIFZ:-$SCRIPT_DIR/zig-out/bin/difz}"
 RANDOM_BIN="${RANDOM_BIN:-random}"
 BUILD_SCRIPT="${BUILD_SCRIPT:-$SCRIPT_DIR/build}"
 GNU_TIME_BIN="${GNU_TIME_BIN:-$(type -P time)}"
+NIX_BIN="${NIX_BIN:-nix}"
 TMPDIR_BM="${TMPDIR:-/tmp}/difz-bench-$$"
 LOG_DIR="$SCRIPT_DIR/tests/benchmark"
 LEGACY_LOG_FILE="$LOG_DIR/benchmark_log.csv"
-LOG_FILE="$LOG_DIR/benchmark_log_v2.csv"
+LOG_FILE="$LOG_DIR/benchmark_log_v3.csv"
+
+REAL_BINARY_REPOSITORY="${REAL_BINARY_REPOSITORY:-github:pmarreck/validate}"
+REAL_BINARY_SOURCE_COMMIT="${REAL_BINARY_SOURCE_COMMIT:-e3e73738a11b6401b19f18a023dfa313f77d0482}"
+REAL_BINARY_TARGET_COMMIT="${REAL_BINARY_TARGET_COMMIT:-c9ab2cdb8823e69312aa90085aecf60d48fb6aa4}"
+REAL_BINARY_SOURCE="${REAL_BINARY_SOURCE:-}"
+REAL_BINARY_TARGET="${REAL_BINARY_TARGET:-}"
 
 # shellcheck source=tests/benchmark/corpus.bash
 source "$SCRIPT_DIR/tests/benchmark/corpus.bash"
@@ -71,6 +78,44 @@ human_bytes() {
 	else
 		echo "${bytes}B"
 	fi
+}
+
+resolve_real_binary_pair() {
+	local source_output target_output
+
+	if { [ "$REAL_BINARY_SOURCE" = "" ] && [ "$REAL_BINARY_TARGET" != "" ]; } ||
+		{ [ "$REAL_BINARY_SOURCE" != "" ] && [ "$REAL_BINARY_TARGET" = "" ]; }; then
+		err "REAL_BINARY_SOURCE and REAL_BINARY_TARGET must be supplied together"
+		return 1
+	fi
+	if [ "$REAL_BINARY_SOURCE" != "" ]; then
+		return 0
+	fi
+	if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
+		err "the pinned real-binary corpus currently requires a Linux x86_64 host"
+		return 1
+	fi
+
+	info "Building Validate source revision $REAL_BINARY_SOURCE_COMMIT"
+	source_output=$("$NIX_BIN" build --no-link --print-out-paths \
+		"${REAL_BINARY_REPOSITORY}/${REAL_BINARY_SOURCE_COMMIT}#packages.x86_64-linux.default") || return 1
+	info "Building Validate target revision $REAL_BINARY_TARGET_COMMIT"
+	target_output=$("$NIX_BIN" build --no-link --print-out-paths \
+		"${REAL_BINARY_REPOSITORY}/${REAL_BINARY_TARGET_COMMIT}#packages.x86_64-linux.default") || return 1
+	REAL_BINARY_SOURCE="$(printf '%s\n' "$source_output" | tail -n1)/bin/validate"
+	REAL_BINARY_TARGET="$(printf '%s\n' "$target_output" | tail -n1)/bin/validate"
+}
+
+host_cpu_model() {
+	local model
+	if [ -r /proc/cpuinfo ]; then
+		model=$(awk -F: '/^model name[[:space:]]*:/ { sub(/^[[:space:]]+/, "", $2); print $2; exit }' /proc/cpuinfo)
+	elif type sysctl >/dev/null 2>&1; then
+		model=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)
+	else
+		model=unknown
+	fi
+	printf '%s\n' "${model:-unknown}" | tr ',' ';'
 }
 
 # Generate a test file pair with a given similarity percentage.
@@ -158,21 +203,25 @@ now_ns() {
 	fi
 }
 
-# Run a single timed command and capture wall time plus peak resident memory.
-# Outputs: <milliseconds> <peak_rss_kib> <exit_code>
+# Run a single timed command and capture wall time, CPU time, and peak memory.
+# Outputs: <wall_ms> <cpu_ms> <peak_rss_kib> <exit_code>
 time_cmd() {
-	local start end elapsed rc peak_rss
-	local rss_file="$TMPDIR_BM/time-rss"
+	local start end elapsed rc cpu_ms peak_rss
+	local resource_file="$TMPDIR_BM/time-resources"
 	start=$(now_ns)
-	"$GNU_TIME_BIN" -f '%M' -o "$rss_file" "$@" > /dev/null 2>&1
+	"$GNU_TIME_BIN" -f '%U %S %M' -o "$resource_file" "$@" > /dev/null 2>&1
 	rc=$?
 	end=$(now_ns)
 	elapsed=$(( (end - start) / 1000000 ))
-	peak_rss=$(tr -d '[:space:]' < "$rss_file")
+	cpu_ms=$(awk '{ printf "%.0f", ($1 + $2) * 1000 }' "$resource_file")
+	peak_rss=$(awk '{ print $3 }' "$resource_file")
+	if ! echo "$cpu_ms" | grep -qE '^[0-9]+$'; then
+		cpu_ms=0
+	fi
 	if ! echo "$peak_rss" | grep -qE '^[0-9]+$'; then
 		peak_rss=0
 	fi
-	echo "$elapsed $peak_rss $rc"
+	echo "$elapsed $cpu_ms $peak_rss $rc"
 }
 
 # Format a time value: append "ms" only for numeric values
@@ -223,7 +272,10 @@ generate_test_pair "50M_90"    52428800   90          45 || exit 1
 generate_test_pair "20M_99"    20971520   99          46 || exit 1
 generate_test_pair "20M_50"    20971520   50          47 || exit 1
 generate_interleaved_pair "$RANDOM_BIN" "$TMPDIR_BM" "1M_interleaved" 1048576 9001 || exit 1
-generate_binary_shape_pair "$TMPDIR_BM" "rebuilt_binary" "$DIFZ" || exit 1
+resolve_real_binary_pair || exit 1
+install_real_elf_pair "$TMPDIR_BM" "validate_real_update" \
+	"$REAL_BINARY_SOURCE" "$REAL_BINARY_TARGET" "$REAL_BINARY_REPOSITORY" \
+	"$REAL_BINARY_SOURCE_COMMIT" "$REAL_BINARY_TARGET_COMMIT" || exit 1
 
 ok "Test data generated in $TMPDIR_BM"
 
@@ -232,16 +284,24 @@ ok "Test data generated in $TMPDIR_BM"
 # Arrays to accumulate results for summary table
 declare -a BM_NAMES=()
 declare -a BM_DIFZ_DIFF_MS=()
+declare -a BM_DIFZ_DIFF_CPU_MS=()
 declare -a BM_BSDIFF_DIFF_MS=()
+declare -a BM_BSDIFF_DIFF_CPU_MS=()
 declare -a BM_XDELTA_DIFF_MS=()
+declare -a BM_XDELTA_DIFF_CPU_MS=()
 declare -a BM_DIFZ_PATCH_MS=()
+declare -a BM_DIFZ_PATCH_CPU_MS=()
 declare -a BM_BSPATCH_PATCH_MS=()
+declare -a BM_BSPATCH_PATCH_CPU_MS=()
 declare -a BM_XDELTA_PATCH_MS=()
+declare -a BM_XDELTA_PATCH_CPU_MS=()
 declare -a BM_DIFZ_SIZE=()
 declare -a BM_BSDIFF_SIZE=()
 declare -a BM_XDELTA_SIZE=()
 declare -a BM_ZSTD_DIFF_MS=()
+declare -a BM_ZSTD_DIFF_CPU_MS=()
 declare -a BM_ZSTD_PATCH_MS=()
+declare -a BM_ZSTD_PATCH_CPU_MS=()
 declare -a BM_ZSTD_SIZE=()
 declare -a BM_FILE_SIZE=()
 declare -a BM_TARGET_SIZE=()
@@ -250,16 +310,26 @@ declare -a BM_OP_COUNT=()
 declare -a BM_MIN_OPS=()
 declare -a BM_DIFZ_DIFF_RSS_KB=()
 declare -a BM_DIFZ_PATCH_RSS_KB=()
+declare -a BM_INPUT_REPOSITORY=()
+declare -a BM_SOURCE_REVISION=()
+declare -a BM_TARGET_REVISION=()
+declare -a BM_SOURCE_SHA256=()
+declare -a BM_TARGET_SHA256=()
 
 run_benchmark() {
 	local name="$1"
 	local corpus_shape="$2"
 	local min_ops="$3"
+	local input_repository="${4:-synthetic:random}"
+	local source_revision="${5:-none}"
+	local target_revision="${6:-none}"
 	local file_a="$TMPDIR_BM/${name}_a"
 	local file_b="$TMPDIR_BM/${name}_b"
-	local file_size target_size
+	local file_size target_size source_sha256 target_sha256
 	file_size=$(wc -c < "$file_a" | tr -d ' ')
 	target_size=$(wc -c < "$file_b" | tr -d ' ')
+	source_sha256=$(sha256sum "$file_a" | cut -d' ' -f1)
+	target_sha256=$(sha256sum "$file_b" | cut -d' ' -f1)
 	if [ "$file_size" -le 0 ] || [ "$target_size" -le 0 ]; then
 		err "$name contains an empty benchmark input"
 		return 1
@@ -280,20 +350,23 @@ run_benchmark() {
 	# ── Diff benchmarks ──
 	echo -e "  ${CYAN}Diff speed:${NC}"
 
-	local result rc ms
+	local result rc ms cpu_ms
 
 	# difz diff
 	result=$(time_cmd "$DIFZ" --no-progress "$file_a" "$file_b" -o "$difz_diff")
 	ms=$(echo "$result" | cut -d' ' -f1)
+	cpu_ms=$(echo "$result" | cut -d' ' -f2)
 	local difz_diff_rss_kb
-	difz_diff_rss_kb=$(echo "$result" | cut -d' ' -f2)
-	rc=$(echo "$result" | cut -d' ' -f3)
+	difz_diff_rss_kb=$(echo "$result" | cut -d' ' -f3)
+	rc=$(echo "$result" | cut -d' ' -f4)
 	if [ "$rc" -ne 0 ]; then
 		warn "difz diff failed (rc=$rc)"
 		ms="FAIL"
+		cpu_ms="FAIL"
 	fi
 	local difz_diff_ms="$ms"
-	info "  difz:   $(fmt_time "$difz_diff_ms"), peak RSS ${difz_diff_rss_kb} KiB"
+	local difz_diff_cpu_ms="$cpu_ms"
+	info "  difz:   $(fmt_time "$difz_diff_ms") wall, $(fmt_time "$difz_diff_cpu_ms") CPU, peak RSS ${difz_diff_rss_kb} KiB"
 
 	local op_count=0
 	if [ "$difz_diff_ms" != "FAIL" ] && [ -f "$difz_diff" ]; then
@@ -317,35 +390,44 @@ run_benchmark() {
 	# bsdiff diff
 	result=$(time_cmd bsdiff "$file_a" "$file_b" "$bsdiff_diff")
 	ms=$(echo "$result" | cut -d' ' -f1)
-	rc=$(echo "$result" | cut -d' ' -f3)
+	cpu_ms=$(echo "$result" | cut -d' ' -f2)
+	rc=$(echo "$result" | cut -d' ' -f4)
 	if [ "$rc" -ne 0 ]; then
 		warn "bsdiff failed (rc=$rc)"
 		ms="FAIL"
+		cpu_ms="FAIL"
 	fi
 	local bsdiff_diff_ms="$ms"
-	info "  bsdiff:  $(fmt_time "$bsdiff_diff_ms")"
+	local bsdiff_diff_cpu_ms="$cpu_ms"
+	info "  bsdiff:  $(fmt_time "$bsdiff_diff_ms") wall, $(fmt_time "$bsdiff_diff_cpu_ms") CPU"
 
 	# xdelta3 diff
 	result=$(time_cmd xdelta3 -f -e -s "$file_a" "$file_b" "$xdelta_diff")
 	ms=$(echo "$result" | cut -d' ' -f1)
-	rc=$(echo "$result" | cut -d' ' -f3)
+	cpu_ms=$(echo "$result" | cut -d' ' -f2)
+	rc=$(echo "$result" | cut -d' ' -f4)
 	if [ "$rc" -ne 0 ]; then
 		warn "xdelta3 failed (rc=$rc)"
 		ms="FAIL"
+		cpu_ms="FAIL"
 	fi
 	local xdelta_diff_ms="$ms"
-	info "  xdelta3: $(fmt_time "$xdelta_diff_ms")"
+	local xdelta_diff_cpu_ms="$cpu_ms"
+	info "  xdelta3: $(fmt_time "$xdelta_diff_ms") wall, $(fmt_time "$xdelta_diff_cpu_ms") CPU"
 
 	# zstd --patch-from diff
 	result=$(time_cmd zstd -f --patch-from="$file_a" "$file_b" -o "$zstd_diff")
 	ms=$(echo "$result" | cut -d' ' -f1)
-	rc=$(echo "$result" | cut -d' ' -f3)
+	cpu_ms=$(echo "$result" | cut -d' ' -f2)
+	rc=$(echo "$result" | cut -d' ' -f4)
 	if [ "$rc" -ne 0 ]; then
 		warn "zstd --patch-from failed (rc=$rc)"
 		ms="FAIL"
+		cpu_ms="FAIL"
 	fi
 	local zstd_diff_ms="$ms"
-	info "  zstd:    $(fmt_time "$zstd_diff_ms")"
+	local zstd_diff_cpu_ms="$cpu_ms"
+	info "  zstd:    $(fmt_time "$zstd_diff_ms") wall, $(fmt_time "$zstd_diff_cpu_ms") CPU"
 
 	# ── Patch benchmarks ──
 	echo -e "  ${CYAN}Patch speed:${NC}"
@@ -354,85 +436,105 @@ run_benchmark() {
 	if [ -f "$difz_diff" ]; then
 		result=$(time_cmd "$DIFZ" --patch --no-progress "$file_a" "$difz_diff" -o "$difz_recon")
 		ms=$(echo "$result" | cut -d' ' -f1)
+		cpu_ms=$(echo "$result" | cut -d' ' -f2)
 		local difz_patch_rss_kb
-		difz_patch_rss_kb=$(echo "$result" | cut -d' ' -f2)
-		rc=$(echo "$result" | cut -d' ' -f3)
+		difz_patch_rss_kb=$(echo "$result" | cut -d' ' -f3)
+		rc=$(echo "$result" | cut -d' ' -f4)
 		if [ "$rc" -ne 0 ]; then
 			warn "difz patch failed (rc=$rc)"
 			ms="FAIL"
+			cpu_ms="FAIL"
 		else
 			# Verify correctness
 			if ! cmp -s "$file_b" "$difz_recon"; then
 				warn "difz patch produced incorrect output!"
 				ms="WRONG"
+				cpu_ms="WRONG"
 			fi
 		fi
 	else
 		ms="SKIP"
+		cpu_ms="SKIP"
 		difz_patch_rss_kb=0
 	fi
 	local difz_patch_ms="$ms"
-	info "  difz:   $(fmt_time "$difz_patch_ms"), peak RSS ${difz_patch_rss_kb} KiB"
+	local difz_patch_cpu_ms="$cpu_ms"
+	info "  difz:   $(fmt_time "$difz_patch_ms") wall, $(fmt_time "$difz_patch_cpu_ms") CPU, peak RSS ${difz_patch_rss_kb} KiB"
 
 	# bspatch
 	if [ -f "$bsdiff_diff" ]; then
 		result=$(time_cmd bspatch "$file_a" "$bsdiff_recon" "$bsdiff_diff")
 		ms=$(echo "$result" | cut -d' ' -f1)
-		rc=$(echo "$result" | cut -d' ' -f3)
+		cpu_ms=$(echo "$result" | cut -d' ' -f2)
+		rc=$(echo "$result" | cut -d' ' -f4)
 		if [ "$rc" -ne 0 ]; then
 			warn "bspatch failed (rc=$rc)"
 			ms="FAIL"
+			cpu_ms="FAIL"
 		else
 			if ! cmp -s "$file_b" "$bsdiff_recon"; then
 				warn "bspatch produced incorrect output!"
 				ms="WRONG"
+				cpu_ms="WRONG"
 			fi
 		fi
 	else
 		ms="SKIP"
+		cpu_ms="SKIP"
 	fi
 	local bspatch_patch_ms="$ms"
-	info "  bspatch: $(fmt_time "$bspatch_patch_ms")"
+	local bspatch_patch_cpu_ms="$cpu_ms"
+	info "  bspatch: $(fmt_time "$bspatch_patch_ms") wall, $(fmt_time "$bspatch_patch_cpu_ms") CPU"
 
 	# xdelta3 decode
 	if [ -f "$xdelta_diff" ]; then
 		result=$(time_cmd xdelta3 -f -d -s "$file_a" "$xdelta_diff" "$xdelta_recon")
 		ms=$(echo "$result" | cut -d' ' -f1)
-		rc=$(echo "$result" | cut -d' ' -f3)
+		cpu_ms=$(echo "$result" | cut -d' ' -f2)
+		rc=$(echo "$result" | cut -d' ' -f4)
 		if [ "$rc" -ne 0 ]; then
 			warn "xdelta3 decode failed (rc=$rc)"
 			ms="FAIL"
+			cpu_ms="FAIL"
 		else
 			if ! cmp -s "$file_b" "$xdelta_recon"; then
 				warn "xdelta3 decode produced incorrect output!"
 				ms="WRONG"
+				cpu_ms="WRONG"
 			fi
 		fi
 	else
 		ms="SKIP"
+		cpu_ms="SKIP"
 	fi
 	local xdelta_patch_ms="$ms"
-	info "  xdelta3: $(fmt_time "$xdelta_patch_ms")"
+	local xdelta_patch_cpu_ms="$cpu_ms"
+	info "  xdelta3: $(fmt_time "$xdelta_patch_ms") wall, $(fmt_time "$xdelta_patch_cpu_ms") CPU"
 
 	# zstd patch
 	if [ -f "$zstd_diff" ]; then
 		result=$(time_cmd zstd -d -f --patch-from="$file_a" "$zstd_diff" -o "$zstd_recon")
 		ms=$(echo "$result" | cut -d' ' -f1)
-		rc=$(echo "$result" | cut -d' ' -f3)
+		cpu_ms=$(echo "$result" | cut -d' ' -f2)
+		rc=$(echo "$result" | cut -d' ' -f4)
 		if [ "$rc" -ne 0 ]; then
 			warn "zstd decode failed (rc=$rc)"
 			ms="FAIL"
+			cpu_ms="FAIL"
 		else
 			if ! cmp -s "$file_b" "$zstd_recon"; then
 				warn "zstd decode produced incorrect output!"
 				ms="WRONG"
+				cpu_ms="WRONG"
 			fi
 		fi
 	else
 		ms="SKIP"
+		cpu_ms="SKIP"
 	fi
 	local zstd_patch_ms="$ms"
-	info "  zstd:    $(fmt_time "$zstd_patch_ms")"
+	local zstd_patch_cpu_ms="$cpu_ms"
+	info "  zstd:    $(fmt_time "$zstd_patch_ms") wall, $(fmt_time "$zstd_patch_cpu_ms") CPU"
 
 	# ── Diff sizes ──
 	echo -e "  ${CYAN}Diff sizes:${NC}"
@@ -471,19 +573,32 @@ run_benchmark() {
 	BM_CORPUS_SHAPE+=("$corpus_shape")
 	BM_OP_COUNT+=("$op_count")
 	BM_MIN_OPS+=("$min_ops")
+	BM_INPUT_REPOSITORY+=("$input_repository")
+	BM_SOURCE_REVISION+=("$source_revision")
+	BM_TARGET_REVISION+=("$target_revision")
+	BM_SOURCE_SHA256+=("$source_sha256")
+	BM_TARGET_SHA256+=("$target_sha256")
 	BM_DIFZ_DIFF_MS+=("$difz_diff_ms")
+	BM_DIFZ_DIFF_CPU_MS+=("$difz_diff_cpu_ms")
 	BM_DIFZ_DIFF_RSS_KB+=("$difz_diff_rss_kb")
 	BM_BSDIFF_DIFF_MS+=("$bsdiff_diff_ms")
+	BM_BSDIFF_DIFF_CPU_MS+=("$bsdiff_diff_cpu_ms")
 	BM_XDELTA_DIFF_MS+=("$xdelta_diff_ms")
+	BM_XDELTA_DIFF_CPU_MS+=("$xdelta_diff_cpu_ms")
 	BM_DIFZ_PATCH_MS+=("$difz_patch_ms")
+	BM_DIFZ_PATCH_CPU_MS+=("$difz_patch_cpu_ms")
 	BM_DIFZ_PATCH_RSS_KB+=("$difz_patch_rss_kb")
 	BM_BSPATCH_PATCH_MS+=("$bspatch_patch_ms")
+	BM_BSPATCH_PATCH_CPU_MS+=("$bspatch_patch_cpu_ms")
 	BM_XDELTA_PATCH_MS+=("$xdelta_patch_ms")
+	BM_XDELTA_PATCH_CPU_MS+=("$xdelta_patch_cpu_ms")
 	BM_DIFZ_SIZE+=("$difz_sz")
 	BM_BSDIFF_SIZE+=("$bsdiff_sz")
 	BM_XDELTA_SIZE+=("$xdelta_sz")
 	BM_ZSTD_DIFF_MS+=("$zstd_diff_ms")
+	BM_ZSTD_DIFF_CPU_MS+=("$zstd_diff_cpu_ms")
 	BM_ZSTD_PATCH_MS+=("$zstd_patch_ms")
+	BM_ZSTD_PATCH_CPU_MS+=("$zstd_patch_cpu_ms")
 	BM_ZSTD_SIZE+=("$zstd_sz")
 }
 
@@ -547,14 +662,17 @@ hyperfine \
 
 # ── 6. Run quick benchmarks for all test cases ───────────────────────
 
-run_benchmark "1M_90" "shared_prefix" 1 || exit 1
-run_benchmark "10M_90" "shared_prefix" 1 || exit 1
-run_benchmark "20M_90" "shared_prefix" 1 || exit 1
-run_benchmark "50M_90" "shared_prefix" 1 || exit 1
-run_benchmark "20M_99" "shared_prefix" 1 || exit 1
-run_benchmark "20M_50" "shared_prefix" 1 || exit 1
-run_benchmark "1M_interleaved" "seeded_interleaved" 5000 || exit 1
-run_benchmark "rebuilt_binary" "releasefast_binary_shape" 10000 || exit 1
+run_benchmark "1M_90" "shared_prefix" 1 "synthetic:random" || exit 1
+run_benchmark "10M_90" "shared_prefix" 1 "synthetic:random" || exit 1
+run_benchmark "20M_90" "shared_prefix" 1 "synthetic:random" || exit 1
+run_benchmark "50M_90" "shared_prefix" 1 "synthetic:random" || exit 1
+run_benchmark "20M_99" "shared_prefix" 1 "synthetic:random" || exit 1
+run_benchmark "20M_50" "shared_prefix" 1 "synthetic:random" || exit 1
+run_benchmark "1M_interleaved" "seeded_interleaved" 5000 \
+	"synthetic:random-transform" || exit 1
+run_benchmark "validate_real_update" "real_elf_x86_64" 1 \
+	"$REAL_BINARY_REPOSITORY" "$REAL_BINARY_SOURCE_COMMIT" \
+	"$REAL_BINARY_TARGET_COMMIT" || exit 1
 
 # ── 7. Summary table ─────────────────────────────────────────────────
 
@@ -596,11 +714,13 @@ done
 printf "\n"
 echo -e "  ${DIM}zd=difz  bs=bsdiff  xd=xdelta3  zs=zstd  diff=create  pat=patch/apply  sz=diff file size${NC}"
 
-printf "\n  ${BOLD}%-20s %12s %12s %14s %14s${NC}\n" \
-	"Test" "Ops" "Minimum" "Diff RSS KiB" "Patch RSS KiB"
+printf "\n  ${BOLD}%-20s %12s %12s %12s %12s %14s %14s${NC}\n" \
+	"Test" "Ops" "Minimum" "Diff CPU" "Patch CPU" "Diff RSS KiB" "Patch RSS KiB"
 for i in "${!BM_NAMES[@]}"; do
-	printf "  %-20s %12s %12s %14s %14s\n" \
+	printf "  %-20s %12s %12s %12s %12s %14s %14s\n" \
 		"${BM_NAMES[$i]}" "${BM_OP_COUNT[$i]}" "${BM_MIN_OPS[$i]}" \
+		"$(fmt_time "${BM_DIFZ_DIFF_CPU_MS[$i]}")" \
+		"$(fmt_time "${BM_DIFZ_PATCH_CPU_MS[$i]}")" \
 		"${BM_DIFZ_DIFF_RSS_KB[$i]}" "${BM_DIFZ_PATCH_RSS_KB[$i]}"
 done
 
@@ -609,78 +729,115 @@ done
 header "Logging results"
 
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+HOST_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+HOST_ARCH=$(uname -m)
+CPU_MODEL=$(host_cpu_model)
+BENCHMARK_REVISION=$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || printf unknown)
 
-init_benchmark_log_v2 "$LOG_FILE"
+init_benchmark_log_v3 "$LOG_FILE"
 
 for i in "${!BM_NAMES[@]}"; do
-	echo "${TIMESTAMP},${BM_NAMES[$i]},${BM_CORPUS_SHAPE[$i]},${BM_FILE_SIZE[$i]},${BM_TARGET_SIZE[$i]},${BM_OP_COUNT[$i]},${BM_MIN_OPS[$i]},${BM_DIFZ_DIFF_MS[$i]},${BM_DIFZ_DIFF_RSS_KB[$i]},${BM_BSDIFF_DIFF_MS[$i]},${BM_XDELTA_DIFF_MS[$i]},${BM_ZSTD_DIFF_MS[$i]},${BM_DIFZ_PATCH_MS[$i]},${BM_DIFZ_PATCH_RSS_KB[$i]},${BM_BSPATCH_PATCH_MS[$i]},${BM_XDELTA_PATCH_MS[$i]},${BM_ZSTD_PATCH_MS[$i]},${BM_DIFZ_SIZE[$i]},${BM_BSDIFF_SIZE[$i]},${BM_XDELTA_SIZE[$i]},${BM_ZSTD_SIZE[$i]}" >> "$LOG_FILE"
+	printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+		"$TIMESTAMP" "$HOST_OS" "$HOST_ARCH" "$CPU_MODEL" "$BENCHMARK_REVISION" \
+		"${BM_NAMES[$i]}" "${BM_CORPUS_SHAPE[$i]}" "${BM_INPUT_REPOSITORY[$i]}" \
+		"${BM_SOURCE_REVISION[$i]}" "${BM_TARGET_REVISION[$i]}" \
+		"${BM_SOURCE_SHA256[$i]}" "${BM_TARGET_SHA256[$i]}" \
+		"${BM_FILE_SIZE[$i]}" "${BM_TARGET_SIZE[$i]}" "${BM_OP_COUNT[$i]}" \
+		"${BM_MIN_OPS[$i]}" "${BM_DIFZ_DIFF_MS[$i]}" "${BM_DIFZ_DIFF_CPU_MS[$i]}" \
+		"${BM_DIFZ_DIFF_RSS_KB[$i]}" "${BM_BSDIFF_DIFF_MS[$i]}" \
+		"${BM_BSDIFF_DIFF_CPU_MS[$i]}" "${BM_XDELTA_DIFF_MS[$i]}" \
+		"${BM_XDELTA_DIFF_CPU_MS[$i]}" "${BM_ZSTD_DIFF_MS[$i]}" \
+		"${BM_ZSTD_DIFF_CPU_MS[$i]}" "${BM_DIFZ_PATCH_MS[$i]}" \
+		"${BM_DIFZ_PATCH_CPU_MS[$i]}" "${BM_DIFZ_PATCH_RSS_KB[$i]}" \
+		"${BM_BSPATCH_PATCH_MS[$i]}" "${BM_BSPATCH_PATCH_CPU_MS[$i]}" \
+		"${BM_XDELTA_PATCH_MS[$i]}" "${BM_XDELTA_PATCH_CPU_MS[$i]}" \
+		"${BM_ZSTD_PATCH_MS[$i]}" "${BM_ZSTD_PATCH_CPU_MS[$i]}" \
+		"${BM_DIFZ_SIZE[$i]}" "${BM_BSDIFF_SIZE[$i]}" "${BM_XDELTA_SIZE[$i]}" \
+		"${BM_ZSTD_SIZE[$i]}" >> "$LOG_FILE"
 done
 
 ok "Results appended to $LOG_FILE"
-info "Historical results remain unchanged in $LEGACY_LOG_FILE"
+info "Historical v1/v2 results remain unchanged"
 
 # ── 9. Regression detection ──────────────────────────────────────────
 
 header "Regression check"
 
-PREV_TIMESTAMP=$(tail -n +2 "$LOG_FILE" | cut -d',' -f1 | sort -u | tail -n2 | head -n1)
 REGRESSIONS=0
+PREVIOUS_RUNS=0
 
-if [ "$PREV_TIMESTAMP" != "$TIMESTAMP" ] && [ -n "$PREV_TIMESTAMP" ]; then
-	info "Comparing against previous v2 run: $PREV_TIMESTAMP"
+for i in "${!BM_NAMES[@]}"; do
+	test_name="${BM_NAMES[$i]}"
+	prev_row=$(awk -F, -v timestamp="$TIMESTAMP" -v host_os="$HOST_OS" \
+		-v host_arch="$HOST_ARCH" -v cpu_model="$CPU_MODEL" -v test_name="$test_name" \
+		-v source_hash="${BM_SOURCE_SHA256[$i]}" -v target_hash="${BM_TARGET_SHA256[$i]}" '
+		$1 != timestamp && $2 == host_os && $3 == host_arch && $4 == cpu_model &&
+		$6 == test_name && $11 == source_hash && $12 == target_hash { row = $0 }
+		END { print row }
+	' "$LOG_FILE")
+	if [ -z "$prev_row" ]; then
+		continue
+	fi
+	PREVIOUS_RUNS=$((PREVIOUS_RUNS + 1))
 
-	for i in "${!BM_NAMES[@]}"; do
-		test_name="${BM_NAMES[$i]}"
-		prev_row=$(grep "^${PREV_TIMESTAMP},${test_name}," "$LOG_FILE" | head -1)
-		if [ -z "$prev_row" ]; then
-			continue
-		fi
+	prev_ops=$(echo "$prev_row" | cut -d',' -f15)
+	prev_diff_ms=$(echo "$prev_row" | cut -d',' -f17)
+	prev_diff_cpu_ms=$(echo "$prev_row" | cut -d',' -f18)
+	prev_patch_ms=$(echo "$prev_row" | cut -d',' -f26)
+	prev_patch_cpu_ms=$(echo "$prev_row" | cut -d',' -f27)
+	prev_patch_rss_kb=$(echo "$prev_row" | cut -d',' -f28)
+	prev_difz_size=$(echo "$prev_row" | cut -d',' -f35)
+	curr_ops="${BM_OP_COUNT[$i]}"
+	curr_diff_ms="${BM_DIFZ_DIFF_MS[$i]}"
+	curr_diff_cpu_ms="${BM_DIFZ_DIFF_CPU_MS[$i]}"
+	curr_patch_ms="${BM_DIFZ_PATCH_MS[$i]}"
+	curr_patch_cpu_ms="${BM_DIFZ_PATCH_CPU_MS[$i]}"
+	curr_patch_rss_kb="${BM_DIFZ_PATCH_RSS_KB[$i]}"
+	curr_difz_size="${BM_DIFZ_SIZE[$i]}"
 
-		prev_ops=$(echo "$prev_row" | cut -d',' -f6)
-		prev_diff_ms=$(echo "$prev_row" | cut -d',' -f8)
-		prev_patch_ms=$(echo "$prev_row" | cut -d',' -f13)
-		prev_patch_rss_kb=$(echo "$prev_row" | cut -d',' -f14)
-		prev_difz_size=$(echo "$prev_row" | cut -d',' -f18)
-		curr_ops="${BM_OP_COUNT[$i]}"
-		curr_diff_ms="${BM_DIFZ_DIFF_MS[$i]}"
-		curr_patch_ms="${BM_DIFZ_PATCH_MS[$i]}"
-		curr_patch_rss_kb="${BM_DIFZ_PATCH_RSS_KB[$i]}"
-		curr_difz_size="${BM_DIFZ_SIZE[$i]}"
-
-		for value in "$prev_ops" "$prev_diff_ms" "$prev_patch_ms" \
-			"$prev_patch_rss_kb" "$prev_difz_size" "$curr_ops" "$curr_diff_ms" \
-			"$curr_patch_ms" "$curr_patch_rss_kb" "$curr_difz_size"; do
-			if ! echo "$value" | grep -qE '^[0-9]+$'; then
-				warn "$test_name: skipped regression checks because a metric is non-numeric"
-				continue 2
-			fi
-		done
-
-		if metric_regressed "$prev_diff_ms" "$curr_diff_ms" 10; then
-			warn "$test_name: diff time regressed: ${prev_diff_ms}ms -> ${curr_diff_ms}ms (>10%)"
-			REGRESSIONS=$((REGRESSIONS + 1))
-		fi
-		if apply_complexity_regressed "$prev_patch_ms" "$prev_ops" "$curr_patch_ms" "$curr_ops" 25; then
-			warn "$test_name: apply milliseconds per operation regressed by more than 25%"
-			REGRESSIONS=$((REGRESSIONS + 1))
-		fi
-		if metric_regressed "$prev_patch_rss_kb" "$curr_patch_rss_kb" 25; then
-			warn "$test_name: apply peak RSS regressed: ${prev_patch_rss_kb} -> ${curr_patch_rss_kb} KiB (>25%)"
-			REGRESSIONS=$((REGRESSIONS + 1))
-		fi
-		if metric_regressed "$prev_difz_size" "$curr_difz_size" 10; then
-			warn "$test_name: patch size regressed: ${prev_difz_size} -> ${curr_difz_size} bytes (>10%)"
-			REGRESSIONS=$((REGRESSIONS + 1))
+	for value in "$prev_ops" "$prev_diff_ms" "$prev_diff_cpu_ms" \
+		"$prev_patch_ms" "$prev_patch_cpu_ms" "$prev_patch_rss_kb" \
+		"$prev_difz_size" "$curr_ops" "$curr_diff_ms" "$curr_diff_cpu_ms" \
+		"$curr_patch_ms" "$curr_patch_cpu_ms" "$curr_patch_rss_kb" \
+		"$curr_difz_size"; do
+		if ! echo "$value" | grep -qE '^[0-9]+$'; then
+			warn "$test_name: skipped regression checks because a metric is non-numeric"
+			continue 2
 		fi
 	done
 
-	if [ "$REGRESSIONS" -eq 0 ]; then
-		ok "No time, per-operation apply, peak-RSS, or patch-size regressions"
-	else
-		err "$REGRESSIONS benchmark regression(s) exceeded their thresholds"
+	if metric_regressed "$prev_diff_ms" "$curr_diff_ms" 10; then
+		warn "$test_name: diff wall time regressed: ${prev_diff_ms}ms -> ${curr_diff_ms}ms (>10%)"
+		REGRESSIONS=$((REGRESSIONS + 1))
 	fi
+	if metric_regressed "$prev_diff_cpu_ms" "$curr_diff_cpu_ms" 10; then
+		warn "$test_name: diff CPU time regressed: ${prev_diff_cpu_ms}ms -> ${curr_diff_cpu_ms}ms (>10%)"
+		REGRESSIONS=$((REGRESSIONS + 1))
+	fi
+	if apply_complexity_regressed "$prev_patch_ms" "$prev_ops" "$curr_patch_ms" "$curr_ops" 25; then
+		warn "$test_name: apply wall milliseconds per operation regressed by more than 25%"
+		REGRESSIONS=$((REGRESSIONS + 1))
+	fi
+	if apply_complexity_regressed "$prev_patch_cpu_ms" "$prev_ops" "$curr_patch_cpu_ms" "$curr_ops" 25; then
+		warn "$test_name: apply CPU milliseconds per operation regressed by more than 25%"
+		REGRESSIONS=$((REGRESSIONS + 1))
+	fi
+	if metric_regressed "$prev_patch_rss_kb" "$curr_patch_rss_kb" 25; then
+		warn "$test_name: apply peak RSS regressed: ${prev_patch_rss_kb} -> ${curr_patch_rss_kb} KiB (>25%)"
+		REGRESSIONS=$((REGRESSIONS + 1))
+	fi
+	if metric_regressed "$prev_difz_size" "$curr_difz_size" 10; then
+		warn "$test_name: patch size regressed: ${prev_difz_size} -> ${curr_difz_size} bytes (>10%)"
+		REGRESSIONS=$((REGRESSIONS + 1))
+	fi
+done
+
+if [ "$PREVIOUS_RUNS" -eq 0 ]; then
+	info "No prior v3 row matches this host and corpus identity"
+elif [ "$REGRESSIONS" -eq 0 ]; then
+	ok "No wall-time, CPU-time, per-operation apply, peak-RSS, or patch-size regressions"
 else
-	info "No previous v2 run to compare against"
+	err "$REGRESSIONS benchmark regression(s) exceeded their thresholds"
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────

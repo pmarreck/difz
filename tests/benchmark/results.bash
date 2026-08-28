@@ -13,6 +13,17 @@ init_benchmark_log_v2() {
 	fi
 }
 
+benchmark_log_v3_header() {
+	printf '%s\n' 'timestamp,host_os,host_arch,cpu_model,benchmark_revision,test_name,corpus_shape,input_repository,source_revision,target_revision,source_sha256,target_sha256,source_size,target_size,op_count,min_ops,difz_diff_wall_ms,difz_diff_cpu_ms,difz_diff_peak_rss_kb,bsdiff_diff_wall_ms,bsdiff_diff_cpu_ms,xdelta_diff_wall_ms,xdelta_diff_cpu_ms,zstd_diff_wall_ms,zstd_diff_cpu_ms,difz_patch_wall_ms,difz_patch_cpu_ms,difz_patch_peak_rss_kb,bspatch_patch_wall_ms,bspatch_patch_cpu_ms,xdelta_patch_wall_ms,xdelta_patch_cpu_ms,zstd_patch_wall_ms,zstd_patch_cpu_ms,difz_size,bsdiff_size,xdelta_size,zstd_size'
+}
+
+init_benchmark_log_v3() {
+	local log_file="$1"
+	if [ ! -f "$log_file" ]; then
+		benchmark_log_v3_header > "$log_file"
+	fi
+}
+
 # Return success when milliseconds per operation grew beyond the threshold.
 apply_complexity_regressed() {
 	local previous_ms="$1"

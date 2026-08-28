@@ -96,7 +96,7 @@
 					benchmark-contract = pkgs.runCommand "difz-benchmark-contract"
 						{
 							nativeBuildInputs = with pkgs; [
-								bash coreutils gnugrep gnused gawk time randomPackage
+								bash coreutils file gnugrep gnused gawk time randomPackage
 							];
 						} ''
 							cp -r ${./.} work
@@ -118,6 +118,8 @@
 						xdelta
 						zstd
 						time
+						file
+						git
 						randomPackage
 					];
 				};

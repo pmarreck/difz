@@ -143,7 +143,9 @@ Requires [Nix](https://nixos.org/) with flakes enabled:
 nix develop -c bash bm
 ```
 
-Compares difz against bsdiff, xdelta3, and zstd across six exact-size shared-prefix pairs, a 1 MiB seeded interleaved-edit pair, and a representative rebuilt-binary shape derived from the current ReleaseFast executable. The added shapes must clear minimum operation-count gates. New results, including source and target sizes, operation count, wall time, peak RSS, and patch size, go to `tests/benchmark/benchmark_log_v2.csv`. The original `tests/benchmark/benchmark_log.csv` remains as the unmodified historical record. Regression checks cover diff time, apply milliseconds per operation, apply peak RSS, and patch size.
+Compares difz against bsdiff, xdelta3, and zstd across six exact-size shared-prefix pairs, a 1 MiB seeded interleaved-edit stress pair, and independently built Validate Linux x86_64 executables from two consecutive, exact Git revisions. The real-binary pair must remain runnable ReleaseFast ELF input with distinct source and target hashes; the benchmark builds it reproducibly through Nix instead of altering executable bytes.
+
+New results go to `tests/benchmark/benchmark_log_v3.csv`. Each row records the host OS, architecture, CPU model, benchmark revision, corpus repository/revisions/hashes, source and target sizes, operation count, wall and CPU time, peak difz RSS, and patch sizes. Regression checks compare only the same host and corpus identity. The original `tests/benchmark/benchmark_log.csv` and `tests/benchmark/benchmark_log_v2.csv` remain unmodified historical records of the earlier, idealized corpus.
 
 ## Dependencies
 

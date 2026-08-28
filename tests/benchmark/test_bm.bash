@@ -198,13 +198,15 @@ mkdir -p "$TMPDIR_BM"
 timing_result=$(time_cmd head -c 1048576 /dev/zero)
 timing_fields=$(printf '%s\n' "$timing_result" | awk '{ print NF }')
 timing_ms=$(printf '%s\n' "$timing_result" | cut -d' ' -f1)
-timing_rss=$(printf '%s\n' "$timing_result" | cut -d' ' -f2)
-timing_rc=$(printf '%s\n' "$timing_result" | cut -d' ' -f3)
-if [ "$timing_fields" -eq 3 ] && [ "$timing_ms" -ge 0 ] 2>/dev/null &&
-	[ "$timing_rss" -gt 0 ] 2>/dev/null && [ "$timing_rc" -eq 0 ] 2>/dev/null; then
-	pass "timing captures wall milliseconds, peak RSS KiB, and exit status"
+timing_cpu_ms=$(printf '%s\n' "$timing_result" | cut -d' ' -f2)
+timing_rss=$(printf '%s\n' "$timing_result" | cut -d' ' -f3)
+timing_rc=$(printf '%s\n' "$timing_result" | cut -d' ' -f4)
+if [ "$timing_fields" -eq 4 ] && [ "$timing_ms" -ge 0 ] 2>/dev/null &&
+	[ "$timing_cpu_ms" -ge 0 ] 2>/dev/null && [ "$timing_rss" -gt 0 ] 2>/dev/null &&
+	[ "$timing_rc" -eq 0 ] 2>/dev/null; then
+	pass "timing captures wall and CPU milliseconds, peak RSS KiB, and exit status"
 else
-	fail "timing captures wall milliseconds, peak RSS KiB, and exit status" \
+	fail "timing captures wall and CPU milliseconds, peak RSS KiB, and exit status" \
 		"result=$timing_result"
 fi
 
@@ -215,10 +217,12 @@ else
 	# shellcheck source=corpus.bash
 	source "$CORPUS_LIB"
 	if type generate_interleaved_pair >/dev/null 2>&1 &&
-		type generate_binary_shape_pair >/dev/null 2>&1; then
+		type install_real_elf_pair >/dev/null 2>&1 &&
+		! type generate_binary_shape_pair >/dev/null 2>&1; then
 		pass "high-operation corpus generator is present"
 	else
-		fail "high-operation corpus generator is present" "required functions are missing"
+		fail "high-operation corpus generator is present" \
+			"real ELF installer is missing or manufactured binary generator remains"
 	fi
 
 	INTERLEAVED_DIR="$TEST_DIR/interleaved"
@@ -244,28 +248,44 @@ else
 			"generate_rc=$interleaved_rc, diff_rc=$interleaved_diff_rc, inspect_rc=$interleaved_inspect_rc, A=$interleaved_a_size, B=$interleaved_b_size, ops=${interleaved_ops:-missing}"
 	fi
 
-	head -c 1048576 "$PINNED_DIFZ" > "$TEST_DIR/binary-source"
-	BINARY_DIR="$TEST_DIR/binary-shape"
-	mkdir -p "$BINARY_DIR"
-	generate_binary_shape_pair "$BINARY_DIR" rebuilt "$TEST_DIR/binary-source" \
-		> "$TEST_DIR/binary.stdout" 2> "$TEST_DIR/binary.stderr"
-	binary_rc=$?
-	binary_a_size=$(wc -c < "$BINARY_DIR/rebuilt_a" | tr -d ' ')
-	binary_b_size=$(wc -c < "$BINARY_DIR/rebuilt_b" | tr -d ' ')
-	"$PINNED_DIFZ" --no-progress "$BINARY_DIR/rebuilt_a" "$BINARY_DIR/rebuilt_b" \
-		-o "$TEST_DIR/binary.diff" > "$TEST_DIR/binary-diff.stdout" 2> "$TEST_DIR/binary-diff.stderr"
-	binary_diff_rc=$?
-	"$PINNED_DIFZ" --inspect --truncate 0 "$TEST_DIR/binary.diff" \
-		> "$TEST_DIR/binary.inspect" 2> "$TEST_DIR/binary-inspect.stderr"
-	binary_inspect_rc=$?
-	binary_ops=$(sed -n 's/^difz inspect: \([0-9][0-9]*\) ops,.*/\1/p' "$TEST_DIR/binary.inspect")
-	if [ "$binary_rc" -eq 0 ] && [ "$binary_diff_rc" -eq 0 ] &&
-		[ "$binary_inspect_rc" -eq 0 ] && [ "$binary_a_size" -eq 1048576 ] &&
-		[ "$binary_b_size" -eq 1048576 ] && [ "${binary_ops:-0}" -ge 10000 ]; then
-		pass "representative rebuilt-binary shape yields at least 10,000 operations"
+	REAL_ELF_DIR="$TEST_DIR/real-elf"
+	mkdir -p "$REAL_ELF_DIR"
+	real_source="$PINNED_DIFZ"
+	real_target=$(type -P true)
+	install_real_elf_pair "$REAL_ELF_DIR" real_cli "$real_source" "$real_target" \
+		github:example/real-cli \
+		1111111111111111111111111111111111111111 \
+		2222222222222222222222222222222222222222 \
+		> "$TEST_DIR/real-elf.stdout" 2> "$TEST_DIR/real-elf.stderr"
+	real_elf_rc=$?
+	real_source_hash=$(sha256sum "$REAL_ELF_DIR/real_cli_a" 2>/dev/null | cut -d' ' -f1)
+	real_target_hash=$(sha256sum "$REAL_ELF_DIR/real_cli_b" 2>/dev/null | cut -d' ' -f1)
+	if [ "$real_elf_rc" -eq 0 ] && [ -x "$REAL_ELF_DIR/real_cli_a" ] &&
+		[ -x "$REAL_ELF_DIR/real_cli_b" ] && [ "$real_source_hash" != "$real_target_hash" ] &&
+		grep -qF 'source_revision=1111111111111111111111111111111111111111' \
+			"$REAL_ELF_DIR/real_cli_provenance" &&
+		grep -qF "source_sha256=$real_source_hash" "$REAL_ELF_DIR/real_cli_provenance" &&
+		grep -qF "target_sha256=$real_target_hash" "$REAL_ELF_DIR/real_cli_provenance"; then
+		pass "real ELF pair preserves executable inputs and immutable provenance"
 	else
-		fail "representative rebuilt-binary shape yields at least 10,000 operations" \
-			"generate_rc=$binary_rc, diff_rc=$binary_diff_rc, inspect_rc=$binary_inspect_rc, A=$binary_a_size, B=$binary_b_size, ops=${binary_ops:-missing}"
+		fail "real ELF pair preserves executable inputs and immutable provenance" \
+			"rc=$real_elf_rc, source_hash=${real_source_hash:-missing}, target_hash=${real_target_hash:-missing}, stderr=$(tr '\n' ' ' < "$TEST_DIR/real-elf.stderr")"
+	fi
+
+	LC_ALL=C tr '\000' '\001' < "$real_source" > "$TEST_DIR/manufactured-target"
+	chmod +x "$TEST_DIR/manufactured-target"
+	install_real_elf_pair "$REAL_ELF_DIR" manufactured "$real_source" \
+		"$TEST_DIR/manufactured-target" github:example/real-cli \
+		1111111111111111111111111111111111111111 \
+		2222222222222222222222222222222222222222 \
+		> "$TEST_DIR/manufactured.stdout" 2> "$TEST_DIR/manufactured.stderr"
+	manufactured_rc=$?
+	if [ "$manufactured_rc" -ne 0 ] && [ ! -e "$REAL_ELF_DIR/manufactured_a" ] &&
+		[ ! -e "$REAL_ELF_DIR/manufactured_b" ]; then
+		pass "real ELF pair rejects a byte-transformed executable-shaped target"
+	else
+		fail "real ELF pair rejects a byte-transformed executable-shaped target" \
+			"rc=$manufactured_rc, stderr=$(tr '\n' ' ' < "$TEST_DIR/manufactured.stderr")"
 	fi
 fi
 
@@ -276,14 +296,20 @@ if [ ! -f "$RESULTS_LIB" ]; then
 else
 	# shellcheck source=results.bash
 	source "$RESULTS_LIB"
-	RESULTS_LOG="$TEST_DIR/results-v2.csv"
-	init_benchmark_log_v2 "$RESULTS_LOG"
+	RESULTS_LOG="$TEST_DIR/results-v3.csv"
+	init_benchmark_log_v3 "$RESULTS_LOG"
 	results_header=$(sed -n '1p' "$RESULTS_LOG")
-	if echo "$results_header" | grep -q 'op_count' &&
-		echo "$results_header" | grep -q 'difz_patch_peak_rss_kb'; then
-		pass "versioned benchmark log records operation count and peak RSS"
+	committed_results_header=$(sed -n '1p' "$ROOT_DIR/tests/benchmark/benchmark_log_v3.csv" 2>/dev/null)
+	if [ "$results_header" = "$committed_results_header" ] &&
+		echo "$results_header" | grep -q 'op_count' &&
+		echo "$results_header" | grep -q 'difz_patch_peak_rss_kb' &&
+		echo "$results_header" | grep -q 'difz_diff_cpu_ms' &&
+		echo "$results_header" | grep -q 'host_arch' &&
+		echo "$results_header" | grep -q 'source_revision' &&
+		echo "$results_header" | grep -q 'target_sha256'; then
+		pass "v3 benchmark log records resource use, platform, and corpus provenance"
 	else
-		fail "versioned benchmark log records operation count and peak RSS" \
+		fail "v3 benchmark log records resource use, platform, and corpus provenance" \
 			"header=$results_header"
 	fi
 
@@ -301,8 +327,17 @@ else
 	fi
 fi
 
+v2_hash=$(sha256sum "$ROOT_DIR/tests/benchmark/benchmark_log_v2.csv" | cut -d' ' -f1)
+if [ "$v2_hash" = 'baf0ef2dcd6f77904eb49cd5ed46c48c70de68027c120450aaaceddb90defe0c' ]; then
+	pass "historical v2 benchmark log remains byte-for-byte unchanged"
+else
+	fail "historical v2 benchmark log remains byte-for-byte unchanged" "sha256=$v2_hash"
+fi
+
 if grep -qF 'historical shared-prefix corpus' "$ROOT_DIR/README.md" &&
-	grep -qF 'benchmark_log_v2.csv' "$ROOT_DIR/README.md" &&
+	grep -qF 'benchmark_log_v3.csv' "$ROOT_DIR/README.md" &&
+	grep -qF 'independently built Validate' "$ROOT_DIR/README.md" &&
+	! grep -qF 'representative rebuilt-binary shape' "$ROOT_DIR/README.md" &&
 	! grep -qF '**difz produces the smallest diffs** across all test cases.' "$ROOT_DIR/README.md"; then
 	pass "README limits performance claims to the measured corpus"
 else

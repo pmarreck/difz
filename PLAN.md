@@ -1,5 +1,11 @@
 # Difz Implementation Plan
 
+## Active Work — Linux x86_64 Real-Binary Benchmarks
+
+- [x] Replace the byte-transformed `rebuilt_binary` fixture with an independently built same-project ELF x86_64 source/target pair, and add a failing contract that rejects manufactured targets. Consecutive Validate revisions `e3e73738a11b6401b19f18a023dfa313f77d0482` and `c9ab2cdb8823e69312aa90085aecf60d48fb6aa4` build as distinct runnable 89 MB ELF executables; the old byte transform fails the same gate. (2026-08-28 3:02pm EDT)
+- [x] Pin immutable binary provenance and Random's finalized library-only commit `7a3ee0fd511edd3819369a2691bc190541e20cbf`; introduce a versioned benchmark schema that records Linux/CPU identity, source commits and hashes, wall time, CPU time, RSS, operation count, and patch size while preserving v1/v2 history. V3 regression comparisons require the same host CPU and exact corpus hashes; v2 remains byte-identical at SHA-256 `baf0ef2dcd6f77904eb49cd5ed46c48c70de68027c120450aaaceddb90defe0c`. (2026-08-28 3:02pm EDT)
+- [ ] Run the optimized benchmark on Linux x86_64, verify every tool's round trip independently, update README claims only from measured data, then run the canonical test/build gates and commit known-green work. Curiosity poke: a realistic pair may expose qualitatively different operation density or memory use than the synthetic corpus.
+
 ## Active Work — GitHub CI Check Drift
 
 - [x] Reproduce GitHub run `33112172154` with a persistent workflow contract requiring the Test step to call canonical `./test`. The RED control reported the exact stale `nix build .#checks.x86_64-linux.tests` command from GitHub's log. (2026-08-27 4:33pm EDT)

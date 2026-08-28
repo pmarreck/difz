@@ -16,9 +16,10 @@ annotate=[
 	src/path_filter.zig = Ordered include and exclude filter classifier with later-rule precedence
 	src/pcre2.zig = UTF-8 PCRE2 wrapper for anchored path classification
 	tests/benchmark/benchmark_log_v2.csv = operation-count, peak-RSS, timing, and patch-size benchmark history
-	tests/benchmark/corpus.bash = deterministic high-operation and executable-shaped benchmark corpus generators
-	tests/benchmark/results.bash = versioned benchmark schema and apply-complexity regression calculations
-	tests/benchmark/test_bm.bash = fail-closed benchmark generator, corpus, RSS, and claim contract tests
+	tests/benchmark/benchmark_log_v3.csv = Linux x86_64 benchmark history with real-binary provenance and wall/CPU/RSS metrics
+	tests/benchmark/corpus.bash = deterministic synthetic corpus and immutable real ELF pair validation
+	tests/benchmark/results.bash = v2/v3 benchmark schemas and normalized regression calculations
+	tests/benchmark/test_bm.bash = fail-closed generator, real-ELF, resource-metric, history, and claim contracts
 	tests/cli/test_cli.bash = File and directory CLI integration suite with independent recursive controls
 	tests/nix/test_flake_outputs.bash = three-supported-system flake output contract
 ]
