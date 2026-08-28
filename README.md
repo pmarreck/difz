@@ -8,6 +8,22 @@ A fast binary differ for files and directory trees. File patches encode Copy and
 
 ## Performance
 
+### Current Linux x86_64 real-binary result
+
+This 2026-08-28 run used an AMD Ryzen Threadripper 3990X and difz commit `fc72e215fce361e66a4fd5854a6e1c3495f4a7e2`. The inputs are runnable ReleaseFast Nix outputs from consecutive Validate commits [`e3e73738`](https://github.com/pmarreck/validate/commit/e3e73738a11b6401b19f18a023dfa313f77d0482) and [`c9ab2cdb`](https://github.com/pmarreck/validate/commit/c9ab2cdb8823e69312aa90085aecf60d48fb6aa4), sized 89,229,114 and 89,229,178 bytes. Each tool's reconstructed target matched the original byte-for-byte.
+
+| Metric | difz | bsdiff | xdelta3 | zstd |
+|--------|-----:|-------:|--------:|-----:|
+| Create wall time | 11.027 s | 29.213 s | 2.594 s | 0.355 s |
+| Create CPU time | 15.520 s | 28.960 s | 2.550 s | 0.590 s |
+| Apply wall time | 0.715 s | 0.487 s | 0.321 s | 0.176 s |
+| Apply CPU time | 0.690 s | 0.460 s | 0.290 s | 0.210 s |
+| Patch size | 4,513,223 B | 398,412 B | 3,985,436 B | 6,031,834 B |
+
+The real pair produced 708,379 difz operations. Difz create peaked at 3,497,792 KiB RSS and apply peaked at 213,752 KiB. On this pair, difz created the patch faster than bsdiff but slower than xdelta3 and zstd; it applied slower than all three. Its patch was smaller than xdelta3 and zstd, while bsdiff's patch was 11.3 times smaller than difz's. These are single-run resource measurements; the full inputs, hashes, timings, and sizes are in `tests/benchmark/benchmark_log_v3.csv`.
+
+### Historical shared-prefix snapshot
+
 This is a historical Apple M4 (aarch64) snapshot using default `--compress best`. Its historical shared-prefix corpus constructed each target as one contiguous prefix from the source followed by a random suffix. A current reproduction of the 10 MiB, 90%-similar case yields only three operations, so this table does not measure scattered edits, rebuilt binaries, or high-operation apply behavior.
 
 | File size | Sim. | difz | xdelta3 | zstd | bsdiff | difz size | xdelta3 size | zstd size | bsdiff size |

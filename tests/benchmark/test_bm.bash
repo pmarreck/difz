@@ -334,6 +334,21 @@ else
 	fail "historical v2 benchmark log remains byte-for-byte unchanged" "sha256=$v2_hash"
 fi
 
+V3_LOG="$ROOT_DIR/tests/benchmark/benchmark_log_v3.csv"
+v3_field_count=$(awk -F, 'NR == 1 { print NF }' "$V3_LOG")
+v3_bad_rows=$(awk -F, -v expected="$v3_field_count" 'NF != expected { count++ } END { print count + 0 }' "$V3_LOG")
+real_v3_row=$(awk -F, '$6 == "validate_real_update" { print; exit }' "$V3_LOG")
+real_v3_ops=$(printf '%s\n' "$real_v3_row" | cut -d',' -f15)
+if [ "$v3_field_count" -eq 38 ] && [ "$v3_bad_rows" -eq 0 ] &&
+	printf '%s\n' "$real_v3_row" | grep -qF ',linux,x86_64,' &&
+	printf '%s\n' "$real_v3_row" | grep -qF ',github:pmarreck/validate,e3e73738a11b6401b19f18a023dfa313f77d0482,c9ab2cdb8823e69312aa90085aecf60d48fb6aa4,' &&
+	[ "${real_v3_ops:-0}" -ge 100000 ]; then
+	pass "v3 history contains structurally valid Linux x86_64 real-binary data"
+else
+	fail "v3 history contains structurally valid Linux x86_64 real-binary data" \
+		"fields=$v3_field_count, malformed_rows=$v3_bad_rows, real_ops=${real_v3_ops:-missing}"
+fi
+
 if grep -qF 'historical shared-prefix corpus' "$ROOT_DIR/README.md" &&
 	grep -qF 'benchmark_log_v3.csv' "$ROOT_DIR/README.md" &&
 	grep -qF 'independently built Validate' "$ROOT_DIR/README.md" &&
