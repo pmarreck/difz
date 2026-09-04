@@ -2,6 +2,7 @@
 ver=1.2
 annotate=[
 	.mechatron-prime/targets = Exact Nix package and test attributes admitted by Mechatron Prime CI
+	CODE_REVIEW.md = Upgrade-readiness review recovered from the blocked Astra session, with independent I/O re-checks and remediation order
 	README.md = Usage, architecture, security contract, limitations, build instructions, and dynamic CI badges
 	docs/directory-format-v1.md = DIFZTREE v1 path, filter, identity, encoding, parser-limit, and staging contract
 	src/diff.zig = File delta computation plus BLAKE3 source and target identities

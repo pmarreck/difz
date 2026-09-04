@@ -215,7 +215,15 @@ static int write_output(const char *path, const uint8_t *data, size_t len) {
 		}
 	}
 
-	if (needs_close) fclose(f);
+	if (needs_close) {
+		if (fclose(f) != 0) {
+			fprintf(stderr, "difz: write error: %s\n", strerror(errno));
+			return -1;
+		}
+	} else if (fflush(f) != 0 || ferror(f)) {
+		fprintf(stderr, "difz: write error: %s\n", strerror(errno));
+		return -1;
+	}
 	return 0;
 }
 
@@ -234,6 +242,10 @@ static void format_size(size_t bytes, char *buf, size_t buf_size) {
 
 static int is_stdout_path(const char *path) {
 	return path == NULL || strcmp(path, "-") == 0 || strcmp(path, "@stdout") == 0;
+}
+
+static int is_stream_path(const char *path) {
+	return is_stdout_path(path) || (path != NULL && strcmp(path, "@stderr") == 0);
 }
 
 static int run_directory_diff(
@@ -255,7 +267,7 @@ static int run_directory_diff(
 		fprintf(stderr, "difz: directory diff failed\n");
 		return 1;
 	}
-	if (is_stdout_path(output_path)) {
+	if (is_stream_path(output_path)) {
 		rc = write_output(output_path, patch, patch_len);
 	} else {
 		rc = difz_write_new_file_atomic(output_path, patch, patch_len);
@@ -486,7 +498,7 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "difz: --allow and --deny are stored when a directory patch is created\n");
 				return 1;
 			}
-			if (is_stdout_path(output_path) || strcmp(output_path, "@stderr") == 0) {
+			if (is_stream_path(output_path)) {
 				fprintf(stderr, "difz: directory patch requires -o with a new directory path\n");
 				return 1;
 			}

@@ -29,6 +29,13 @@ pub const PatchError = error{
 	TargetHashMismatch,
 };
 
+/// Overflow-safe end check for COPY/INSERT ranges. Plain `offset + length`
+/// wraps or panics, which can skip the bounds test and then copy out of range.
+fn rangeExceeds(offset: usize, length: usize, limit: usize) bool {
+	const end = std.math.add(usize, offset, length) catch return true;
+	return end > limit;
+}
+
 pub const PatchInfo = struct {
 	size_a: usize,
 	size_b: usize,
@@ -68,12 +75,10 @@ pub fn patch(allocator: std.mem.Allocator, a: []const u8, diff_blob: []const u8)
 	for (decoded.ops) |op| {
 		switch (op.tag) {
 			.copy => {
-				// Bounds check against source A
-				if (op.offset + op.length > a.len) {
+				if (rangeExceeds(op.offset, op.length, a.len)) {
 					return error.OutOfBounds;
 				}
-				// Bounds check against output
-				if (pos + op.length > output.len) {
+				if (rangeExceeds(pos, op.length, output.len)) {
 					return error.OutOfBounds;
 				}
 				@memcpy(output[pos..][0..op.length], a[op.offset..][0..op.length]);
@@ -81,8 +86,7 @@ pub fn patch(allocator: std.mem.Allocator, a: []const u8, diff_blob: []const u8)
 			},
 			.insert => {
 				const data = op.data orelse return error.InvalidLength;
-				// Bounds check against output
-				if (pos + op.length > output.len) {
+				if (op.length > data.len or rangeExceeds(pos, op.length, output.len)) {
 					return error.OutOfBounds;
 				}
 				@memcpy(output[pos..][0..op.length], data[0..op.length]);
@@ -176,6 +180,27 @@ test "patch empty files" {
 	const reconstructed = try patch(testing.allocator, "", encoded);
 	defer testing.allocator.free(reconstructed);
 	try testing.expectEqualStrings("", reconstructed);
+}
+
+test "copy overflowing source range is out of bounds" {
+	const source = "hello";
+	var ops = [_]diff_mod.DiffOp{.{
+		.tag = .copy,
+		.offset = std.math.maxInt(usize) - 3,
+		.length = 8,
+		.data = null,
+	}};
+	const result = diff_mod.DiffResult{
+		.ops = &ops,
+		.options = .{ .seed = [_]u8{0} ** 32, .target_chunk_size = 64 },
+		.size_a = source.len,
+		.size_b = 8,
+		.source_blake3 = diff_mod.fileIdentity(source),
+		.target_blake3 = [_]u8{1} ** 32,
+	};
+	const encoded = try encoding.encode(testing.allocator, result, .none);
+	defer testing.allocator.free(encoded);
+	try testing.expectError(error.OutOfBounds, patch(testing.allocator, source, encoded));
 }
 
 test "patchInfo returns correct metadata" {

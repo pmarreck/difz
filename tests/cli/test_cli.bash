@@ -294,6 +294,75 @@ else
 	fail "diff with -o @stdout writes to stdout" "rc=$EXPLICIT_RC2, size=$EXPLICIT_SIZE2"
 fi
 
+# ── Test: output I/O failures must not report success ─────────────────
+
+printf "\n[Output I/O failures]\n"
+
+if [ -e /dev/full ]; then
+	FULL_ERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o /dev/full 2>&1)
+	FULL_RC=$?
+	FULL_ERR_FILTERED=$(printf '%s\n' "$FULL_ERR" | grep -v "^DEBUG BUILD$" | grep -v "^$")
+	if [ $FULL_RC -ne 0 ] && [ -n "$FULL_ERR_FILTERED" ]; then
+		pass "named /dev/full output fails closed"
+	else
+		fail "named /dev/full output fails closed" "rc=$FULL_RC, stderr: $FULL_ERR"
+	fi
+
+	"$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" > /dev/full 2>"$TEST_DIR/stdout_full.err"
+	STDOUT_FULL_RC=$?
+	STDOUT_FULL_ERR=$(cat "$TEST_DIR/stdout_full.err")
+	STDOUT_FULL_FILTERED=$(printf '%s\n' "$STDOUT_FULL_ERR" | grep -v "^DEBUG BUILD$" | grep -v "^$")
+	if [ $STDOUT_FULL_RC -ne 0 ] && [ -n "$STDOUT_FULL_FILTERED" ]; then
+		pass "stdout redirected to /dev/full fails closed"
+	else
+		fail "stdout redirected to /dev/full fails closed" "rc=$STDOUT_FULL_RC, stderr: $STDOUT_FULL_ERR"
+	fi
+else
+	pass "named /dev/full output fails closed (skipped: no /dev/full)"
+	pass "stdout redirected to /dev/full fails closed (skipped: no /dev/full)"
+fi
+
+# ── Test: @stderr stream aliases ──────────────────────────────────────
+
+printf "\n[@stderr stream aliases]\n"
+
+mkdir -p "$TEST_DIR/atstderr_work"
+cp "$TEST_DIR/a.txt" "$TEST_DIR/atstderr_work/a.txt"
+cp "$TEST_DIR/b.txt" "$TEST_DIR/atstderr_work/b.txt"
+(
+	cd "$TEST_DIR/atstderr_work"
+	"$DIFZ" --no-progress a.txt b.txt -o @stderr >file_atstderr_out.bin 2>file_atstderr_err.bin
+	echo $? > file_atstderr_rc.txt
+	if [ -e @stderr ]; then echo yes; else echo no; fi > file_atstderr_literal.txt
+)
+FILE_ATSTDERR_RC=$(cat "$TEST_DIR/atstderr_work/file_atstderr_rc.txt")
+FILE_ATSTDERR_LITERAL=$(cat "$TEST_DIR/atstderr_work/file_atstderr_literal.txt")
+FILE_ATSTDERR_ERR_SIZE=$(wc -c < "$TEST_DIR/atstderr_work/file_atstderr_err.bin" | tr -d ' ')
+if [ "$FILE_ATSTDERR_RC" = "0" ] && [ "$FILE_ATSTDERR_LITERAL" = "no" ] && [ "$FILE_ATSTDERR_ERR_SIZE" -gt 0 ]; then
+	pass "file -o @stderr writes the patch to stderr"
+else
+	fail "file -o @stderr writes the patch to stderr" \
+		"rc=$FILE_ATSTDERR_RC literal=$FILE_ATSTDERR_LITERAL stderr_bytes=$FILE_ATSTDERR_ERR_SIZE"
+fi
+
+mkdir -p "$TEST_DIR/atstderr_work/empty_a" "$TEST_DIR/atstderr_work/empty_b"
+(
+	cd "$TEST_DIR/atstderr_work"
+	"$DIFZ" --no-progress empty_a empty_b -o @stderr >tree_atstderr_out.bin 2>tree_atstderr_err.bin
+	echo $? > tree_atstderr_rc.txt
+	if [ -e @stderr ]; then echo yes; else echo no; fi > tree_atstderr_literal.txt
+)
+TREE_ATSTDERR_RC=$(cat "$TEST_DIR/atstderr_work/tree_atstderr_rc.txt")
+TREE_ATSTDERR_LITERAL=$(cat "$TEST_DIR/atstderr_work/tree_atstderr_literal.txt")
+TREE_ATSTDERR_ERR_SIZE=$(wc -c < "$TEST_DIR/atstderr_work/tree_atstderr_err.bin" | tr -d ' ')
+TREE_ATSTDERR_ERR_FILTERED_SIZE=$(grep -a -v "^DEBUG BUILD$" "$TEST_DIR/atstderr_work/tree_atstderr_err.bin" | grep -a -v "^$" | wc -c | tr -d ' ')
+if [ "$TREE_ATSTDERR_RC" = "0" ] && [ "$TREE_ATSTDERR_LITERAL" = "no" ] && [ "$TREE_ATSTDERR_ERR_FILTERED_SIZE" -gt 0 ]; then
+	pass "directory -o @stderr writes the patch to stderr"
+else
+	fail "directory -o @stderr writes the patch to stderr" \
+		"rc=$TREE_ATSTDERR_RC literal=$TREE_ATSTDERR_LITERAL stderr_bytes=$TREE_ATSTDERR_ERR_SIZE filtered=$TREE_ATSTDERR_ERR_FILTERED_SIZE"
+fi
+
 # ── Test: --seed option ───────────────────────────────────────────────
 
 printf "\n[--seed option]\n"

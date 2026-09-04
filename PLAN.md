@@ -1,5 +1,19 @@
 # Difz Implementation Plan
 
+## Active Work: Upgrade-readiness code review (2026-09-04)
+
+- [x] Recover the Astra/Codex review that OpenAI blocked, from session `01a04169-5b52-78b2-964b-353b06869ce5` and `/tmp/difz-review-20260904-gqsy92/`. Last user request was a plain-language handoff for implementation. (2026-09-04 ~7:40pm EDT)
+- [x] Independently re-check the I/O findings against `zig-out/bin/difz`: `-o /dev/full` and stdout-to-`/dev/full` exit 0; directory `-o @stderr` creates a literal `@stderr` file. COPY overflow remains source-only until its new unit test runs. (2026-09-04 ~7:40pm EDT)
+- [x] Write `CODE_REVIEW.md` with severity, evidence labels, and remediation order. Incomplete dimensions (memory-safety, coverage, error-handling, futile tests) are recorded as interrupted, not green. (2026-09-04 ~7:40pm EDT)
+- [ ] Recommend improvements to the deep-code-review skill based on this audit, including evidence standards, threat modeling, language accuracy, and reviewer scheduling; do not change the shared skill without a separate implementation request.
+
+## Active Work: Confirmed-defect remediation (2026-09-04)
+
+- [x] TDD: fail closed on buffered output (`/dev/full`) and honor directory `-o @stderr` as a stream. Named `/dev/full` and stdout-to-`/dev/full` now exit nonzero; directory `-o @stderr` writes the patch to stderr. (2026-09-04 ~7:45pm EDT)
+- [x] TDD: COPY/INSERT range checks must reject overflowing offset+length without wrapping or panicking. `rangeExceeds` uses `std.math.add`; the new unit test that used to abort at `patch.zig:72` now returns `error.OutOfBounds`. (2026-09-04 ~7:45pm EDT)
+- [ ] TDD: reject out-of-range `target_chunk_size` instead of Debug-aborting.
+- [ ] Later, separately: bounded chunk matching, packed encoder allocations, installable C library, Windows `trimStart` + cross builds.
+
 ## Active Work — Linux x86_64 Real-Binary Benchmarks
 
 - [x] Replace the byte-transformed `rebuilt_binary` fixture with an independently built same-project ELF x86_64 source/target pair, and add a failing contract that rejects manufactured targets. Consecutive Validate revisions `e3e73738a11b6401b19f18a023dfa313f77d0482` and `c9ab2cdb8823e69312aa90085aecf60d48fb6aa4` build as distinct runnable 89 MB ELF executables; the old byte transform fails the same gate. (2026-08-28 3:02pm EDT)
