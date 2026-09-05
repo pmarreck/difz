@@ -13,7 +13,8 @@ fi
 system="$(nix eval --impure --raw --expr builtins.currentSystem)"
 if ! nix build -L \
 	".#checks.${system}.test" \
-	".#checks.${system}.benchmark-contract"; then
+	".#checks.${system}.benchmark-contract" \
+	".#checks.${system}.windows-gnu"; then
 	errors=$((errors + 1))
 fi
 

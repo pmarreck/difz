@@ -14,6 +14,10 @@
 #include <stdint.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if defined(_WIN32) || defined(_WIN64)
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 #include "difz.h"
 #include "progrez.h"
@@ -296,7 +300,16 @@ static int run_directory_patch(
 
 /* ── Main ──────────────────────────────────────────────────────────── */
 
+static void difz_stdio_init(void) {
+#if defined(_WIN32) || defined(_WIN64)
+	_setmode(_fileno(stdin), _O_BINARY);
+	_setmode(_fileno(stdout), _O_BINARY);
+	_setmode(_fileno(stderr), _O_BINARY);
+#endif
+}
+
 int main(int argc, char *argv[]) {
+	difz_stdio_init();
 	int no_ansi = 0;
 	int no_progress = 0;
 	for (int i = 1; i < argc; i++) {

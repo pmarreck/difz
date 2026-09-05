@@ -32,6 +32,14 @@
             .url = "https://github.com/pmarreck/zstdz/archive/abaedb3e.tar.gz",
             .hash = "zstdz-1.6.0-yDWjzpVcNAC91cSNuyMS83eoCzPDiCyESsrP2LbHvOQg",
         },
+        .z7z = .{
+            .url = "https://github.com/pmarreck/z7z/archive/468ece8.tar.gz",
+            .hash = "z7z-0.1.0-rkKuF6vKBgBABoiu3SBYBwKgjVARX7AK9OId3azwZAle",
+        },
+        .bzip2z = .{
+            .url = "https://github.com/pmarreck/bzip2z/archive/9b9e28d.tar.gz",
+            .hash = "bzip2z-0.1.0-m5NdlsYYCACrnvOCZyqsVmJYY84BRf1XPFi08RfbnWPW",
+        },
     },
     .paths = .{
         "build.zig",

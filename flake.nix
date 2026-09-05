@@ -49,6 +49,8 @@
 				# link statically (static-iff-musl), so a static archive is required.
 				zlibStatic = pkgs.pkgsStatic.zlib;
 				zlibFlags = "-Dzlib-include-path=${zlibStatic.dev}/include -Dzlib-lib-path=${zlibStatic}/lib";
+				mingwZlib = pkgs.pkgsCross.mingwW64.zlib;
+				windowsZlibFlags = "-Dtarget=x86_64-windows-gnu -Dzlib-include-path=${mingwZlib.dev}/include -Dzlib-lib-path=${mingwZlib}/lib";
 
 				zigBuild = { optimize ? "ReleaseFast", doCheck ? false }: pkgs.stdenv.mkDerivation {
 					pname = "difz";
@@ -96,6 +98,27 @@
 				checks = {
 					build = releaseFast;
 					test = zigBuild { optimize = "Debug"; doCheck = true; };
+					windows-gnu = pkgs.stdenv.mkDerivation {
+						pname = "difz-windows-gnu";
+						version = "0.1.0";
+						src = ./.;
+						nativeBuildInputs = [ pkgs.zig pkgs.binutils ];
+						dontConfigure = true;
+						dontInstall = true;
+						buildPhase = ''
+							export HOME=$TMPDIR
+							export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
+							mkdir -p $ZIG_GLOBAL_CACHE_DIR
+							cp -r ${zigDeps}/* $ZIG_GLOBAL_CACHE_DIR/
+							chmod -R u+w $ZIG_GLOBAL_CACHE_DIR
+							zig build -Doptimize=ReleaseFast ${windowsZlibFlags} --prefix $out
+							test -f $out/bin/difz.exe
+							if ! strings "$out/bin/difz.exe" | grep -q setmode; then
+								echo "FAIL: Windows binary does not reference setmode" >&2
+								exit 1
+							fi
+						'';
+					};
 					benchmark-contract = pkgs.runCommand "difz-benchmark-contract"
 						{
 							nativeBuildInputs = with pkgs; [

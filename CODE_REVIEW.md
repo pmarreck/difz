@@ -113,7 +113,7 @@ Repair: `trimStart`, plus a Windows zlib/sysroot in CI so the five CLI targets a
 6. Done: `encode` uses an arena for instruction temporaries and dupes the final buffer. LZ4 encode is leak-clean under allocation injection.
 7. Done: `scripts/flatten-static-lib` merges pcre2/blip/lz4/zstd objects into installed `libdifz.a`. `tests/ffi/test_installed_lib.bash` links with `zig cc`.
 8. Done: `difz.h` has `extern "C"` and `difz_free` documents directory output. Windows path helper uses `trimStart`. `--simple`/`--no-ansi`/`--no-color` suppress the progress bar and ANSI debug banner.
-9. Still open: Windows zlib/sysroot so `x86_64-windows-gnu` actually compiles; `_setmode` binary stdio; hiding transitive `blar_*`/`z7z_*` exports.
+9. Done: `x86_64-windows-gnu` cross-build uses mingw zlib; `difz.exe` is produced. `_setmode(_O_BINARY)` is called on Windows stdio. Computation-only blar/z7z modules keep `blar_*`/`z7z_*` out of `libdifz.a`.
 
 Each item needs a failing test before the code change. Performance items use deterministic counters, not wall-clock gates.
 

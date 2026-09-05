@@ -95,3 +95,9 @@ if [ "$random_rev" != "$EXPECTED_RANDOM_REV" ]; then
 fi
 
 printf 'PASS random input revision: %s\n' "$random_rev"
+
+if ! nix eval --raw "$FLAKE_REF#checks.${system}.windows-gnu.name" >/dev/null 2>&1; then
+	printf 'FAIL windows-gnu cross check is missing\n' >&2
+	exit 1
+fi
+printf 'PASS windows-gnu cross check is declared\n'

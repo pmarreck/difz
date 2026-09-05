@@ -79,5 +79,16 @@ else
 	fail "external C caller round-trips a 6-byte buffer" "exit $?"
 fi
 
+if command -v nm >/dev/null 2>&1; then
+	leaks=$(nm -g --defined-only "$ARCHIVE" 2>/dev/null | awk '/ [TWw] / {print $NF}' | sed 's/^_//' | grep -E '^(blar_|z7z_)' || true)
+	if [ -z "$leaks" ]; then
+		pass "installed archive does not export blar_ or z7z_ globals"
+	else
+		fail "installed archive does not export blar_ or z7z_ globals" "$(printf '%s\n' "$leaks" | tr '\n' ' ' | cut -c1-300)"
+	fi
+else
+	fail "installed archive does not export blar_ or z7z_ globals" "nm not on PATH"
+fi
+
 printf "\n%d tests, %d failed\n" "$TESTS" "$ERRORS"
 exit "$ERRORS"

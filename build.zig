@@ -35,18 +35,6 @@ pub fn build(b: *std.Build) void {
         .enable_flac = false,
         .enable_image = false,
     });
-    const blar_module = blar_dep.module("blar");
-    // Supplement blar's module with zlib's header + library location. blar's
-    // addZlibSupport attaches `linkSystemLibrary("z")` to its module, so `-lz`
-    // must resolve as early as the libdifz.a archive step — which means the
-    // search path has to be on the module, not just the final exe (removing it
-    // fails with "unable to find dynamic system library 'z'"). Side effect: the
-    // static libz.a gets bundled into libdifz.a as a nested member, so ld.lld
-    // emits a benign "neither ET_REL nor LLVM bitcode" warning at the final
-    // link. Harmless — the static binary is correct. A clean fix would defer
-    // zlib linking to consumers blar-side (a separate fleet change).
-    if (zlib_include_path) |p| blar_module.addSystemIncludePath(.{ .cwd_relative = p });
-    if (zlib_lib_path) |p| blar_module.addLibraryPath(.{ .cwd_relative = p });
 
     // Get printable-binary dependency
     const pb_dep = b.dependency("printable_binary", .{
@@ -63,6 +51,68 @@ pub fn build(b: *std.Build) void {
         .@"code-unit-width" = .@"8",
     });
     const pcre2_lib = pcre2_dep.artifact("pcre2-8");
+
+    const blip_dep = b.dependency("blip", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const blip_mod = blip_dep.module("blip");
+    const blip_lib = blip_dep.artifact("blip");
+    const lz4_lib = b.dependency("lz4", .{
+        .target = target,
+        .optimize = optimize,
+    }).artifact("lz4");
+    const zstd_lib = b.dependency("zstdz", .{
+        .target = target,
+        .optimize = optimize,
+    }).artifact("zstd");
+    const bzip2z_mod = b.dependency("bzip2z", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("bzip2z");
+
+    const lzma2_mod = b.createModule(.{
+        .root_source_file = b.dependency("z7z", .{
+            .target = target,
+            .optimize = optimize,
+        }).path("src/lzma2_encoder.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const z7z_compute = b.createModule(.{
+        .root_source_file = b.path("src/z7z_compute.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "lzma2_encoder", .module = lzma2_mod },
+        },
+    });
+    const blar_compression = b.createModule(.{
+        .root_source_file = blar_dep.path("src/compression.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "blip", .module = blip_mod },
+            .{ .name = "z7z", .module = z7z_compute },
+            .{ .name = "bzip2z", .module = bzip2z_mod },
+        },
+    });
+    blar_compression.linkLibrary(lz4_lib);
+    blar_compression.linkLibrary(zstd_lib);
+    blar_compression.addIncludePath(lz4_lib.getEmittedIncludeTree());
+    blar_compression.addIncludePath(zstd_lib.getEmittedIncludeTree());
+    if (zlib_include_path) |p| blar_compression.addSystemIncludePath(.{ .cwd_relative = p });
+    if (zlib_lib_path) |p| blar_compression.addLibraryPath(.{ .cwd_relative = p });
+
+    const blar_compute = b.createModule(.{
+        .root_source_file = b.path("src/blar_compute.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "blip", .module = blip_mod },
+            .{ .name = "compression", .module = blar_compression },
+        },
+    });
 
     // Get progrez dependency (C FFI progress library)
     // Build a static lib from source — progrez's build.zig registers both
@@ -88,7 +138,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "blar", .module = blar_module },
+            .{ .name = "blar", .module = blar_compute },
             .{ .name = "printable_binary", .module = pb_module },
         },
     });
@@ -102,7 +152,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "blar", .module = blar_module },
+            .{ .name = "blar", .module = blar_compute },
             .{ .name = "printable_binary", .module = pb_module },
         },
     });
@@ -119,19 +169,6 @@ pub fn build(b: *std.Build) void {
 
     // Install C header
     lib.installHeader(b.path("src/difz.h"), "difz.h");
-
-    const blip_lib = b.dependency("blip", .{
-        .target = target,
-        .optimize = optimize,
-    }).artifact("blip");
-    const lz4_lib = b.dependency("lz4", .{
-        .target = target,
-        .optimize = optimize,
-    }).artifact("lz4");
-    const zstd_lib = b.dependency("zstdz", .{
-        .target = target,
-        .optimize = optimize,
-    }).artifact("zstd");
 
     const flatten = b.addSystemCommand(&.{"bash"});
     flatten.addFileArg(b.path("scripts/flatten-static-lib"));

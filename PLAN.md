@@ -22,6 +22,12 @@
 - [x] TDD: replace Windows `trimLeft` with always-compiled `trimLeadingSlashes` (`trimStart`). (2026-09-04 ~8:10pm EDT)
 - [x] TDD: `--simple` / `--no-ansi` / `--no-color` suppress progress ANSI (no-op flags now set `no_ansi` / `no_progress`). (2026-09-04 ~8:10pm EDT)
 
+## Active Work: Remaining review items (2026-09-04)
+
+- [x] TDD: `x86_64-windows-gnu` cross-build gets mingw zlib and produces `difz.exe`. Flake check `windows-gnu`. (2026-09-04 ~8:40pm EDT)
+- [x] TDD: Windows stdio is binary (`_setmode` / `_O_BINARY` on stdin/stdout/stderr). The Windows check greps the exe for `setmode`. (2026-09-04 ~8:40pm EDT)
+- [x] TDD: installed `libdifz.a` does not export `blar_*`/`z7z_*`. Computation-only `blar_compute`/`z7z_compute` modules omit those C FFI roots. (2026-09-04 ~8:40pm EDT)
+
 ## Active Work — Linux x86_64 Real-Binary Benchmarks
 
 - [x] Replace the byte-transformed `rebuilt_binary` fixture with an independently built same-project ELF x86_64 source/target pair, and add a failing contract that rejects manufactured targets. Consecutive Validate revisions `e3e73738a11b6401b19f18a023dfa313f77d0482` and `c9ab2cdb8823e69312aa90085aecf60d48fb6aa4` build as distinct runnable 89 MB ELF executables; the old byte transform fails the same gate. (2026-08-28 3:02pm EDT)
