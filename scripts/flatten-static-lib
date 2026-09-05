@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Merge one or more static archives into a single fat archive of object files.
+# Zig 0.16 emits thin archives whose members are absolute zig-cache object paths.
+# Usage: flatten-static-lib <out.a> <in.a> [in.a ...]
+set -u
+out=$1
+shift
+work=$(mktemp -d "${TMPDIR:-/tmp}/difz-flatten.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+i=0
+for archive in "$@"; do
+	dir=$work/$i
+	mkdir -p "$dir"
+	n=0
+	while IFS= read -r member; do
+		[ -z "$member" ] && continue
+		dest=$dir/${n}-$(basename "$member")
+		if [ -f "$member" ]; then
+			cp "$member" "$dest"
+		elif ar p "$archive" "$member" >"$dest" 2>/dev/null && [ -s "$dest" ]; then
+			:
+		else
+			printf 'flatten-static-lib: failed to extract %s from %s\n' "$member" "$archive" >&2
+			exit 1
+		fi
+		n=$((n + 1))
+	done < <(ar t "$archive")
+	if [ "$n" -eq 0 ]; then
+		printf 'flatten-static-lib: no members in %s\n' "$archive" >&2
+		exit 1
+	fi
+	i=$((i + 1))
+done
+files=()
+while IFS= read -r -d '' f; do
+	files+=("$f")
+done < <(find "$work" -type f -print0)
+if [ "${#files[@]}" -eq 0 ]; then
+	printf 'flatten-static-lib: no object files extracted\n' >&2
+	exit 1
+fi
+ar rcs "$out" "${files[@]}"

@@ -31,18 +31,19 @@ For each gap between matched chunks, the Myers O(ND) diff algorithm runs on the 
 
 Reference: https://blog.robertelder.org/diff-algorithm/
 
-## File output format (ZDIF v2)
+## File output format (ZDIF v3)
 
 The diff is encoded as a BLIP container:
 
 ```
 ARRAY (top-level, with xxHash64 integrity)
-+-- [0] DATA: magic "ZDIF" + version byte (0x02)
++-- [0] DATA: magic "ZDIF" + version byte (0x03)
 +-- [1] DATA: metadata
 |   +-- 32-byte CDC seed
 |   +-- 32-byte BLAKE3 source identity
 |   +-- 32-byte BLAKE3 target identity
-|   +-- BLIP(chunk_size) + BLIP(size_a) + BLIP(size_b)
+|   +-- BLIP(chunk_size) + BLIP(min_size) + BLIP(max_size) + BLIP(mask)
+|   +-- BLIP(size_a) + BLIP(size_b)
 +-- [2] ARRAY: instructions
     +-- [i] DATA: opcode + BLIP fields [+ data]
 

@@ -20,10 +20,23 @@
             .url = "https://github.com/pmarreck/pcre2/archive/refs/tags/zig-0.16.0.tar.gz",
             .hash = "pcre2-10.47.0-S7QTbvnVMgDsA1ipkKNj5kVoEda9wcIuZYUpdrTuDaCh",
         },
+        .blip = .{
+            .url = "https://github.com/pmarreck/BLIP/archive/refs/tags/v3.1.0.tar.gz",
+            .hash = "blip-0.1.0-rcNuGOSZBwBX-Q-IYY7LA5enIHtkIUZetkSenD40cRH8",
+        },
+        .lz4 = .{
+            .url = "https://github.com/pmarreck/lz4/archive/19f8f9af.tar.gz",
+            .hash = "lz4-1.10.0-TtaqjWnWBwDyZfaY0wVpYpm0w67tDM0c_gvpvCoQQsvh",
+        },
+        .zstdz = .{
+            .url = "https://github.com/pmarreck/zstdz/archive/abaedb3e.tar.gz",
+            .hash = "zstdz-1.6.0-yDWjzpVcNAC91cSNuyMS83eoCzPDiCyESsrP2LbHvOQg",
+        },
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
+        "scripts",
     },
 }

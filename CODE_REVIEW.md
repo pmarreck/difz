@@ -105,13 +105,15 @@ Repair: `trimStart`, plus a Windows zlib/sysroot in CI so the five CLI targets a
 
 ## Remediation status (2026-09-04)
 
-1. Done: `write_output` checks `fclose`/`fflush`; directory diffs use `is_stream_path`. CLI tests cover `/dev/full` and `-o @stderr`. Canonical `./test` is green.
+1. Done: `write_output` checks `fclose`/`fflush`; directory diffs use `is_stream_path`. CLI tests cover `/dev/full` and `-o @stderr`.
 2. Done: `rangeExceeds` uses `std.math.add`. The overflow unit test that aborted at `patch.zig:72` now returns `error.OutOfBounds`.
-3. Bound `target_chunk_size`; return `-1` instead of aborting.
-4. Bound chunk-match candidates on repeated data.
-5. Pack encoder allocations.
-6. Make the installed C library linkable from outside this build graph.
-7. Windows `trimStart` + actual cross builds; then `--simple` / header docs / `extern "C"`.
+3. Done: `ChunkParams.fromTarget` rejects 0 and overflowing sizes; FFI maps 0 to 4096 and returns `-1` for `SIZE_MAX`.
+4. Done: ZDIF v3 stores Gear min/target/max/mask. Random-data average stays within 2× of target; default remains 4096.
+5. Done: matching picks one source offset per target chunk (contiguous preference). Zero-filled 256 KiB no longer yields a Cartesian list.
+6. Done: `encode` uses an arena for instruction temporaries and dupes the final buffer. LZ4 encode is leak-clean under allocation injection.
+7. Done: `scripts/flatten-static-lib` merges pcre2/blip/lz4/zstd objects into installed `libdifz.a`. `tests/ffi/test_installed_lib.bash` links with `zig cc`.
+8. Done: `difz.h` has `extern "C"` and `difz_free` documents directory output. Windows path helper uses `trimStart`. `--simple`/`--no-ansi`/`--no-color` suppress the progress bar and ANSI debug banner.
+9. Still open: Windows zlib/sysroot so `x86_64-windows-gnu` actually compiles; `_setmode` binary stdio; hiding transitive `blar_*`/`z7z_*` exports.
 
 Each item needs a failing test before the code change. Performance items use deterministic counters, not wall-clock gates.
 

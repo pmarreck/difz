@@ -423,6 +423,16 @@ else
 	fail "--chunk-size 512 accepted" "rc=$DIFF_RC, stderr: $DIFF_STDERR"
 fi
 
+HUGE_CHUNK_STDERR=$("$DIFZ" --no-progress --chunk-size 4611686018427387904 \
+	"$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/huge_chunk.patch" 2>&1)
+HUGE_CHUNK_RC=$?
+HUGE_CHUNK_FILTERED=$(printf '%s\n' "$HUGE_CHUNK_STDERR" | grep -v "^DEBUG BUILD$" | grep -v "^$")
+if [ $HUGE_CHUNK_RC -ne 0 ] && [ -n "$HUGE_CHUNK_FILTERED" ] && [ ! -e "$TEST_DIR/huge_chunk.patch" ]; then
+	pass "overflowing --chunk-size fails closed"
+else
+	fail "overflowing --chunk-size fails closed" "rc=$HUGE_CHUNK_RC, stderr: $HUGE_CHUNK_STDERR"
+fi
+
 # ── Test: paths with spaces ───────────────────────────────────────────
 
 printf "\n[Paths with spaces]\n"
@@ -732,6 +742,32 @@ if [ -z "$STAGE_LEFTOVERS" ]; then
 	pass "directory failures leave no owned staging paths"
 else
 	fail "directory failures leave no owned staging paths" "paths: $STAGE_LEFTOVERS"
+fi
+
+# ── Test: --simple / --no-ansi suppress escape codes ──────────────────
+
+printf "\n[--simple / --no-ansi]\n"
+
+SIMPLE_ERR=$("$DIFZ" --simple --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/simple.patch" 2>&1 >/dev/null)
+SIMPLE_RC=$?
+if [ $SIMPLE_RC -eq 0 ] && printf '%s' "$SIMPLE_ERR" | grep -a -q $'\033'; then
+	fail "--simple stderr has no ANSI escapes" "stderr contained ESC"
+elif [ $SIMPLE_RC -eq 0 ]; then
+	pass "--simple stderr has no ANSI escapes"
+else
+	fail "--simple stderr has no ANSI escapes" "rc=$SIMPLE_RC, stderr: $SIMPLE_ERR"
+fi
+
+if command -v script >/dev/null 2>&1; then
+	script -q -e -c "$DIFZ --simple $TEST_DIR/a.txt $TEST_DIR/b.txt -o $TEST_DIR/simple_pty.patch" \
+		"$TEST_DIR/simple.pty" >/dev/null 2>&1
+	if grep -a -q $'\033' "$TEST_DIR/simple.pty"; then
+		fail "--simple under a PTY emits no ANSI" "captured ESC in $TEST_DIR/simple.pty"
+	else
+		pass "--simple under a PTY emits no ANSI"
+	fi
+else
+	pass "--simple under a PTY emits no ANSI (skipped: no script)"
 fi
 
 # ── Test: stderr output cleanliness ───────────────────────────────────

@@ -120,6 +120,30 @@ pub fn build(b: *std.Build) void {
     // Install C header
     lib.installHeader(b.path("src/difz.h"), "difz.h");
 
+    const blip_lib = b.dependency("blip", .{
+        .target = target,
+        .optimize = optimize,
+    }).artifact("blip");
+    const lz4_lib = b.dependency("lz4", .{
+        .target = target,
+        .optimize = optimize,
+    }).artifact("lz4");
+    const zstd_lib = b.dependency("zstdz", .{
+        .target = target,
+        .optimize = optimize,
+    }).artifact("zstd");
+
+    const flatten = b.addSystemCommand(&.{"bash"});
+    flatten.addFileArg(b.path("scripts/flatten-static-lib"));
+    const flattened = flatten.addOutputFileArg("libdifz.a");
+    flatten.addFileArg(lib.getEmittedBin());
+    flatten.addFileArg(pcre2_lib.getEmittedBin());
+    flatten.addFileArg(blip_lib.getEmittedBin());
+    flatten.addFileArg(lz4_lib.getEmittedBin());
+    flatten.addFileArg(zstd_lib.getEmittedBin());
+    const install_flat = b.addInstallFileWithDir(flattened, .lib, "libdifz.a");
+    b.getInstallStep().dependOn(&install_flat.step);
+
     // C CLI executable — dogfoods the FFI
     const c_flags: []const []const u8 = if (optimize == .Debug)
         &.{ "-std=c11", "-Wall", "-Wextra", "-Wpedantic", "-DDIFZ_DEBUG" }

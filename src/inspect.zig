@@ -41,11 +41,14 @@ pub fn inspect(
     const size_a_str = formatSize(&size_a_buf, decoded.size_a);
     const size_b_str = formatSize(&size_b_buf, decoded.size_b);
 
-    try out.print(allocator, "difz inspect: {d} ops, source={s}, target={s}, chunk_size={d}\n\n", .{
+    try out.print(allocator, "difz inspect: {d} ops, source={s}, target={s}, chunk_size={d} chunk_min={d} chunk_max={d} chunk_mask=0x{x}\n\n", .{
         decoded.ops.len,
         size_a_str,
         size_b_str,
         decoded.target_chunk_size,
+        decoded.chunk_min_size,
+        decoded.chunk_max_size,
+        decoded.chunk_mask,
     });
 
     // Op lines
@@ -112,6 +115,9 @@ test "inspect: basic round-trip formatting" {
     // Verify header
     try testing.expect(std.mem.indexOf(u8, output, "3 ops") != null);
     try testing.expect(std.mem.indexOf(u8, output, "chunk_size=1024") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "chunk_min=256") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "chunk_max=4096") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "chunk_mask=0x3ff") != null);
 
     // Verify COPY ops present
     try testing.expect(std.mem.indexOf(u8, output, "COPY") != null);

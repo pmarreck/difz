@@ -8,6 +8,7 @@ const inspect_mod = @import("inspect.zig");
 const directory_fs = @import("directory_fs.zig");
 const directory_patch = @import("directory_patch.zig");
 const path_filter = @import("path_filter.zig");
+const cdc = @import("cdc.zig");
 
 pub const version = "0.1.0";
 
@@ -46,7 +47,7 @@ export fn difz_diff(
 
     const options = diff_mod.DiffOptions{
         .seed = seed_buf,
-        .target_chunk_size = target_chunk_size,
+        .target_chunk_size = if (target_chunk_size == 0) cdc.default_target_size else target_chunk_size,
     };
 
     // Convert u8 to CompressionMode, default to .best on invalid value
@@ -131,7 +132,7 @@ export fn difz_directory_diff(
     const patch_bytes = directory_fs.createPatchFromDirs(allocator, io, source, target, .{
         .rules = rules,
         .seed = if (seed) |value| value.* else [_]u8{0} ** 32,
-        .target_chunk_size = target_chunk_size,
+        .target_chunk_size = if (target_chunk_size == 0) cdc.default_target_size else target_chunk_size,
         .compression = comp_mode,
     }) catch return -1;
     out_ptr.* = patch_bytes.ptr;
@@ -260,10 +261,26 @@ export fn difz_inspect(
     return 0;
 }
 
-/// Free memory returned by difz_diff, difz_patch, or difz_inspect.
-export fn difz_free(ptr: [*]u8, len: usize) callconv(.c) void {
+/// Free a buffer returned by the public C API. Null pointers are ignored.
+export fn difz_free(ptr: ?[*]u8, len: usize) callconv(.c) void {
+    const p = ptr orelse return;
+    if (len == 0) return;
     const allocator = std.heap.page_allocator;
-    allocator.free(ptr[0..len]);
+    allocator.free(p[0..len]);
+}
+
+test "difz_free ignores null pointers" {
+    difz_free(null, 0);
+    difz_free(null, 32);
+}
+
+test "difz_diff returns -1 for overflowing chunk size instead of aborting" {
+    const a = "hello";
+    const b = "world";
+    var out_ptr: [*]u8 = undefined;
+    var out_len: usize = 0;
+    const rc = difz_diff(a.ptr, a.len, b.ptr, b.len, null, std.math.maxInt(usize), 255, &out_ptr, &out_len);
+    try std.testing.expectEqual(@as(i32, -1), rc);
 }
 
 test "blip dependency works" {

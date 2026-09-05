@@ -4,13 +4,22 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct difz_path_rule {
 	uint8_t action; /* 1=include, 2=exclude */
 	const char *pattern;
 } difz_path_rule;
 
 /* Compute a binary diff between files A and B.
+ * Inputs are borrowed. On success, *out is a new buffer owned by the caller
+ * and must be released with difz_free(*out, *out_len) using those exact values.
+ * On error, output parameters are left unchanged and the return is -1.
  * seed: 32-byte rolling hash seed (NULL for random).
+ * target_chunk_size: Gear CDC target; 0 selects the library default (4096).
+ * Values that overflow min/max arithmetic are rejected.
  * compression: 0=best, 1=lzma2, 2=bzip2, 3=lz4, 4=zstd, 255=none.
  * Returns 0 on success, -1 on error. */
 int difz_diff(
@@ -61,7 +70,13 @@ int difz_inspect(
     size_t max_data_bytes, int hexlike,
     uint8_t **out, size_t *out_len);
 
-/* Free memory returned by difz_diff, difz_patch, or difz_inspect. */
+/* Free a buffer returned by difz_diff, difz_patch, difz_directory_diff, or
+ * difz_inspect. Pass the same pointer and length the call returned. Do not
+ * use C free(). Null ptr is ignored. */
 void difz_free(uint8_t *ptr, size_t len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

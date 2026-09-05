@@ -95,12 +95,12 @@ All business logic lives in Zig, and the C CLI dogfoods the FFI. File diffing an
 
 ### `src/encoding.zig` — BLIP serialization of diff instructions
 - `DecodeResult` — struct: `{ ops, insert_storage, seed, target_chunk_size, size_a, size_b, source_blake3, target_blake3 }`
-- `encode(allocator, DiffResult)` — serialize to source- and target-bound ZDIF v2 (BLIP ARRAY container)
+- `encode(allocator, DiffResult)` — serialize to source- and target-bound ZDIF v3 (BLIP ARRAY container; stores Gear CDC min/target/max/mask)
 - `decode(allocator, data)` — deserialize metadata and instructions using an O(op_count) stateful index cursor; all INSERT bytes are copied into one owned allocation
 - `freeDecoded(allocator, result)` — free contiguous INSERT storage and the decoded operation array
 - `serializeRaw(allocator, payload)` — build a RAW container manually
 - `parseRaw(buf)` — extract RAW container payload (zero-copy)
-- Wire format: `ARRAY[DATA "ZDIF\x02", DATA metadata(seed+source BLAKE3+target BLAKE3+BLIPs), ARRAY[DATA per instruction]]`
+- Wire format: `ARRAY[DATA "ZDIF\x03", DATA metadata(seed+identities+CDC min/target/max/mask+sizes), ARRAY[DATA per instruction]]`
 - Opcodes: 0x00 = Copy(offset, length), 0x01 = Insert(length, data)
 - 18 tests, including compression modes, malformed input, metadata and identity preservation, sequential index traversal, and bounded decoder allocations
 

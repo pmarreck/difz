@@ -3,17 +3,22 @@ const testing = std.testing;
 const blar = @import("blar");
 const blip = blar.core;
 const diff_mod = @import("diff.zig");
+const cdc = @import("cdc.zig");
 
 pub const DiffOp = diff_mod.DiffOp;
 
-/// Magic bytes identifying the source- and target-bound ZDIF v2 container.
-const MAGIC = "ZDIF\x02";
+/// Magic bytes identifying the source- and target-bound ZDIF v3 container.
+/// v3 stores Gear CDC cut criteria (min/max/mask) beside the target size.
+const MAGIC = "ZDIF\x03";
 
 pub const DecodeResult = struct {
     ops: []DiffOp,
     insert_storage: []u8,
     seed: [32]u8,
     target_chunk_size: usize,
+    chunk_min_size: usize,
+    chunk_max_size: usize,
+    chunk_mask: u64,
     size_a: usize,
     size_b: usize,
     source_blake3: [32]u8,
@@ -49,6 +54,7 @@ pub const EncodeError = error{
     CompressionFailed,
     DecompressionFailed,
     UnsupportedCompression,
+    InvalidChunkSize,
 };
 
 // ---------------------------------------------------------------------------
@@ -273,7 +279,10 @@ fn compressOutput(allocator: std.mem.Allocator, top_array: []u8, mode: Compressi
         .lzma2, .bzip2, .lz4, .zstd => {
             const comp_id = modeToCompressionId(mode).?;
             const compressed = blar.compression_mod.compressContainer(allocator, comp_id, top_array, null, null, null, 0) catch |e| switch (e) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => {
+                    allocator.free(top_array);
+                    return error.OutOfMemory;
+                },
                 else => return top_array, // compression failed, return uncompressed
             };
             if (compressed.len < top_array.len) {
@@ -289,7 +298,10 @@ fn compressOutput(allocator: std.mem.Allocator, top_array: []u8, mode: Compressi
             if (chosen == .none) return top_array;
             const comp_id = modeToCompressionId(chosen).?;
             const compressed = blar.compression_mod.compressContainer(allocator, comp_id, top_array, null, null, null, 0) catch |e| switch (e) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory => {
+                    allocator.free(top_array);
+                    return error.OutOfMemory;
+                },
                 else => return top_array,
             };
             if (compressed.len < top_array.len) {
@@ -311,88 +323,71 @@ fn compressOutput(allocator: std.mem.Allocator, top_array: []u8, mode: Compressi
 ///
 /// Format:
 ///   ARRAY (top-level)
-///   +-- [0] DATA: magic "ZDIF\x02"
+///   +-- [0] DATA: magic "ZDIF\x03"
 ///   +-- [1] DATA: metadata (seed[32] + source_blake3[32] + target_blake3[32]
-///                         + BLIP(chunk_size) + BLIP(size_a) + BLIP(size_b))
+///                         + BLIP(chunk_size) + BLIP(min) + BLIP(max) + BLIP(mask)
+///                         + BLIP(size_a) + BLIP(size_b))
 ///   +-- [2] ARRAY: instructions
 ///       +-- [i] DATA: opcode + BLIP fields [+ data]
 pub fn encode(allocator: std.mem.Allocator, result: diff_mod.DiffResult, compression: CompressionMode) EncodeError![]u8 {
-    // 1. Build magic element
-    const magic_data = try serializeDataContainer(allocator, MAGIC);
-    defer allocator.free(magic_data);
+    const chunk_params = cdc.ChunkParams.fromTarget(result.options.target_chunk_size) catch return error.InvalidChunkSize;
 
-    // 2. Build metadata element: seed and identities, then the three BLIP values.
-    var meta_buf: [96 + 9 + 9 + 9]u8 = undefined;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const tmp = arena.allocator();
+
+    const magic_data = try serializeDataContainer(tmp, MAGIC);
+
+    var meta_buf: [96 + 9 * 6]u8 = undefined;
     @memcpy(meta_buf[0..32], &result.options.seed);
     @memcpy(meta_buf[32..64], &result.source_blake3);
     @memcpy(meta_buf[64..96], &result.target_blake3);
     var meta_pos: usize = 96;
-    meta_pos += try blipEncodeValue(@intCast(result.options.target_chunk_size), meta_buf[meta_pos..]);
+    meta_pos += try blipEncodeValue(@intCast(chunk_params.target_size), meta_buf[meta_pos..]);
+    meta_pos += try blipEncodeValue(@intCast(chunk_params.min_size), meta_buf[meta_pos..]);
+    meta_pos += try blipEncodeValue(@intCast(chunk_params.max_size), meta_buf[meta_pos..]);
+    meta_pos += try blipEncodeValue(chunk_params.mask, meta_buf[meta_pos..]);
     meta_pos += try blipEncodeValue(@intCast(result.size_a), meta_buf[meta_pos..]);
     meta_pos += try blipEncodeValue(@intCast(result.size_b), meta_buf[meta_pos..]);
-    const metadata_data = try serializeDataContainer(allocator, meta_buf[0..meta_pos]);
-    defer allocator.free(metadata_data);
+    const metadata_data = try serializeDataContainer(tmp, meta_buf[0..meta_pos]);
 
-    // 3. Build instruction DATA elements
     var instr_elements_list: std.ArrayList([]u8) = .empty;
-    defer {
-        for (instr_elements_list.items) |item| allocator.free(item);
-        instr_elements_list.deinit(allocator);
-    }
-
     for (result.ops) |op| {
         switch (op.tag) {
             .copy => {
-                // Copy: 0x00 + BLIP(offset) + BLIP(length)
                 var instr_buf: [1 + 9 + 9]u8 = undefined;
                 instr_buf[0] = 0x00;
                 var ipos: usize = 1;
                 ipos += try blipEncodeValue(@intCast(op.offset), instr_buf[ipos..]);
                 ipos += try blipEncodeValue(@intCast(op.length), instr_buf[ipos..]);
-                const data_elem = try serializeDataContainer(allocator, instr_buf[0..ipos]);
-                instr_elements_list.append(allocator, data_elem) catch |err| {
-                    allocator.free(data_elem);
-                    return err;
-                };
+                const data_elem = try serializeDataContainer(tmp, instr_buf[0..ipos]);
+                try instr_elements_list.append(tmp, data_elem);
             },
             .insert => {
-                // Insert: 0x01 + BLIP(length) + raw data bytes
                 const data_bytes = op.data orelse return error.InvalidLength;
-                // Max overhead: 1 byte opcode + 9 bytes BLIP length
                 const payload_size = 1 + blip.encodedSize(@intCast(op.length)) + data_bytes.len;
-                const payload_buf = try allocator.alloc(u8, payload_size);
-                defer allocator.free(payload_buf);
+                const payload_buf = try tmp.alloc(u8, payload_size);
                 payload_buf[0] = 0x01;
                 var ipos: usize = 1;
                 ipos += try blipEncodeValue(@intCast(op.length), payload_buf[ipos..]);
                 @memcpy(payload_buf[ipos..][0..data_bytes.len], data_bytes);
                 ipos += data_bytes.len;
-                const data_elem = try serializeDataContainer(allocator, payload_buf[0..ipos]);
-                instr_elements_list.append(allocator, data_elem) catch |err| {
-                    allocator.free(data_elem);
-                    return err;
-                };
+                const data_elem = try serializeDataContainer(tmp, payload_buf[0..ipos]);
+                try instr_elements_list.append(tmp, data_elem);
             },
         }
     }
 
-    // Build const slice for serializeArray
-    const instr_const = try allocator.alloc([]const u8, instr_elements_list.items.len);
-    defer allocator.free(instr_const);
+    const instr_const = try tmp.alloc([]const u8, instr_elements_list.items.len);
     for (instr_elements_list.items, 0..) |item, i| {
         instr_const[i] = item;
     }
 
-    // 4. Build instructions ARRAY
-    const instr_array = try blip.array_mod.serializeArray(allocator, instr_const);
-    defer allocator.free(instr_array);
-
-    // 5. Build top-level ARRAY from [magic, metadata, instructions]
+    const instr_array = try blip.array_mod.serializeArray(tmp, instr_const);
     const top_elements = [_][]const u8{ magic_data, metadata_data, instr_array };
-    const top_array = try blip.array_mod.serializeArray(allocator, &top_elements);
-
-    // 6. Compress according to the requested mode.
-    return compressOutput(allocator, top_array, compression);
+    const top_array = try blip.array_mod.serializeArray(tmp, &top_elements);
+    const packed_out = try compressOutput(tmp, top_array, compression);
+    return allocator.dupe(u8, packed_out);
 }
 
 // ---------------------------------------------------------------------------
@@ -440,6 +435,17 @@ pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!Decode
     const chunk_result = try blipDecodeValue(meta_payload[mpos..]);
     mpos += chunk_result.bytes_read;
     const target_chunk_size = std.math.cast(usize, chunk_result.value) orelse return error.LengthExceedsBounds;
+
+    const min_result = try blipDecodeValue(meta_payload[mpos..]);
+    mpos += min_result.bytes_read;
+    const chunk_min_size = std.math.cast(usize, min_result.value) orelse return error.LengthExceedsBounds;
+
+    const max_result = try blipDecodeValue(meta_payload[mpos..]);
+    mpos += max_result.bytes_read;
+    const chunk_max_size = std.math.cast(usize, max_result.value) orelse return error.LengthExceedsBounds;
+
+    const mask_result = try blipDecodeValue(meta_payload[mpos..]);
+    mpos += mask_result.bytes_read;
 
     const size_a_result = try blipDecodeValue(meta_payload[mpos..]);
     mpos += size_a_result.bytes_read;
@@ -503,6 +509,9 @@ pub fn decode(allocator: std.mem.Allocator, data: []const u8) EncodeError!Decode
         .insert_storage = insert_storage,
         .seed = seed,
         .target_chunk_size = target_chunk_size,
+        .chunk_min_size = chunk_min_size,
+        .chunk_max_size = chunk_max_size,
+        .chunk_mask = mask_result.value,
         .size_a = size_a,
         .size_b = size_b,
         .source_blake3 = source_blake3,
@@ -730,6 +739,9 @@ test "seed and metadata preserved across encode/decode" {
     defer freeDecoded(testing.allocator, decoded);
     try testing.expectEqualSlices(u8, &seed, &decoded.seed);
     try testing.expectEqual(@as(usize, 8192), decoded.target_chunk_size);
+    try testing.expectEqual(@as(usize, 2048), decoded.chunk_min_size);
+    try testing.expectEqual(@as(usize, 32768), decoded.chunk_max_size);
+    try testing.expectEqual(@as(u64, 8191), decoded.chunk_mask);
     try testing.expectEqual(@as(usize, 1_000_000), decoded.size_a);
     try testing.expectEqual(@as(usize, 1_000_001), decoded.size_b);
 }
@@ -929,4 +941,48 @@ test "pickBestAlgo returns a valid algorithm for large input" {
     }
     const result = try pickBestAlgo(alloc, data);
     try testing.expect(result == .lzma2 or result == .bzip2 or result == .zstd);
+}
+
+test "encode of many tiny copies uses a bounded number of caller allocations" {
+    const op_count = 256;
+    const ops = try testing.allocator.alloc(DiffOp, op_count);
+    defer testing.allocator.free(ops);
+    for (ops) |*op| {
+        op.* = .{ .tag = .copy, .offset = 0, .length = 8, .data = null };
+    }
+    const result = diff_mod.DiffResult{
+        .ops = ops,
+        .options = .{ .seed = [_]u8{0} ** 32, .target_chunk_size = 64 },
+        .size_a = 8,
+        .size_b = 8 * op_count,
+    };
+
+    var needed: usize = 0;
+    while (needed < op_count * 4) : (needed += 1) {
+        var gate = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = needed });
+        const encoded = encode(gate.allocator(), result, .none) catch continue;
+        gate.allocator().free(encoded);
+        break;
+    }
+    try testing.expect(needed > 0);
+    try testing.expect(needed < 32);
+}
+
+test "encode lz4 survives allocation failures without leaking" {
+    var ops_buf = [_]DiffOp{
+        .{ .tag = .copy, .offset = 0, .length = 8, .data = null },
+        .{ .tag = .insert, .offset = 0, .length = 4, .data = "abcd" },
+    };
+    const result = diff_mod.DiffResult{
+        .ops = &ops_buf,
+        .options = .{ .seed = [_]u8{0} ** 32, .target_chunk_size = 64 },
+        .size_a = 8,
+        .size_b = 12,
+    };
+    try testing.checkAllAllocationFailures(testing.allocator, struct {
+        fn work(alloc: std.mem.Allocator, res: diff_mod.DiffResult) !void {
+            const encoded = try encode(alloc, res, .lz4);
+            alloc.free(encoded);
+        }
+    }.work, .{result});
 }

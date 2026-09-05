@@ -56,7 +56,7 @@
 					src = ./.;
 
 					nativeBuildInputs = [ pkgs.zig ];
-				nativeCheckInputs = with pkgs; [ bash coreutils diffutils gnugrep ];
+				nativeCheckInputs = with pkgs; [ bash coreutils diffutils gnugrep gcc binutils ];
 
 					dontConfigure = true;
 					dontInstall = true;
@@ -79,6 +79,9 @@
 							errors=$((errors + 1))
 						fi
 					if ! DIFZ="$out/bin/difz" DIFZ_PREBUILT=1 bash tests/cli/test_cli.bash; then
+						errors=$((errors + 1))
+					fi
+					if ! DIFZ_PREFIX="$out" bash tests/ffi/test_installed_lib.bash; then
 						errors=$((errors + 1))
 					fi
 					exit "$errors"

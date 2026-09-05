@@ -297,9 +297,21 @@ static int run_directory_patch(
 /* ── Main ──────────────────────────────────────────────────────────── */
 
 int main(int argc, char *argv[]) {
-	/* Debug build announcement */
+	int no_ansi = 0;
+	int no_progress = 0;
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "--simple") == 0) {
+			no_ansi = 1;
+			no_progress = 1;
+		} else if (strcmp(argv[i], "--no-ansi") == 0 || strcmp(argv[i], "--no-color") == 0) {
+			no_ansi = 1;
+		} else if (strcmp(argv[i], "--no-progress") == 0) {
+			no_progress = 1;
+		}
+	}
+
 #ifdef DIFZ_DEBUG
-	if (isatty(STDERR_FILENO)) {
+	if (isatty(STDERR_FILENO) && !no_ansi) {
 		fprintf(stderr, "\033[33mDEBUG BUILD\033[0m\n");
 	} else {
 		fprintf(stderr, "DEBUG BUILD\n");
@@ -315,11 +327,8 @@ int main(int argc, char *argv[]) {
 	uint8_t compression = 0;  /* 0=best, 1=lzma2, 2=bzip2, 3=lz4, 4=zstd, 255=none */
 	size_t truncate_bytes = 64;
 	int hexlike = 0;
-	int no_progress = 0;
 	difz_path_rule rules[4096];
 	size_t rule_count = 0;
-	/* int no_ansi = 0; */  /* reserved for future use */
-	/* int simple = 0; */   /* reserved for future use */
 
 	/* Positional args collector */
 	const char *positional[2] = {NULL, NULL};
@@ -428,12 +437,12 @@ int main(int argc, char *argv[]) {
 			continue;
 		}
 		if (strcmp(argv[i], "--no-ansi") == 0 || strcmp(argv[i], "--no-color") == 0) {
-			/* no_ansi = 1; */
+			no_ansi = 1;
 			continue;
 		}
 		if (strcmp(argv[i], "--simple") == 0) {
-			/* simple = 1; */
-			/* no_ansi = 1; */
+			no_ansi = 1;
+			no_progress = 1;
 			continue;
 		}
 

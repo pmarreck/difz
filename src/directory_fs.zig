@@ -175,6 +175,17 @@ fn writeSnapshot(
     }
 }
 
+fn trimLeadingSlashes(path: []const u8) []const u8 {
+    return std.mem.trimStart(u8, path, "/");
+}
+
+test "trimLeadingSlashes strips a posix root prefix" {
+    try testing.expectEqualStrings("a/b", trimLeadingSlashes("/a/b"));
+    try testing.expectEqualStrings("a", trimLeadingSlashes("a"));
+    try testing.expectEqualStrings("", trimLeadingSlashes("/"));
+    try testing.expectEqualStrings("", trimLeadingSlashes(""));
+}
+
 fn symlinkPointsToDirectory(
     allocator: std.mem.Allocator,
     entries: []const directory.Entry,
@@ -188,7 +199,7 @@ fn symlinkPointsToDirectory(
     defer allocator.free(parent_path);
     const resolved = try std.fs.path.resolvePosix(allocator, &.{ parent_path, link.data });
     defer allocator.free(resolved);
-    const target_path = std.mem.trimLeft(u8, resolved, "/");
+    const target_path = trimLeadingSlashes(resolved);
     if (target_path.len == 0) return true;
     const target_index = findEntry(entries, target_path) orelse return false;
     return entries[target_index].kind == .directory;

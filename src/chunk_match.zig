@@ -26,40 +26,58 @@ fn blake3Hash128(data: []const u8) u128 {
 	return std.mem.readInt(u128, out[0..16], .little);
 }
 
-/// Entry stored in the B-chunk map: offset and length of a chunk in B.
-const BChunkEntry = struct {
+/// Source-chunk location stored under a content hash.
+const AChunkEntry = struct {
 	offset: usize,
 	length: usize,
 };
 
+/// Pick one source occurrence for a target chunk. Prefers a contiguous copy
+/// from the previous match so repeated hashes stay linear instead of A×B pairs.
+fn pickSource(
+	entries: []const AChunkEntry,
+	length: usize,
+	prefer_offset: ?usize,
+) ?AChunkEntry {
+	if (prefer_offset) |want| {
+		for (entries) |entry| {
+			if (entry.length == length and entry.offset == want) return entry;
+		}
+	}
+	for (entries) |entry| {
+		if (entry.length == length) return entry;
+	}
+	return null;
+}
+
 /// Find matching chunks between two byte slices using CDC and BLAKE3 hashing.
 /// Returns an owned slice of Match structs sorted by offset_a with adjacent matches merged.
 /// Caller must free the returned slice with allocator.free().
+///
+/// complexity: O(n) in chunk count for unique content; repeated hashes pick one
+/// source offset per target chunk (not the Cartesian product of occurrences).
 pub fn findMatches(allocator: std.mem.Allocator, a: []const u8, b: []const u8, seed: [32]u8, target_chunk_size: usize) ![]Match {
-	// 1. Chunk both A and B using CDC
 	const chunks_a = try cdc.chunkSlice(allocator, a, seed, target_chunk_size);
 	defer allocator.free(chunks_a);
 	const chunks_b = try cdc.chunkSlice(allocator, b, seed, target_chunk_size);
 	defer allocator.free(chunks_b);
 
-	// 2. BLAKE3-hash each chunk of B, build a HashMap: hash -> list of (offset, length)
-	// Using AutoHashMap with u128 keys and ArrayList values for multiple chunks with same hash
-	const BChunkList = std.ArrayList(BChunkEntry);
-	var b_map = std.AutoHashMap(u128, BChunkList).init(allocator);
+	const AChunkList = std.ArrayList(AChunkEntry);
+	var a_map = std.AutoHashMap(u128, AChunkList).init(allocator);
 	defer {
-		var it = b_map.valueIterator();
+		var it = a_map.valueIterator();
 		while (it.next()) |list_ptr| {
 			list_ptr.deinit(allocator);
 		}
-		b_map.deinit();
+		a_map.deinit();
 	}
 
-	for (chunks_b) |chunk| {
-		const chunk_data = b[chunk.offset .. chunk.offset + chunk.length];
+	for (chunks_a) |chunk| {
+		const chunk_data = a[chunk.offset .. chunk.offset + chunk.length];
 		const h = blake3Hash128(chunk_data);
-		const gop = try b_map.getOrPut(h);
+		const gop = try a_map.getOrPut(h);
 		if (!gop.found_existing) {
-			gop.value_ptr.* = BChunkList.empty;
+			gop.value_ptr.* = AChunkList.empty;
 		}
 		try gop.value_ptr.append(allocator, .{
 			.offset = chunk.offset,
@@ -67,26 +85,27 @@ pub fn findMatches(allocator: std.mem.Allocator, a: []const u8, b: []const u8, s
 		});
 	}
 
-	// 3. Walk A's chunks, BLAKE3-hash each, look up in B's map
 	var matches: std.ArrayList(Match) = .empty;
 	defer matches.deinit(allocator);
 
-	for (chunks_a) |chunk| {
-		const chunk_data = a[chunk.offset .. chunk.offset + chunk.length];
+	var prev_a_end: ?usize = null;
+	var prev_b_end: ?usize = null;
+	for (chunks_b) |chunk| {
+		const chunk_data = b[chunk.offset .. chunk.offset + chunk.length];
 		const h = blake3Hash128(chunk_data);
-		if (b_map.get(h)) |b_entries| {
-			// For each matching B chunk, record a Match
-			for (b_entries.items) |b_entry| {
-				// Only record if the chunks have the same length (hash collision guard)
-				if (b_entry.length == chunk.length) {
-					try matches.append(allocator, .{
-						.offset_a = chunk.offset,
-						.offset_b = b_entry.offset,
-						.length = chunk.length,
-					});
-				}
-			}
-		}
+		const a_entries = a_map.get(h) orelse continue;
+		const prefer = if (prev_b_end) |b_end| blk: {
+			if (b_end == chunk.offset) break :blk prev_a_end;
+			break :blk null;
+		} else null;
+		const source = pickSource(a_entries.items, chunk.length, prefer) orelse continue;
+		try matches.append(allocator, .{
+			.offset_a = source.offset,
+			.offset_b = chunk.offset,
+			.length = chunk.length,
+		});
+		prev_a_end = source.offset + source.length;
+		prev_b_end = chunk.offset + chunk.length;
 	}
 
 	// 5. Sort matches by offset_a (then by offset_b for stability)
@@ -239,6 +258,19 @@ test "invertMatches with no matches produces full-file gaps" {
 	try testing.expectEqual(@as(usize, 1), gaps.gaps_b.len);
 	try testing.expectEqual(@as(usize, 0), gaps.gaps_b[0].offset);
 	try testing.expectEqual(@as(usize, 200), gaps.gaps_b[0].length);
+}
+
+test "repeated identical chunks do not produce a Cartesian match list" {
+	var data: [262144]u8 = undefined;
+	@memset(&data, 0);
+	const seed = [_]u8{0} ** 32;
+	const target: usize = 4096;
+	const chunks = try cdc.chunkSlice(testing.allocator, &data, seed, target);
+	defer testing.allocator.free(chunks);
+	try testing.expect(chunks.len >= 4);
+	const matches = try findMatches(testing.allocator, &data, &data, seed, target);
+	defer testing.allocator.free(matches);
+	try testing.expect(matches.len <= chunks.len);
 }
 
 test "shared prefix detected" {

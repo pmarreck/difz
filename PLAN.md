@@ -11,8 +11,16 @@
 
 - [x] TDD: fail closed on buffered output (`/dev/full`) and honor directory `-o @stderr` as a stream. Named `/dev/full` and stdout-to-`/dev/full` now exit nonzero; directory `-o @stderr` writes the patch to stderr. (2026-09-04 ~7:45pm EDT)
 - [x] TDD: COPY/INSERT range checks must reject overflowing offset+length without wrapping or panicking. `rangeExceeds` uses `std.math.add`; the new unit test that used to abort at `patch.zig:72` now returns `error.OutOfBounds`. (2026-09-04 ~7:45pm EDT)
-- [ ] TDD: reject out-of-range `target_chunk_size` instead of Debug-aborting.
-- [ ] Later, separately: bounded chunk matching, packed encoder allocations, installable C library, Windows `trimStart` + cross builds.
+- [x] TDD: reject out-of-range `target_chunk_size` instead of Debug-aborting. `ChunkParams.fromTarget` rejects 0 and sizes that overflow `target*4`; FFI maps 0 to 4096. (2026-09-04 ~8:10pm EDT)
+- [x] TDD: persist CDC cut criteria (min/target/max, and the Gear mask) in ZDIF v3 so inspect/apply can see how chunks were cut. No existing diffs to keep compatible. (2026-09-04 ~8:10pm EDT)
+- [x] Measure average chunk size vs target on random data; the 64 KiB random case stays within 2× of target (`min=target/4`, mask=`nextPow2(target)-1`). Default CLI target remains 4096. (2026-09-04 ~8:10pm EDT)
+- [x] TDD: bound duplicate-chunk matching to one source occurrence per target chunk, preferring contiguous copies. (2026-09-04 ~8:10pm EDT)
+- [x] TDD: pack encoder instruction allocations in an arena; caller sees a bounded number of allocations. (2026-09-04 ~8:10pm EDT)
+- [x] TDD: `compressOutput` OOM frees `top_array`; encode lz4 passes `checkAllAllocationFailures`. (2026-09-04 ~8:10pm EDT)
+- [x] TDD: installed `libdifz.a` is flattened and links an external C consumer using only installed outputs (`zig cc`). (2026-09-04 ~8:10pm EDT)
+- [x] TDD: `difz.h` `extern "C"`, `difz_free` covers directory output, ownership docs. (2026-09-04 ~8:10pm EDT)
+- [x] TDD: replace Windows `trimLeft` with always-compiled `trimLeadingSlashes` (`trimStart`). (2026-09-04 ~8:10pm EDT)
+- [x] TDD: `--simple` / `--no-ansi` / `--no-color` suppress progress ANSI (no-op flags now set `no_ansi` / `no_progress`). (2026-09-04 ~8:10pm EDT)
 
 ## Active Work — Linux x86_64 Real-Binary Benchmarks
 

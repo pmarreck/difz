@@ -27,6 +27,7 @@ pub const PatchError = error{
 	UnsupportedCompression,
 	SourceHashMismatch,
 	TargetHashMismatch,
+	InvalidChunkSize,
 };
 
 /// Overflow-safe end check for COPY/INSERT ranges. Plain `offset + length`

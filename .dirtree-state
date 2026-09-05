@@ -2,9 +2,10 @@
 ver=1.2
 annotate=[
 	.mechatron-prime/targets = Exact Nix package and test attributes admitted by Mechatron Prime CI
-	CODE_REVIEW.md = Upgrade-readiness review recovered from the blocked Astra session, with independent I/O re-checks and remediation order
+	CODE_REVIEW.md = Upgrade-readiness review and remediation status
 	README.md = Usage, architecture, security contract, limitations, build instructions, and dynamic CI badges
 	docs/directory-format-v1.md = DIFZTREE v1 path, filter, identity, encoding, parser-limit, and staging contract
+	scripts/flatten-static-lib = Merges thin Zig static archives into one fat libdifz.a for C consumers
 	src/diff.zig = File delta computation plus BLAKE3 source and target identities
 	src/difz.c = C CLI for file and directory diff/patch through the public FFI
 	src/directory.zig = Canonical directory entries, path and hierarchy validation, and BLAKE3 tree identity
@@ -22,5 +23,7 @@ annotate=[
 	tests/benchmark/results.bash = v2/v3 benchmark schemas and normalized regression calculations
 	tests/benchmark/test_bm.bash = fail-closed generator, real-ELF, resource-metric, history, and claim contracts
 	tests/cli/test_cli.bash = File and directory CLI integration suite with independent recursive controls
+	tests/ffi/caller.c = Minimal external C consumer used to prove the installed libdifz.a link contract
+	tests/ffi/test_installed_lib.bash = Links and round-trips tests/ffi/caller.c against only installed header+archive
 	tests/nix/test_flake_outputs.bash = three-supported-system flake output contract
 ]

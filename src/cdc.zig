@@ -7,20 +7,42 @@ pub const Chunk = struct {
 	length: usize,
 };
 
+pub const default_target_size: usize = 4096;
+pub const max_target_size: usize = std.math.maxInt(usize) / 4;
+
+/// Gear CDC cut criteria derived from a target average size.
+/// Cut when `(state & mask == 0) and (chunk_len >= min_size)` or `chunk_len >= max_size`.
+pub const ChunkParams = struct {
+	target_size: usize,
+	min_size: usize,
+	max_size: usize,
+	mask: u64,
+
+	pub fn fromTarget(target_size: usize) error{InvalidChunkSize}!ChunkParams {
+		if (target_size == 0 or target_size > max_target_size) return error.InvalidChunkSize;
+		return .{
+			.target_size = target_size,
+			.min_size = target_size / 4,
+			.max_size = target_size * 4,
+			.mask = nextPowerOf2(target_size) - 1,
+		};
+	}
+};
+
 /// Split a byte slice into variable-size chunks using Content-Defined Chunking
 /// with the Gear rolling hash for boundary detection. Cuts when
 /// `(state & mask == 0) and (chunk_len >= min_size)` or `chunk_len >= max_size`.
 /// Returns an owned slice of Chunk structs; caller must free with allocator.free().
 pub fn chunkSlice(allocator: std.mem.Allocator, data: []const u8, seed: [32]u8, target_size: usize) ![]Chunk {
-	// Generate Gear hash table from seed
+	const params = try ChunkParams.fromTarget(target_size);
+	return chunkSliceWithParams(allocator, data, seed, params);
+}
+
+pub fn chunkSliceWithParams(allocator: std.mem.Allocator, data: []const u8, seed: [32]u8, params: ChunkParams) ![]Chunk {
 	const table = gear_hash.generateTable(seed);
-
-	// Compute mask: round target_size up to next power of 2, subtract 1
-	const mask: u64 = nextPowerOf2(target_size) - 1;
-
-	// Min and max chunk sizes
-	const min_size = target_size / 4;
-	const max_size = target_size * 4;
+	const mask = params.mask;
+	const min_size = params.min_size;
+	const max_size = params.max_size;
 
 	// Collect chunks using an ArrayList
 	var chunks: std.ArrayList(Chunk) = .empty;
@@ -139,7 +161,22 @@ test "average chunk size is roughly target" {
 	const chunks = try chunkSlice(testing.allocator, &data, seed, target);
 	defer testing.allocator.free(chunks);
 	const avg = data.len / chunks.len;
-	// Average should be within 3x of target (loose but sensible)
-	try testing.expect(avg > target / 3);
-	try testing.expect(avg < target * 3);
+	try testing.expect(avg > target / 2);
+	try testing.expect(avg < target * 2);
+}
+
+test "chunkSlice rejects zero target size" {
+	const seed = [_]u8{0} ** 32;
+	try testing.expectError(error.InvalidChunkSize, chunkSlice(testing.allocator, "abc", seed, 0));
+}
+
+test "chunkSlice rejects target size that overflows max_size" {
+	const seed = [_]u8{0} ** 32;
+	const too_big = (std.math.maxInt(usize) / 4) + 1;
+	try testing.expectError(error.InvalidChunkSize, chunkSlice(testing.allocator, "abc", seed, too_big));
+}
+
+test "chunkSlice rejects SIZE_MAX target size" {
+	const seed = [_]u8{0} ** 32;
+	try testing.expectError(error.InvalidChunkSize, chunkSlice(testing.allocator, "abc", seed, std.math.maxInt(usize)));
 }

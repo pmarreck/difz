@@ -53,7 +53,7 @@ Two-stage algorithm:
 
 2. **Elder/Myers O(ND) byte diff** — For gaps between matched chunks, a fine-grained byte-level diff produces compact Copy+Insert instructions. An edit distance cap prevents quadratic blowup on dissimilar regions.
 
-Output is encoded as source- and target-bound ZDIF v2 in [BLIP](https://github.com/pmarreck/BLIP) format with selectable compression (LZMA2, bzip2, LZ4, or none). By default (`--compress best`), LZMA2 and bzip2 are both tried and the smallest result is kept. LZ4 is available for speed-over-size use cases but is not included in `best` mode since it never wins on ratio. ZDIF v1 patches are rejected because that format has no cryptographic file identities.
+Output is encoded as source- and target-bound ZDIF v3 in [BLIP](https://github.com/pmarreck/BLIP) format with selectable compression (LZMA2, bzip2, LZ4, or none). The patch stores Gear CDC cut criteria (min, target, max, and bitmask) so inspect/apply can see how chunks were cut. By default (`--compress best`), LZMA2 and bzip2 are both tried and the smallest result is kept. LZ4 is available for speed-over-size use cases but is not included in `best` mode since it never wins on ratio. ZDIF v1 patches are rejected because that format has no cryptographic file identities.
 
 ## Usage
 
