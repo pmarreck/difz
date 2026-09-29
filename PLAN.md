@@ -2,16 +2,14 @@
 
 ## Active Work: Mecha cut-release / self-update delta contract (2026-09-23)
 
-Planning only. Reuse the existing owner plan and Validate runbook. Do not start a competing design. No production deployment, key ceremony, DNS change, spending, real signing, or customer email is authorized.
-
 - [x] Recover the canonical owner plan and Validate implementation design. Owner policy: `$HOME/Code/Obsidian Vaults/Peter Marreck/Professional/Mecha LLC/MECHA_RELEASE_PLAN.md` (Sep23 amendment). Implementation: `$HOME/Code/validate_gui/docs/MECHA_VALIDATE_RELEASE_RUNBOOK.md` sections Artifact hosting, Release pipeline, Full-artifact self-update, macOS policy, and `difz` delta policy. (2026-09-23 ~10:35am EDT)
 - [x] Report current release-artifact readiness from the existing Linux x86_64 real-binary record, not a new synthetic run. Provenance: AMD Ryzen Threadripper 3990X; difz machinery `fc72e215fce361e66a4fd5854a6e1c3495f4a7e2`; measured record `b4d79bd`; consecutive Validate ELF pair `e3e73738a11b6401b19f18a023dfa313f77d0482` (89,229,114 B) → `c9ab2cdb8823e69312aa90085aecf60d48fb6aa4` (89,229,178 B); 708,379 ops; create wall 11.027 s / CPU 15.520 s / RSS 3,497,792 KiB; apply wall 0.715 s / CPU 0.690 s / RSS 213,752 KiB; patch 4,513,223 B (5.06% of target); all four reconstructed targets matched byte-for-byte. Source: `tests/benchmark/benchmark_log_v3.csv` row `validate_real_update`, README performance table. Later 2026-09-04 encoder-arena work at HEAD `0c289ae` is unmeasured on this pair. (2026-09-23 ~10:35am EDT)
 - [x] Reply to Einstein with existing implementation vs gaps, exact doc/code locations, and contract questions. Ownership stays: patch correctness, measured resource limits, and bundle-metadata gaps. (2026-09-23 ~10:35am EDT)
-- [ ] Propose explicit create/apply ceilings (wall, CPU, RSS, temp space, output size) that a keyless patch worker and client apply path can enforce. First measured baseline is the 89 MB Validate ELF pair above; create RSS ~3.34 GiB is the current published create cost.
-- [ ] Keep catalog/CDN object digests (SHA-256 in the runbook filename `SOURCE_SHA256-TARGET_SHA256.difz`) distinct from ZDIF v3 / DIFZTREE v1 BLAKE3 source and target identities. The signed descriptor must record both; a filename is never trust.
-- [ ] Keep macOS `difz` deltas disabled until a metadata-complete representation exists. DIFZTREE v1 (`docs/directory-format-v1.md`) omits owner/group, timestamps, ACLs, xattrs, Finder flags, sparse extents, hardlink identity, quarantine, and notarization-ticket survival. Exact main-executable bytes are not a Mac gate.
-- [ ] Measure a real Linux AppImage (or other customer payload) pair before claiming updater-pilot readiness. The 89 MB record is a Validate engine ELF, not a GUI AppImage, Windows fused exe, or macOS `.app`.
-- [ ] After a worker-ceiling contract exists, add TDD gates that fail create/apply when those ceilings are exceeded, without exposing signing keys to the patch worker.
+- [x] Fold Einstein 2026-09-23 platform-trust answers into the contract context: SHA-256 outer / BLAKE3 inner, ZDIF v3 vs DIFZTREE v1 names, AppImage as updater pilot, same-representation targets, cold-key exact-byte regeneration, Sparkle-style bundle profile not full xattr fidelity, Mac archive path pending. (done 2026-09-28 23:20 EDT)
+- [ ] Hold origin/yolo push until Peter authorizes it; fetch 2026-09-28 confirmed 7 local commits ahead, unrelated dirty files must not mix, no force-push.
+- [ ] Propose then verify create/apply ceilings on a real Linux x86_64 AppImage pair; do not treat the 89 MB ELF row as a bound (context: docs/plan_context/mecha-delta-contract.md).
+- [ ] Keep macOS difz deltas disabled until a supported bundle profile or canonical post-stapling archive passes native checks; DIFZTREE v1 is not a v1 updater input.
+- [ ] After measured ceilings exist, add TDD gates that fail create/apply when those ceilings are exceeded, without exposing signing keys to the patch worker.
 
 ## Active Work: Upgrade-readiness code review (2026-09-04)
 

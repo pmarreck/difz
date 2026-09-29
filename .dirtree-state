@@ -5,6 +5,7 @@ annotate=[
 	CODE_REVIEW.md = Upgrade-readiness review and remediation status
 	README.md = Usage, architecture, security contract, limitations, build instructions, and dynamic CI badges
 	docs/directory-format-v1.md = DIFZTREE v1 path, filter, identity, encoding, parser-limit, and staging contract
+	docs/plan_context/mecha-delta-contract.md = Mecha delta-engine contract answers, proposed resource caps, and push-hold reasons
 	scripts/flatten-static-lib = Merges thin Zig static archives into one fat libdifz.a for C consumers
 	src/blar_compute.zig = Computation-only blar surface: BLIP + compression, no C FFI exports
 	src/diff.zig = File delta computation plus BLAKE3 source and target identities
