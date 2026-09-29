@@ -12,6 +12,22 @@ const cdc = @import("cdc.zig");
 
 pub const version = "0.1.0";
 
+const ProgressFn = *const fn (stage: [*:0]const u8, done: u64, total: u64, user: ?*anyopaque) callconv(.c) void;
+var progress_fn: ?ProgressFn = null;
+var progress_user: ?*anyopaque = null;
+
+fn emitProgress(stage: [:0]const u8, done: u64, total: u64) void {
+    if (progress_fn) |cb| cb(stage.ptr, done, total, progress_user);
+}
+
+export fn difz_set_progress_callback(
+    cb: ?ProgressFn,
+    user: ?*anyopaque,
+) callconv(.c) void {
+    progress_fn = cb;
+    progress_user = user;
+}
+
 // ============================================================================
 // C FFI exports
 // ============================================================================
@@ -19,7 +35,7 @@ pub const version = "0.1.0";
 /// Compute a binary diff between buffers A and B.
 /// If seed is null, a random seed is generated.
 /// On success: sets out_ptr/out_len and returns 0.
-/// On error: returns -1.
+/// On error: returns -1, or -4 when max_output_bytes is exceeded.
 export fn difz_diff(
     a_ptr: [*]const u8,
     a_len: usize,
@@ -31,9 +47,34 @@ export fn difz_diff(
     out_ptr: *[*]u8,
     out_len: *usize,
 ) callconv(.c) i32 {
+    return difz_diff_limited(
+        a_ptr,
+        a_len,
+        b_ptr,
+        b_len,
+        seed,
+        target_chunk_size,
+        compression,
+        0,
+        out_ptr,
+        out_len,
+    );
+}
+
+export fn difz_diff_limited(
+    a_ptr: [*]const u8,
+    a_len: usize,
+    b_ptr: [*]const u8,
+    b_len: usize,
+    seed: ?*const [32]u8,
+    target_chunk_size: usize,
+    compression: u8,
+    max_output_bytes: usize,
+    out_ptr: *[*]u8,
+    out_len: *usize,
+) callconv(.c) i32 {
     const allocator = std.heap.page_allocator;
 
-    // Resolve seed: use provided or generate random
     var seed_buf: [32]u8 = undefined;
     if (seed) |s| {
         seed_buf = s.*;
@@ -50,16 +91,20 @@ export fn difz_diff(
         .target_chunk_size = if (target_chunk_size == 0) cdc.default_target_size else target_chunk_size,
     };
 
-    // Convert u8 to CompressionMode, default to .best on invalid value
     const comp_mode = std.enums.fromInt(encoding.CompressionMode, compression) orelse encoding.CompressionMode.best;
 
-    // Compute diff
+    emitProgress("diff", 0, 2);
     const result = diff_mod.computeDiff(allocator, a, b, options) catch return -1;
     defer diff_mod.freeDiffResult(allocator, result);
 
-    // Encode to BLIP bytes
+    emitProgress("encode", 1, 2);
     const encoded = encoding.encode(allocator, result, comp_mode) catch return -1;
+    if (encoding.exceedsOutputLimit(encoded.len, max_output_bytes)) {
+        allocator.free(encoded);
+        return -4;
+    }
 
+    emitProgress("done", 2, 2);
     out_ptr.* = encoded.ptr;
     out_len.* = encoded.len;
     return 0;
@@ -67,7 +112,7 @@ export fn difz_diff(
 
 /// Apply a diff to buffer A to reconstruct buffer B.
 /// On success: sets out_ptr/out_len and returns 0.
-/// On error: returns -1.
+/// On error: returns -1, or -4 when max_output_bytes is exceeded.
 export fn difz_patch(
     a_ptr: [*]const u8,
     a_len: usize,
@@ -76,13 +121,29 @@ export fn difz_patch(
     out_ptr: *[*]u8,
     out_len: *usize,
 ) callconv(.c) i32 {
+    return difz_patch_limited(a_ptr, a_len, diff_ptr, diff_len, 0, out_ptr, out_len);
+}
+
+export fn difz_patch_limited(
+    a_ptr: [*]const u8,
+    a_len: usize,
+    diff_ptr: [*]const u8,
+    diff_len: usize,
+    max_output_bytes: usize,
+    out_ptr: *[*]u8,
+    out_len: *usize,
+) callconv(.c) i32 {
     const allocator = std.heap.page_allocator;
 
     const a = a_ptr[0..a_len];
     const diff_blob = diff_ptr[0..diff_len];
 
-    const reconstructed = patch_mod.patch(allocator, a, diff_blob) catch return -1;
+    emitProgress("patch", 0, 1);
+    const reconstructed = patch_mod.patchLimited(allocator, a, diff_blob, max_output_bytes) catch |err| {
+        return if (err == error.ResourceLimitExceeded) @as(i32, -4) else -1;
+    };
 
+    emitProgress("done", 1, 1);
     out_ptr.* = reconstructed.ptr;
     out_len.* = reconstructed.len;
     return 0;
@@ -380,4 +441,43 @@ test "C FFI: difz_inspect with invalid diff returns error" {
     var inspect_len: usize = undefined;
     const rc = difz_inspect(bad_diff.ptr, bad_diff.len, 64, 0, &inspect_out, &inspect_len);
     try std.testing.expectEqual(@as(i32, -1), rc);
+}
+
+test "C FFI: difz_diff_limited returns -4 when the encoded patch exceeds the ceiling" {
+    const a = "AAAAAAAA";
+    const b = "BBBBBBBB";
+    const seed = [_]u8{0} ** 32;
+    var out_ptr: [*]u8 = undefined;
+    var out_len: usize = undefined;
+    const rc = difz_diff_limited(a.ptr, a.len, b.ptr, b.len, &seed, 64, 255, 8, &out_ptr, &out_len);
+    try std.testing.expectEqual(@as(i32, -4), rc);
+    const ok = difz_diff_limited(a.ptr, a.len, b.ptr, b.len, &seed, 64, 255, 0, &out_ptr, &out_len);
+    try std.testing.expectEqual(@as(i32, 0), ok);
+    defer difz_free(out_ptr, out_len);
+    try std.testing.expect(out_len > 8);
+}
+
+test "C FFI: progress callback fires for diff stages" {
+    const Counter = struct {
+        n: usize = 0,
+        fn on_progress(stage: [*:0]const u8, done: u64, total: u64, user: ?*anyopaque) callconv(.c) void {
+            _ = stage;
+            _ = done;
+            _ = total;
+            const n: *usize = @ptrCast(@alignCast(user.?));
+            n.* += 1;
+        }
+    };
+    var n: usize = 0;
+    difz_set_progress_callback(&Counter.on_progress, @ptrCast(&n));
+    defer difz_set_progress_callback(null, null);
+    const a = "hello hello";
+    const b = "hello world";
+    const seed = [_]u8{0} ** 32;
+    var out_ptr: [*]u8 = undefined;
+    var out_len: usize = undefined;
+    const rc = difz_diff(a.ptr, a.len, b.ptr, b.len, &seed, 64, 255, &out_ptr, &out_len);
+    try std.testing.expectEqual(@as(i32, 0), rc);
+    defer difz_free(out_ptr, out_len);
+    try std.testing.expect(n >= 2);
 }

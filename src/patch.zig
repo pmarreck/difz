@@ -28,6 +28,7 @@ pub const PatchError = error{
 	SourceHashMismatch,
 	TargetHashMismatch,
 	InvalidChunkSize,
+	ResourceLimitExceeded,
 };
 
 /// Overflow-safe end check for COPY/INSERT ranges. Plain `offset + length`
@@ -57,6 +58,17 @@ pub const PatchInfo = struct {
 /// 5. Verify result length and BLAKE3 target identity
 /// 6. Return the reconstructed B as an owned slice
 pub fn patch(allocator: std.mem.Allocator, a: []const u8, diff_blob: []const u8) PatchError![]u8 {
+	return patchLimited(allocator, a, diff_blob, 0);
+}
+
+/// Same as `patch`, but refuse to allocate a reconstruction larger than
+/// `max_output_bytes` (0 = unlimited). Used by a keyless worker ceiling.
+pub fn patchLimited(
+	allocator: std.mem.Allocator,
+	a: []const u8,
+	diff_blob: []const u8,
+	max_output_bytes: usize,
+) PatchError![]u8 {
 	// 1. Decode the diff blob
 	const decoded = try encoding.decode(allocator, diff_blob);
 	defer encoding.freeDecoded(allocator, decoded);
@@ -67,6 +79,10 @@ pub fn patch(allocator: std.mem.Allocator, a: []const u8, diff_blob: []const u8)
 	}
 	const source_blake3 = diff_mod.fileIdentity(a);
 	if (!std.mem.eql(u8, &source_blake3, &decoded.source_blake3)) return error.SourceHashMismatch;
+
+	if (encoding.exceedsOutputLimit(decoded.size_b, max_output_bytes)) {
+		return error.ResourceLimitExceeded;
+	}
 
 	// 3. Walk ops and build output
 	const output = allocator.alloc(u8, decoded.size_b) catch return error.OutOfMemory;
@@ -136,6 +152,20 @@ test "full round-trip: diff then patch" {
 	const encoded = try encoding.encode(testing.allocator, result, .lzma2);
 	defer testing.allocator.free(encoded);
 	const reconstructed = try patch(testing.allocator, a, encoded);
+	defer testing.allocator.free(reconstructed);
+	try testing.expectEqualStrings(b, reconstructed);
+}
+
+test "patchLimited refuses a reconstruction larger than the output ceiling" {
+	const a = "AAAAAAAA";
+	const b = "BBBBBBBB";
+	const options = diff_mod.DiffOptions{ .seed = [_]u8{0} ** 32, .target_chunk_size = 64 };
+	const result = try diff_mod.computeDiff(testing.allocator, a, b, options);
+	defer diff_mod.freeDiffResult(testing.allocator, result);
+	const encoded = try encoding.encode(testing.allocator, result, .none);
+	defer testing.allocator.free(encoded);
+	try testing.expectError(error.ResourceLimitExceeded, patchLimited(testing.allocator, a, encoded, 1));
+	const reconstructed = try patchLimited(testing.allocator, a, encoded, 8);
 	defer testing.allocator.free(reconstructed);
 	try testing.expectEqualStrings(b, reconstructed);
 }

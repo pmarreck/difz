@@ -101,3 +101,15 @@ if ! nix eval --raw "$FLAKE_REF#checks.${system}.windows-gnu.name" >/dev/null 2>
 	exit 1
 fi
 printf 'PASS windows-gnu cross check is declared\n'
+
+if ! nix eval --raw "$FLAKE_REF#packages.aarch64-linux.default.name" >/dev/null 2>&1; then
+	printf 'FAIL aarch64-linux package does not evaluate\n' >&2
+	exit 1
+fi
+printf 'PASS aarch64-linux package evaluates\n'
+
+if [ ! -x "$ROOT_DIR/fuzz" ]; then
+	printf 'FAIL ./fuzz is not an executable fuzzing suite\n' >&2
+	exit 1
+fi
+printf 'PASS ./fuzz is executable\n'

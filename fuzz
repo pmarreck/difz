@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Mutate a valid ZDIF patch and apply it. Apply must return an error or a
+# reconstructed file; it must not abort (SIGSEGV/SIGABRT/SIGILL/SIGBUS).
+
+set -u
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+DIFZ="${DIFZ:-$ROOT/zig-out/bin/difz}"
+WORKDIR="${TMPDIR:-/tmp}/difz-fuzz-$$"
+ROUNDS="${DIFZ_FUZZ_ROUNDS:-64}"
+errors=0
+
+if [ ! -x "$DIFZ" ]; then
+	if [ "${DIFZ_PREBUILT:-0}" != "1" ]; then
+		nix develop -c zig build -Doptimize=Debug || exit 1
+	fi
+fi
+if [ ! -x "$DIFZ" ]; then
+	printf 'fuzz: missing difz at %s\n' "$DIFZ" >&2
+	exit 1
+fi
+
+mkdir -p "$WORKDIR"
+trap 'rm -rf "$WORKDIR"' EXIT
+
+printf 'AAAA' > "$WORKDIR/a"
+printf 'AAAB' > "$WORKDIR/b"
+if ! "$DIFZ" --no-progress --compress none --seed 0000000000000000000000000000000000000000000000000000000000000000 \
+	"$WORKDIR/a" "$WORKDIR/b" -o "$WORKDIR/good.difz" 2>"$WORKDIR/create.err"; then
+	printf 'fuzz: could not create a valid patch\n' >&2
+	cat "$WORKDIR/create.err" >&2
+	exit 1
+fi
+
+patch_len=$(wc -c < "$WORKDIR/good.difz" | tr -d ' ')
+if [ "$patch_len" -lt 8 ]; then
+	printf 'fuzz: valid patch too small (%s)\n' "$patch_len" >&2
+	exit 1
+fi
+
+i=0
+while [ "$i" -lt "$ROUNDS" ]; do
+	cp "$WORKDIR/good.difz" "$WORKDIR/mut.difz"
+	off=$((i % patch_len))
+	orig=$(od -An -tu1 -N1 -j "$off" "$WORKDIR/mut.difz" | tr -d ' \n')
+	new=$(( (orig + 17 + i) % 256 ))
+	awk -v n="$new" 'BEGIN { printf "%c", n }' | dd of="$WORKDIR/mut.difz" bs=1 seek="$off" conv=notrunc 2>/dev/null
+	"$DIFZ" --patch --no-progress "$WORKDIR/a" "$WORKDIR/mut.difz" -o "$WORKDIR/out" >/dev/null 2>"$WORKDIR/apply.err"
+	rc=$?
+	if [ "$rc" -ge 128 ]; then
+		sig=$((rc - 128))
+		printf 'fuzz: apply aborted signal=%s round=%s offset=%s\n' "$sig" "$i" "$off" >&2
+		errors=$((errors + 1))
+	fi
+	rm -f "$WORKDIR/out"
+	i=$((i + 1))
+done
+
+if [ "$errors" -ne 0 ]; then
+	printf 'fuzz: %s aborting mutations\n' "$errors" >&2
+	exit "$errors"
+fi
+printf 'fuzz: %s mutated patches applied without abort\n' "$ROUNDS"
+exit 0

@@ -12,11 +12,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #if defined(_WIN32) || defined(_WIN64)
 #include <fcntl.h>
 #include <io.h>
+#else
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/resource.h>
+#include <sys/time.h>
 #endif
 
 #include "difz.h"
@@ -77,6 +83,12 @@ static void print_usage(FILE *out) {
 		"  --no-progress      Suppress progress/stats output\n"
 		"  --no-ansi, --no-color  Suppress ANSI escape codes\n"
 		"  --simple           Suppress both ANSI and emoji\n"
+		"  --lang <code>      UI language (DIFZ_LANG, then LANG; --lang wins)\n"
+		"  --hilfe            German --help alias; infers --lang de\n"
+		"  --max-output-bytes <n>  Fail if patch or reconstruction exceeds n bytes\n"
+		"  --max-output-ratio <p>  Fail if patch exceeds p percent of the target\n"
+		"  --max-rss-bytes <n>     POSIX RLIMIT_AS ceiling for this process\n"
+		"  --max-wall-ms <n>       Abort the process after n milliseconds\n"
 		"\n"
 		"Special paths:\n"
 		"  -  or @stdin   Read from stdin\n"
@@ -135,33 +147,83 @@ static int parse_hex_seed(const char *hex, uint8_t seed[32]) {
 	return 0;
 }
 
-/* Read an entire file into a malloc'd buffer. Sets *out_len.
- * Returns the buffer on success, NULL on error (message printed to stderr). */
-static uint8_t *read_file(const char *path, size_t *out_len) {
-	FILE *f;
-	int is_stdin = 0;
+static int parse_positive_size(const char *s, size_t *out) {
+	char *endptr = NULL;
+	errno = 0;
+	unsigned long long val = strtoull(s, &endptr, 10);
+	if (errno != 0 || endptr == s || *endptr != '\0' || val == 0) return -1;
+	if (val > (unsigned long long)SIZE_MAX) return -1;
+	*out = (size_t)val;
+	return 0;
+}
 
-	if (strcmp(path, "-") == 0 || strcmp(path, "@stdin") == 0) {
-		f = stdin;
-		is_stdin = 1;
-	} else {
-		f = fopen(path, "rb");
-		if (!f) {
-			fprintf(stderr, "difz: cannot open '%s': %s\n", path, strerror(errno));
-			return NULL;
+static const char *const DIFZ_LOCALES[] = {
+	"am","ar","az","bg","bn","bs","da","de","el","en","es","fa","fi","fil","fr",
+	"ha","he","hi","hr","hu","id","ig","is","it","ja","km","ko","mk","nb","nl",
+	"pa","pl","ps","pt_br","ro","ru","sl","sq","sr","sv","sw","ta","th","tr",
+	"uk","ur","vi","yo","zh_hans","zh_hant"
+};
+
+static int locale_is_known(const char *code) {
+	size_t i;
+	for (i = 0; i < sizeof(DIFZ_LOCALES) / sizeof(DIFZ_LOCALES[0]); i++) {
+		if (strcmp(DIFZ_LOCALES[i], code) == 0) return 1;
+	}
+	return 0;
+}
+
+static const char *resolve_locale(int argc, char **argv) {
+	int i;
+	const char *from_env;
+	for (i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "--hilfe") == 0) return "de";
+		if (strcmp(argv[i], "--lang") == 0) {
+			if (i + 1 < argc) return argv[i + 1];
+			return "en";
 		}
 	}
+	from_env = getenv("DIFZ_LANG");
+	if (from_env && from_env[0] != '\0') return from_env;
+	return "en";
+}
 
-	/* Read in chunks into a growing buffer */
+static void warn_missing_locale(const char *code) {
+	if (!code || strcmp(code, "en") == 0) return;
+	(void)locale_is_known(code);
+	fprintf(stderr, "WARN: i18n missing-locale %s\n", code);
+}
+
+struct loaded_buf {
+	uint8_t *data;
+	size_t len;
+	int mapped;
+};
+
+static void release_loaded(struct loaded_buf *buf) {
+	if (!buf || !buf->data) return;
+#if !defined(_WIN32) && !defined(_WIN64)
+	if (buf->mapped) {
+		if (buf->len > 0) munmap(buf->data, buf->len);
+		buf->data = NULL;
+		buf->mapped = 0;
+		buf->len = 0;
+		return;
+	}
+#endif
+	free(buf->data);
+	buf->data = NULL;
+	buf->mapped = 0;
+	buf->len = 0;
+}
+
+static uint8_t *read_stream(FILE *f, const char *path, size_t *out_len) {
 	size_t cap = 4096;
 	size_t len = 0;
 	uint8_t *buf = malloc(cap);
 	if (!buf) {
 		fprintf(stderr, "difz: out of memory\n");
-		if (!is_stdin) fclose(f);
 		return NULL;
 	}
-
 	while (1) {
 		if (len == cap) {
 			cap *= 2;
@@ -169,7 +231,6 @@ static uint8_t *read_file(const char *path, size_t *out_len) {
 			if (!new_buf) {
 				fprintf(stderr, "difz: out of memory\n");
 				free(buf);
-				if (!is_stdin) fclose(f);
 				return NULL;
 			}
 			buf = new_buf;
@@ -178,17 +239,156 @@ static uint8_t *read_file(const char *path, size_t *out_len) {
 		if (n == 0) break;
 		len += n;
 	}
-
 	if (ferror(f)) {
 		fprintf(stderr, "difz: read error on '%s': %s\n", path, strerror(errno));
 		free(buf);
-		if (!is_stdin) fclose(f);
 		return NULL;
 	}
-
-	if (!is_stdin) fclose(f);
 	*out_len = len;
 	return buf;
+}
+
+/* Read a file: mmap regular files on POSIX, malloc for stdin/streams. */
+static int load_path(const char *path, struct loaded_buf *out) {
+	memset(out, 0, sizeof(*out));
+	if (strcmp(path, "-") == 0 || strcmp(path, "@stdin") == 0) {
+		out->data = read_stream(stdin, path, &out->len);
+		return out->data ? 0 : -1;
+	}
+
+#if !defined(_WIN32) && !defined(_WIN64)
+	{
+		int fd = open(path, O_RDONLY);
+		struct stat st;
+		if (fd < 0) {
+			fprintf(stderr, "difz: cannot open '%s': %s\n", path, strerror(errno));
+			return -1;
+		}
+		if (fstat(fd, &st) != 0) {
+			fprintf(stderr, "difz: cannot stat '%s': %s\n", path, strerror(errno));
+			close(fd);
+			return -1;
+		}
+		if (!S_ISREG(st.st_mode)) {
+			close(fd);
+			fprintf(stderr, "difz: unsupported special input file\n");
+			return -1;
+		}
+		out->len = (size_t)st.st_size;
+		if (out->len == 0) {
+			out->data = malloc(1);
+			if (!out->data) {
+				fprintf(stderr, "difz: out of memory\n");
+				close(fd);
+				return -1;
+			}
+			close(fd);
+			return 0;
+		}
+		void *map = mmap(NULL, out->len, PROT_READ, MAP_PRIVATE, fd, 0);
+		close(fd);
+		if (map != MAP_FAILED) {
+			out->data = map;
+			out->mapped = 1;
+			return 0;
+		}
+		/* mmap failed; fall through to stdio. */
+	}
+#endif
+
+	{
+		FILE *f = fopen(path, "rb");
+		if (!f) {
+			fprintf(stderr, "difz: cannot open '%s': %s\n", path, strerror(errno));
+			return -1;
+		}
+		out->data = read_stream(f, path, &out->len);
+		fclose(f);
+		return out->data ? 0 : -1;
+	}
+}
+
+#if !defined(_WIN32) && !defined(_WIN64)
+static volatile sig_atomic_t difz_timed_out = 0;
+static void difz_on_alarm(int sig) {
+	(void)sig;
+	difz_timed_out = 1;
+	_exit(124);
+}
+
+static int apply_rss_ceiling(size_t max_rss_bytes) {
+	struct rlimit rl;
+	if (max_rss_bytes == 0) return 0;
+	rl.rlim_cur = (rlim_t)max_rss_bytes;
+	rl.rlim_max = (rlim_t)max_rss_bytes;
+	if (setrlimit(RLIMIT_AS, &rl) != 0) {
+		fprintf(stderr, "difz: cannot apply RSS ceiling (%s)\n", strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
+static int apply_wall_ceiling(size_t max_wall_ms) {
+	struct itimerval tv;
+	if (max_wall_ms == 0) return 0;
+	if (signal(SIGALRM, difz_on_alarm) == SIG_ERR) {
+		fprintf(stderr, "difz: cannot install wall-clock handler: %s\n", strerror(errno));
+		return -1;
+	}
+	memset(&tv, 0, sizeof(tv));
+	tv.it_value.tv_sec = (time_t)(max_wall_ms / 1000);
+	tv.it_value.tv_usec = (suseconds_t)((max_wall_ms % 1000) * 1000);
+	if (tv.it_value.tv_sec == 0 && tv.it_value.tv_usec == 0) {
+		tv.it_value.tv_usec = 1000;
+	}
+	if (setitimer(ITIMER_REAL, &tv, NULL) != 0) {
+		fprintf(stderr, "difz: cannot apply wall-clock ceiling: %s\n", strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+#else
+static int apply_rss_ceiling(size_t max_rss_bytes) {
+	if (max_rss_bytes == 0) return 0;
+	fprintf(stderr, "difz: --max-rss-bytes requires POSIX RLIMIT_AS\n");
+	return -1;
+}
+static int apply_wall_ceiling(size_t max_wall_ms) {
+	if (max_wall_ms == 0) return 0;
+	fprintf(stderr, "difz: --max-wall-ms requires POSIX interval timers\n");
+	return -1;
+}
+#endif
+
+static void cli_progress(const char *stage, uint64_t done, uint64_t total, void *user) {
+	progrez_ctx *pctx = (progrez_ctx *)user;
+	if (!pctx) return;
+	if (stage && stage[0]) progrez_set_label(pctx, stage);
+	if (total > 0) {
+		progrez_set_determinate(pctx, total, 0);
+		progrez_update(pctx, done, 0);
+	}
+}
+
+static uint8_t *read_file(const char *path, size_t *out_len) {
+	struct loaded_buf loaded;
+	size_t n;
+	if (load_path(path, &loaded) != 0) return NULL;
+	n = loaded.len;
+	if (loaded.mapped) {
+		uint8_t *copy = malloc(n ? n : 1);
+		if (!copy) {
+			fprintf(stderr, "difz: out of memory\n");
+			release_loaded(&loaded);
+			return NULL;
+		}
+		if (n) memcpy(copy, loaded.data, n);
+		release_loaded(&loaded);
+		*out_len = n;
+		return copy;
+	}
+	*out_len = n;
+	return loaded.data;
 }
 
 /* Write a buffer to a file/stdout/stderr.
@@ -312,6 +512,7 @@ int main(int argc, char *argv[]) {
 	difz_stdio_init();
 	int no_ansi = 0;
 	int no_progress = 0;
+	const char *locale = resolve_locale(argc, argv);
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--simple") == 0) {
 			no_ansi = 1;
@@ -322,6 +523,7 @@ int main(int argc, char *argv[]) {
 			no_progress = 1;
 		}
 	}
+	warn_missing_locale(locale);
 
 #ifdef DIFZ_DEBUG
 	if (isatty(STDERR_FILENO) && !no_ansi) {
@@ -340,6 +542,10 @@ int main(int argc, char *argv[]) {
 	uint8_t compression = 0;  /* 0=best, 1=lzma2, 2=bzip2, 3=lz4, 4=zstd, 255=none */
 	size_t truncate_bytes = 64;
 	int hexlike = 0;
+	size_t max_output_bytes = 0;
+	size_t max_output_ratio = 0;
+	size_t max_rss_bytes = 0;
+	size_t max_wall_ms = 0;
 	difz_path_rule rules[4096];
 	size_t rule_count = 0;
 
@@ -349,13 +555,22 @@ int main(int argc, char *argv[]) {
 
 	/* Parse arguments — later args override earlier ones */
 	for (int i = 1; i < argc; i++) {
-		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0 ||
+			strcmp(argv[i], "--hilfe") == 0) {
 			print_usage(stdout);
 			return 0;
 		}
 		if (strcmp(argv[i], "--about") == 0) {
 			print_about();
 			return 0;
+		}
+		if (strcmp(argv[i], "--lang") == 0) {
+			if (i + 1 >= argc) {
+				fprintf(stderr, "difz: --lang requires a locale code argument\n");
+				return 1;
+			}
+			i++;
+			continue;
 		}
 		if (strcmp(argv[i], "--patch") == 0) {
 			patch_mode = 1;
@@ -458,6 +673,35 @@ int main(int argc, char *argv[]) {
 			no_progress = 1;
 			continue;
 		}
+		if (strcmp(argv[i], "--max-output-bytes") == 0) {
+			if (i + 1 >= argc || parse_positive_size(argv[++i], &max_output_bytes) != 0) {
+				fprintf(stderr, "difz: --max-output-bytes requires a positive integer\n");
+				return 1;
+			}
+			continue;
+		}
+		if (strcmp(argv[i], "--max-output-ratio") == 0) {
+			if (i + 1 >= argc || parse_positive_size(argv[++i], &max_output_ratio) != 0 ||
+				max_output_ratio > 100) {
+				fprintf(stderr, "difz: --max-output-ratio requires an integer 1-100\n");
+				return 1;
+			}
+			continue;
+		}
+		if (strcmp(argv[i], "--max-rss-bytes") == 0) {
+			if (i + 1 >= argc || parse_positive_size(argv[++i], &max_rss_bytes) != 0) {
+				fprintf(stderr, "difz: --max-rss-bytes requires a positive integer\n");
+				return 1;
+			}
+			continue;
+		}
+		if (strcmp(argv[i], "--max-wall-ms") == 0) {
+			if (i + 1 >= argc || parse_positive_size(argv[++i], &max_wall_ms) != 0) {
+				fprintf(stderr, "difz: --max-wall-ms requires a positive integer\n");
+				return 1;
+			}
+			continue;
+		}
 
 		/* Unknown option (single-dash or double-dash, but not bare "-") */
 		if (argv[i][0] == '-' && argv[i][1] != '\0') {
@@ -509,6 +753,9 @@ int main(int argc, char *argv[]) {
 		}
 		seed_ptr = seed_buf;
 	}
+
+	if (apply_rss_ceiling(max_rss_bytes) != 0) return 1;
+	if (apply_wall_ceiling(max_wall_ms) != 0) return 1;
 
 	int exit_code = 0;
 
@@ -581,14 +828,11 @@ int main(int argc, char *argv[]) {
 
 		free(diff_data);
 	} else {
-		/* Read input files */
-		size_t a_len = 0, b_len = 0;
-		uint8_t *a_data = read_file(positional[0], &a_len);
-		if (!a_data) return 1;
-
-		uint8_t *b_data = read_file(positional[1], &b_len);
-		if (!b_data) {
-			free(a_data);
+		/* Read input files (mmap regular files; malloc stdin). */
+		struct loaded_buf a_buf, b_buf;
+		if (load_path(positional[0], &a_buf) != 0) return 1;
+		if (load_path(positional[1], &b_buf) != 0) {
+			release_loaded(&a_buf);
 			return 1;
 		}
 
@@ -600,16 +844,23 @@ int main(int argc, char *argv[]) {
 				if (pctx) {
 					progrez_set_identity(pctx, "difz", NULL);
 					progrez_set_indeterminate(pctx);
+					difz_set_progress_callback(cli_progress, pctx);
 				}
 			}
 
 			uint8_t *result_ptr = NULL;
 			size_t result_len = 0;
 
-			int rc = difz_patch(a_data, a_len, b_data, b_len, &result_ptr, &result_len);
+			int rc = difz_patch_limited(
+				a_buf.data, a_buf.len, b_buf.data, b_buf.len,
+				max_output_bytes, &result_ptr, &result_len);
 
+			difz_set_progress_callback(NULL, NULL);
 			if (pctx) { progrez_finish(pctx); progrez_destroy(pctx); }
-			if (rc != 0) {
+			if (rc == -4) {
+				fprintf(stderr, "difz: resource limit exceeded\n");
+				exit_code = 1;
+			} else if (rc != 0) {
 				fprintf(stderr, "difz: patch failed\n");
 				exit_code = 1;
 			} else {
@@ -624,31 +875,43 @@ int main(int argc, char *argv[]) {
 			}
 		} else {
 			/* ── Diff mode ───────────────────────────────────── */
+			size_t create_limit = max_output_bytes;
+			if (max_output_ratio != 0 && b_buf.len > 0) {
+				size_t ratio_cap = (size_t)((unsigned long long)b_buf.len * max_output_ratio / 100ull);
+				if (ratio_cap == 0) ratio_cap = 1;
+				if (create_limit == 0 || ratio_cap < create_limit) create_limit = ratio_cap;
+			}
+
 			progrez_ctx *pctx = NULL;
 			if (!no_progress && isatty(STDERR_FILENO)) {
 				pctx = progrez_create("Computing diff");
 				if (pctx) {
 					progrez_set_identity(pctx, "difz", NULL);
 					progrez_set_indeterminate(pctx);
+					difz_set_progress_callback(cli_progress, pctx);
 				}
 			}
 
 			uint8_t *diff_ptr = NULL;
 			size_t diff_len = 0;
 
-			int rc = difz_diff(a_data, a_len, b_data, b_len, seed_ptr, chunk_size,
-			                    compression, &diff_ptr, &diff_len);
+			int rc = difz_diff_limited(
+				a_buf.data, a_buf.len, b_buf.data, b_buf.len, seed_ptr, chunk_size,
+				compression, create_limit, &diff_ptr, &diff_len);
 
+			difz_set_progress_callback(NULL, NULL);
 			if (pctx) { progrez_finish(pctx); progrez_destroy(pctx); }
-			if (rc != 0) {
+			if (rc == -4) {
+				fprintf(stderr, "difz: resource limit exceeded\n");
+				exit_code = 1;
+			} else if (rc != 0) {
 				fprintf(stderr, "difz: diff failed\n");
 				exit_code = 1;
 			} else {
 				if (write_output(output_path, diff_ptr, diff_len) != 0) {
 					exit_code = 1;
 				} else if (!no_progress && isatty(STDERR_FILENO)) {
-					/* Show stats */
-					size_t original = (a_len > b_len) ? a_len : b_len;
+					size_t original = (a_buf.len > b_buf.len) ? a_buf.len : b_buf.len;
 					char diff_size_str[64];
 					format_size(diff_len, diff_size_str, sizeof(diff_size_str));
 					if (original > 0) {
@@ -663,8 +926,8 @@ int main(int argc, char *argv[]) {
 			}
 		}
 
-		free(a_data);
-		free(b_data);
+		release_loaded(&a_buf);
+		release_loaded(&b_buf);
 	}
 
 	return exit_code;

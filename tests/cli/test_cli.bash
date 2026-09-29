@@ -53,6 +53,8 @@ if [ ! -x "$DIFZ" ]; then
 	printf "FATAL: difz binary not found at %s\n" "$DIFZ"
 	exit 1
 fi
+DIFZ_DIR="$(cd "$(dirname "$DIFZ")" && pwd)"
+DIFZ="$DIFZ_DIR/$(basename "$DIFZ")"
 
 mkdir -p "$TEST_DIR"
 
@@ -768,6 +770,167 @@ if command -v script >/dev/null 2>&1; then
 	fi
 else
 	pass "--simple under a PTY emits no ANSI (skipped: no script)"
+fi
+
+# ── Test: resource ceilings ───────────────────────────────────────────
+
+printf "\n[Resource ceilings]\n"
+
+CEIL_A="$TEST_DIR/ceil_a.bin"
+CEIL_B="$TEST_DIR/ceil_b.bin"
+# Two 8 KiB files that share a long prefix so a 100% ratio can still succeed,
+# while a 1% ratio and a 16-byte cap still fail on ZDIF header overhead.
+dd if=/dev/zero bs=8192 count=1 2>/dev/null | tr '\0' 'A' > "$CEIL_A"
+cp "$CEIL_A" "$CEIL_B"
+printf 'B' | dd of="$CEIL_B" bs=1 seek=8191 conv=notrunc 2>/dev/null
+
+CEIL_OK_ERR=$("$DIFZ" --no-progress --compress none --seed 0000000000000000000000000000000000000000000000000000000000000000 \
+	--max-output-bytes 1000000 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/ceil_ok.difz" 2>&1)
+CEIL_OK_RC=$?
+if [ $CEIL_OK_RC -eq 0 ] && [ -s "$TEST_DIR/ceil_ok.difz" ]; then
+	pass "--max-output-bytes 1000000 allows an 8 KiB dissimilar patch"
+else
+	fail "--max-output-bytes 1000000 allows an 8 KiB dissimilar patch" "rc=$CEIL_OK_RC stderr=$CEIL_OK_ERR"
+fi
+
+CEIL_FAIL_ERR=$("$DIFZ" --no-progress --compress none --seed 0000000000000000000000000000000000000000000000000000000000000000 \
+	--max-output-bytes 16 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/ceil_fail.difz" 2>&1)
+CEIL_FAIL_RC=$?
+if [ $CEIL_FAIL_RC -ne 0 ] && [ ! -e "$TEST_DIR/ceil_fail.difz" ]; then
+	pass "--max-output-bytes 16 rejects an oversized patch with no output file"
+else
+	fail "--max-output-bytes 16 rejects an oversized patch with no output file" "rc=$CEIL_FAIL_RC stderr=$CEIL_FAIL_ERR"
+fi
+if echo "$CEIL_FAIL_ERR" | grep -q "resource limit"; then
+	pass "--max-output-bytes failure mentions resource limit"
+else
+	fail "--max-output-bytes failure mentions resource limit" "stderr=$CEIL_FAIL_ERR"
+fi
+
+RATIO_FAIL_ERR=$("$DIFZ" --no-progress --compress none --seed 0000000000000000000000000000000000000000000000000000000000000000 \
+	--max-output-ratio 1 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/ratio_fail.difz" 2>&1)
+RATIO_FAIL_RC=$?
+if [ $RATIO_FAIL_RC -ne 0 ] && [ ! -e "$TEST_DIR/ratio_fail.difz" ]; then
+	pass "--max-output-ratio 1 rejects a patch larger than 1% of the target"
+else
+	fail "--max-output-ratio 1 rejects a patch larger than 1% of the target" "rc=$RATIO_FAIL_RC stderr=$RATIO_FAIL_ERR"
+fi
+
+RATIO_OK_ERR=$("$DIFZ" --no-progress --compress none --seed 0000000000000000000000000000000000000000000000000000000000000000 \
+	--max-output-ratio 100 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/ratio_ok.difz" 2>&1)
+RATIO_OK_RC=$?
+if [ $RATIO_OK_RC -eq 0 ] && [ -s "$TEST_DIR/ratio_ok.difz" ]; then
+	pass "--max-output-ratio 100 allows a patch at most the target size"
+else
+	fail "--max-output-ratio 100 allows a patch at most the target size" "rc=$RATIO_OK_RC stderr=$RATIO_OK_ERR"
+fi
+
+if [ -s "$TEST_DIR/ceil_ok.difz" ]; then
+	PATCH_LIM_ERR=$("$DIFZ" --patch --no-progress --max-output-bytes 16 \
+		"$CEIL_A" "$TEST_DIR/ceil_ok.difz" -o "$TEST_DIR/ceil_recon.bin" 2>&1)
+	PATCH_LIM_RC=$?
+	if [ $PATCH_LIM_RC -ne 0 ] && [ ! -e "$TEST_DIR/ceil_recon.bin" ]; then
+		pass "--max-output-bytes 16 rejects a reconstructed target larger than 16 bytes"
+	else
+		fail "--max-output-bytes 16 rejects a reconstructed target larger than 16 bytes" "rc=$PATCH_LIM_RC stderr=$PATCH_LIM_ERR"
+	fi
+	PATCH_OK_ERR=$("$DIFZ" --patch --no-progress --max-output-bytes 1000000 \
+		"$CEIL_A" "$TEST_DIR/ceil_ok.difz" -o "$TEST_DIR/ceil_recon_ok.bin" 2>&1)
+	PATCH_OK_RC=$?
+	if [ $PATCH_OK_RC -eq 0 ] && cmp -s "$CEIL_B" "$TEST_DIR/ceil_recon_ok.bin"; then
+		pass "--max-output-bytes 1000000 allows reconstructing the 8 KiB target"
+	else
+		fail "--max-output-bytes 1000000 allows reconstructing the 8 KiB target" "rc=$PATCH_OK_RC stderr=$PATCH_OK_ERR"
+	fi
+else
+	fail "--max-output-bytes 16 rejects a reconstructed target larger than 16 bytes" "no successful patch to apply"
+	fail "--max-output-bytes 1000000 allows reconstructing the 8 KiB target" "no successful patch to apply"
+fi
+
+RSS_ERR=$("$DIFZ" --no-progress --compress none --max-rss-bytes 4096 \
+	"$CEIL_A" "$CEIL_B" -o "$TEST_DIR/rss_fail.difz" 2>&1)
+RSS_RC=$?
+if [ $RSS_RC -ne 0 ]; then
+	pass "--max-rss-bytes 4096 fails closed"
+else
+	fail "--max-rss-bytes 4096 fails closed" "rc=$RSS_RC stderr=$RSS_ERR"
+fi
+
+RSS_OK_ERR=$("$DIFZ" --no-progress --compress none --max-rss-bytes 8589934592 \
+	"$CEIL_A" "$CEIL_B" -o "$TEST_DIR/rss_ok.difz" 2>&1)
+RSS_OK_RC=$?
+if [ $RSS_OK_RC -eq 0 ] && [ -s "$TEST_DIR/rss_ok.difz" ]; then
+	pass "--max-rss-bytes 8GiB allows a tiny create"
+else
+	fail "--max-rss-bytes 8GiB allows a tiny create" "rc=$RSS_OK_RC stderr=$RSS_OK_ERR"
+fi
+
+WALL_ERR=$("$DIFZ" --no-progress --compress none --max-wall-ms 1 \
+	"$CEIL_A" "$CEIL_B" -o "$TEST_DIR/wall_tiny.difz" 2>&1)
+WALL_RC=$?
+# 8 KiB may finish under 1ms; a 1ms ceiling must still be accepted as a flag.
+# Force a miss with a zero-ms rejected parse, and a huge-ms success.
+WALL_BAD=$("$DIFZ" --no-progress --max-wall-ms 0 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/wall_zero.difz" 2>&1)
+WALL_BAD_RC=$?
+if [ $WALL_BAD_RC -ne 0 ] && echo "$WALL_BAD" | grep -qi 'max-wall'; then
+	pass "--max-wall-ms 0 is rejected"
+else
+	fail "--max-wall-ms 0 is rejected" "rc=$WALL_BAD_RC stderr=$WALL_BAD"
+fi
+WALL_OK=$("$DIFZ" --no-progress --compress none --max-wall-ms 60000 \
+	"$CEIL_A" "$CEIL_B" -o "$TEST_DIR/wall_ok.difz" 2>&1)
+WALL_OK_RC=$?
+if [ $WALL_OK_RC -eq 0 ]; then
+	pass "--max-wall-ms 60000 allows a tiny create"
+else
+	fail "--max-wall-ms 60000 allows a tiny create" "rc=$WALL_OK_RC stderr=$WALL_OK"
+fi
+
+if echo "$HELP_OUT" | grep -q -- "--max-output-bytes"; then
+	pass "--help mentions --max-output-bytes"
+else
+	fail "--help mentions --max-output-bytes" "output: $HELP_OUT"
+fi
+
+# ── Test: i18n prepare-phase ──────────────────────────────────────────
+
+printf "\n[i18n prepare]\n"
+
+LANG_EN=$("$DIFZ" --lang en --help 2>/dev/null)
+if echo "$LANG_EN" | grep -q "Usage:"; then
+	pass "--lang en still prints English help"
+else
+	fail "--lang en still prints English help" "output: $LANG_EN"
+fi
+
+LANG_DE_ERR=$("$DIFZ" --lang de --about 2>&1 >/dev/null)
+if echo "$LANG_DE_ERR" | grep -q "WARN: i18n missing-locale de"; then
+	pass "--lang de warns that the German catalog is missing (prepare phase)"
+else
+	fail "--lang de warns that the German catalog is missing (prepare phase)" "stderr=$LANG_DE_ERR"
+fi
+
+HILFE_ERR=$("$DIFZ" --hilfe 2>&1 >/dev/null)
+HILFE_OUT=$("$DIFZ" --hilfe 2>/dev/null)
+if echo "$HILFE_ERR" | grep -q "WARN: i18n missing-locale de" && echo "$HILFE_OUT" | grep -q "Usage:"; then
+	pass "--hilfe infers German, warns, and still prints help"
+else
+	fail "--hilfe infers German, warns, and still prints help" "stderr=$HILFE_ERR out=$HILFE_OUT"
+fi
+
+DIFZ_LANG=de "$DIFZ" --about >/dev/null 2>"$TEST_DIR/env_lang.err"
+if grep -q "WARN: i18n missing-locale de" "$TEST_DIR/env_lang.err"; then
+	pass "DIFZ_LANG=de warns missing-locale"
+else
+	fail "DIFZ_LANG=de warns missing-locale" "stderr=$(cat "$TEST_DIR/env_lang.err")"
+fi
+
+"$DIFZ" --lang en --about >/dev/null 2>"$TEST_DIR/en_lang.err"
+EN_WARN=$(grep -v '^DEBUG BUILD$' "$TEST_DIR/en_lang.err" | grep -v '^$' || true)
+if [ -z "$EN_WARN" ]; then
+	pass "--lang en does not warn about a missing locale"
+else
+	fail "--lang en does not warn about a missing locale" "stderr=$EN_WARN"
 fi
 
 # ── Test: stderr output cleanliness ───────────────────────────────────

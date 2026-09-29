@@ -13,6 +13,12 @@ typedef struct difz_path_rule {
 	const char *pattern;
 } difz_path_rule;
 
+/* Optional stage callback. `total` is 0 when the stage is indeterminate.
+ * The library never holds private keys; ceilings are byte/time/RSS caps only. */
+typedef void (*difz_progress_fn)(
+	const char *stage, uint64_t done, uint64_t total, void *user);
+void difz_set_progress_callback(difz_progress_fn fn, void *user);
+
 /* Compute a binary diff between files A and B.
  * Inputs are borrowed. On success, *out is a new buffer owned by the caller
  * and must be released with difz_free(*out, *out_len) using those exact values.
@@ -21,7 +27,8 @@ typedef struct difz_path_rule {
  * target_chunk_size: Gear CDC target; 0 selects the library default (4096).
  * Values that overflow min/max arithmetic are rejected.
  * compression: 0=best, 1=lzma2, 2=bzip2, 3=lz4, 4=zstd, 255=none.
- * Returns 0 on success, -1 on error. */
+ * Returns 0 on success, -1 on error, -4 if the encoded patch exceeds
+ * max_output_bytes (0 = unlimited) in difz_diff_limited. */
 int difz_diff(
     const uint8_t *a, size_t a_len,
     const uint8_t *b, size_t b_len,
@@ -29,12 +36,26 @@ int difz_diff(
     size_t target_chunk_size,
     uint8_t compression,
     uint8_t **out, size_t *out_len);
+int difz_diff_limited(
+    const uint8_t *a, size_t a_len,
+    const uint8_t *b, size_t b_len,
+    const uint8_t seed[32],
+    size_t target_chunk_size,
+    uint8_t compression,
+    size_t max_output_bytes,
+    uint8_t **out, size_t *out_len);
 
 /* Apply a diff to file A to reconstruct file B.
- * Returns 0 on success, -1 on error. */
+ * Returns 0 on success, -1 on error, -4 if reconstruction would exceed
+ * max_output_bytes (0 = unlimited) in difz_patch_limited. */
 int difz_patch(
     const uint8_t *a, size_t a_len,
     const uint8_t *diff, size_t diff_len,
+    uint8_t **out, size_t *out_len);
+int difz_patch_limited(
+    const uint8_t *a, size_t a_len,
+    const uint8_t *diff, size_t diff_len,
+    size_t max_output_bytes,
     uint8_t **out, size_t *out_len);
 
 /* Compute a deterministic DIFZTREE patch from two directory paths.

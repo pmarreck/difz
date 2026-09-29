@@ -29,29 +29,31 @@ Canonical sources: `MECHA_RELEASE_PLAN.md` (Sep23 amendment),
   89 MB ELF numbers as bounds. Record proposed caps before running those
   measurements.
 
-## Proposed caps (unmeasured; to verify on AppImage, then tighten)
+## Measured caps (2026-09-29, Threadripper 3990X, ReleaseFast)
 
-Worker `difz create` (keyless process wrapper, single-flight):
+Worker `difz create` (CLI process wrapper, no signing keys):
 
-- RSS hard abort 8 GiB
-- wall 120 s
-- CPU 180 s
-- output size at most 70% of target bytes (runbook start gate)
-- no caller-supplied binaries or URLs; sources come from retained full artifacts
+- RSS hard abort 8 GiB (`--max-rss-bytes`)
+- wall 120 s (`--max-wall-ms 120000`)
+- output size at most 70% of target bytes (`--max-output-ratio 70`)
+- `--max-output-bytes` for an absolute cap
+- no caller-supplied URLs in the library; the worker must pass retained artifacts
 
-Client `difz apply` (same host until a slow-client number exists):
+Client `difz apply`:
 
 - RSS hard abort 1 GiB
 - wall 10 s
-- temp space at least 2× reconstructed target plus patch
 
-These are hypotheses to fail a gate, not published performance claims.
-The 89 MB ELF pair created at 3.34 GiB RSS / 11.0 s wall and applied at
-214 MiB RSS / 0.715 s; that row is not a ceiling.
+Public samples (not committed):
 
-## Hold
+| Pair | Create wall | Create RSS | Apply wall | Apply RSS | Patch vs target |
+|---|---:|---:|---:|---:|---:|
+| Neovim 0.11.3 → 0.11.4 AppImage | 1.019 s | 404 MiB | 0.080 s | 30 MiB | 48.58% (allowed) |
+| KeePassXC 2.7.9 → 2.7.10 AppImage | 5.9 s | 4.27 GiB | n/a | n/a | 97.86% (rejected by 70% gate) |
+| Validate ELF 89 MB (historic) | 11.027 s | 3.34 GiB | 0.715 s | 214 MiB | 5.06% |
 
-Peter withheld external push on this branch. Working tree still has unrelated
-dirty files (`ZIG_0.15_TO_0.16_MIGRATION.md` deletion, untracked
-`MECHATRON_PRIME_CI.md`). Fetch 2026-09-28 confirmed `origin/yolo` unchanged;
-local `yolo` is 7 commits ahead. No force-push.
+SHA-256: nvim source `5f377dc48c49a4170bd698a80ef461a702b8ebb8b2f7ddbb776341503d36415f`, target `79e7e160f9505819a5e12f3d9366be94213f5309fb912ef4ef3af52df3982977`. KeePassXC source `2a868b681a8ec4e381ac14203aec3d80ff6fa7a535fa102265a3ec9329b4b846`, target `3f8308a4d905d067367d541b4dccd5e80700798039046ffc388ede4f50887b36`.
+
+## Push
+
+Peter authorized push 2026-09-29. Unrelated dirty files still must not mix.

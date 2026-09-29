@@ -57,6 +57,27 @@ pub const EncodeError = error{
     InvalidChunkSize,
 };
 
+/// True when an encoded or reconstructed buffer would exceed a worker ceiling.
+/// `max_output_bytes == 0` means unlimited.
+pub fn exceedsOutputLimit(len: usize, max_output_bytes: usize) bool {
+    return max_output_bytes != 0 and len > max_output_bytes;
+}
+
+test "output-limit classifier over unlimited, exact, under, and over sizes" {
+    const sizes = [_]usize{ 0, 1, 16, 17, 8192 };
+    const caps = [_]usize{ 0, 16, 8192 };
+    for (caps) |cap| {
+        for (sizes) |n| {
+            const over = exceedsOutputLimit(n, cap);
+            if (cap == 0) {
+                try testing.expect(!over);
+            } else {
+                try testing.expectEqual(n > cap, over);
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helper: build a DATA container in v2 LP format
 // ---------------------------------------------------------------------------

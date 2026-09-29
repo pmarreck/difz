@@ -22,6 +22,17 @@ This 2026-08-28 run used an AMD Ryzen Threadripper 3990X and difz commit `fc72e2
 
 The real pair produced 708,379 difz operations. Difz create peaked at 3,497,792 KiB RSS and apply peaked at 213,752 KiB. On this pair, difz created the patch faster than bsdiff but slower than xdelta3 and zstd; it applied slower than all three. Its patch was smaller than xdelta3 and zstd, while bsdiff's patch was 11.3 times smaller than difz's. These are single-run resource measurements; the full inputs, hashes, timings, and sizes are in `tests/benchmark/benchmark_log_v3.csv`.
 
+### Public Linux x86_64 AppImage pair (updater pilot)
+
+2026-09-29, same Threadripper host, ReleaseFast `difz`. Consecutive Neovim AppImages [v0.11.3](https://github.com/neovim/neovim/releases/tag/v0.11.3) → [v0.11.4](https://github.com/neovim/neovim/releases/tag/v0.11.4) (10,996,216 B and 11,012,600 B). Create used `--max-output-ratio 70 --max-rss-bytes 8589934592 --max-wall-ms 120000`. The reconstructed target matched byte-for-byte.
+
+| Metric | difz | bsdiff | xdelta3 | zstd |
+|--------|-----:|-------:|--------:|-----:|
+| Create wall time | 1.019 s | 9.984 s | 1.294 s | 0.120 s |
+| Patch size | 5,349,393 B (48.58%) | 5,338,146 B | 5,319,624 B | 5,359,536 B |
+
+Difz create peaked at 413,760 KiB RSS; apply was 0.080 s / 30,772 KiB RSS. On this consecutive AppImage pair, difz, bsdiff, and xdelta3 patches are within 0.6% of each other; difz created ~10× faster than bsdiff. A second public pair, KeePassXC 2.7.9 → 2.7.10 (40.7 MB → 48.2 MB), produced a 47,174,594 B patch (97.86% of target) and was rejected by `--max-output-ratio 70` as designed.
+
 ### Historical shared-prefix snapshot
 
 This is a historical Apple M4 (aarch64) snapshot using default `--compress best`. Its historical shared-prefix corpus constructed each target as one contiguous prefix from the source followed by a random suffix. A current reproduction of the 10 MiB, 90%-similar case yields only three operations, so this table does not measure scattered edits, rebuilt binaries, or high-operation apply behavior.
