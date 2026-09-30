@@ -1,5 +1,10 @@
 # Difz Implementation Plan
 
+## Active
+
+- [ ] DIFZTREE v2 records xattrs, ACLs, timestamps, Finder flags, sparse extents, and hardlink identity; create can omit families; apply restores best-effort and warns when a foreign native form is only preserved aside. (context: docs/plan_context/metadata-v2.md)
+- [ ] Wait for Peter's email reply on Mac-delta path: A archive-first v1, B live .app tree, or C keep disabled until a Mac runner exists. (asked 2026-09-29 ~3:50pm EDT)
+
 ## Recently completed (2026-09-29)
 
 - [x] After measured ceilings exist, add TDD gates that fail create/apply when those ceilings are exceeded, without exposing signing keys to the patch worker. CLI: `--max-output-bytes`, `--max-output-ratio`, `--max-rss-bytes`, `--max-wall-ms`. FFI: `difz_diff_limited` / `difz_patch_limited` return -4. (2026-09-29 ~3:45pm EDT)

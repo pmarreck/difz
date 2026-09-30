@@ -1,5 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
+const metadata = @import("metadata.zig");
 
 pub const EntryKind = enum(u8) {
     directory = 1,
@@ -12,6 +13,7 @@ pub const Entry = struct {
     kind: EntryKind,
     mode: u16,
     data: []const u8 = "",
+    meta: metadata.Metadata = .{},
 };
 
 pub const SnapshotError = error{
@@ -123,6 +125,35 @@ pub fn treeHash(entries: []const Entry) SnapshotError![32]u8 {
     var digest: [32]u8 = undefined;
     hasher.final(&digest);
     return digest;
+}
+
+/// DIFZTREE v2 identity. Same path, kind, mode, and payload as v1, plus the
+/// BLAKE3 of each entry's canonical metadata. Metadata must already be
+/// canonical; this function does not sort it.
+pub fn treeHashV2(entries: []const Entry) SnapshotError![32]u8 {
+    try validateSnapshot(entries);
+    var hasher = std.crypto.hash.Blake3.init(.{});
+    hasher.update("DIFZTREE-ID\x02");
+    hashInt(&hasher, u32, @intCast(entries.len));
+    for (entries) |entry| {
+        const kind = [_]u8{@intFromEnum(entry.kind)};
+        hasher.update(&kind);
+        hashInt(&hasher, u16, entry.mode);
+        hashInt(&hasher, u32, @intCast(entry.path.len));
+        hasher.update(entry.path);
+        hashInt(&hasher, u64, @intCast(entry.data.len));
+        hasher.update(entry.data);
+        const meta_hash = metadata.canonicalHash(entry.meta);
+        hasher.update(&meta_hash);
+    }
+    var digest: [32]u8 = undefined;
+    hasher.final(&digest);
+    return digest;
+}
+
+pub fn usesMetadata(entries: []const Entry) bool {
+    for (entries) |entry| if (!entry.meta.isEmpty()) return true;
+    return false;
 }
 
 fn findPath(entries: []const Entry, path: []const u8) ?usize {
@@ -270,4 +301,23 @@ test "tree identity changes with path kind mode and content" {
     try testing.expect(!std.mem.eql(u8, &base_hash, &(try treeHash(&changed_mode))));
     try testing.expect(!std.mem.eql(u8, &base_hash, &(try treeHash(&changed_path))));
     try testing.expect(!std.mem.eql(u8, &base_hash, &(try treeHash(&changed_kind))));
+}
+
+test "v2 tree identity tracks metadata while v1 ignores it" {
+    const plain = [_]Entry{
+        .{ .path = "a", .kind = .file, .mode = 0o644, .data = "same-size" },
+    };
+    const commented = [_]Entry{
+        .{
+            .path = "a",
+            .kind = .file,
+            .mode = 0o644,
+            .data = "same-size",
+            .meta = .{ .xattrs = &[_]metadata.Xattr{.{ .class = .logical, .name = "comment", .value = "hi" }} },
+        },
+    };
+    try testing.expectEqualSlices(u8, &(try treeHash(&plain)), &(try treeHash(&commented)));
+    const plain_v2 = try treeHashV2(&plain);
+    try testing.expect(!std.mem.eql(u8, &plain_v2, &(try treeHashV2(&commented))));
+    try testing.expect(!std.mem.eql(u8, &(try treeHash(&plain)), &plain_v2));
 }

@@ -23,7 +23,7 @@
 				# Single hash for the entire Zig dependency tree.
 				# To update: set to "" or pkgs.lib.fakeHash, run `nix build`,
 				# copy the correct hash from the error message.
-				zigDepsHash = "sha256-br8flAW9szHZqKSVJ0odOxqVggibBX10o9fSFDI3QZw=";
+				zigDepsHash = "sha256-ff4k0ALUNVRkKt+HQs8NvawWse52nTv2Imn0pLzEIF0=";
 
 				zigDeps = pkgs.stdenv.mkDerivation {
 					pname = "difz-zig-deps";

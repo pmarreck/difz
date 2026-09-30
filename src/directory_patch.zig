@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 const directory = @import("directory.zig");
+const metadata = @import("metadata.zig");
 const diff_mod = @import("diff.zig");
 const encoding = @import("encoding.zig");
 const file_patch = @import("patch.zig");
@@ -94,14 +95,16 @@ pub fn createPatch(
         filter.deinit();
     }
 
-    const source_hash = try directory.treeHash(source);
-    const target_hash = try directory.treeHash(target);
+    const v2 = directory.usesMetadata(source) or directory.usesMetadata(target);
+    const patch_version: u16 = if (v2) 2 else format_version;
+    const source_hash = if (v2) try directory.treeHashV2(source) else try directory.treeHash(source);
+    const target_hash = if (v2) try directory.treeHashV2(target) else try directory.treeHash(target);
     var output: std.ArrayListUnmanaged(u8) = .empty;
     errdefer output.deinit(allocator);
 
     try appendBytes(allocator, &output, magic, limits.max_patch_bytes);
-    try appendInt(allocator, &output, u16, format_version, limits.max_patch_bytes);
-    try appendInt(allocator, &output, u16, reader_version, limits.max_patch_bytes);
+    try appendInt(allocator, &output, u16, patch_version, limits.max_patch_bytes);
+    try appendInt(allocator, &output, u16, patch_version, limits.max_patch_bytes);
     try appendInt(allocator, &output, u32, 0, limits.max_patch_bytes);
     try appendInt(allocator, &output, u32, @intCast(options.rules.len), limits.max_patch_bytes);
     try appendInt(allocator, &output, u32, @intCast(target.len), limits.max_patch_bytes);
@@ -166,10 +169,17 @@ pub fn createPatch(
         try appendInt(allocator, &output, u64, @intCast(payload.len), limits.max_patch_bytes);
         try appendBytes(allocator, &output, entry.path, limits.max_patch_bytes);
         try appendBytes(allocator, &output, payload, limits.max_patch_bytes);
+        if (v2) {
+            const encoded_meta = try metadata.encodeCanonical(allocator, entry.meta);
+            defer allocator.free(encoded_meta);
+            if (encoded_meta.len > limits.max_payload_bytes) return error.LimitExceeded;
+            try appendInt(allocator, &output, u32, @intCast(encoded_meta.len), limits.max_patch_bytes);
+            try appendBytes(allocator, &output, encoded_meta, limits.max_patch_bytes);
+        }
     }
 
     var hasher = std.crypto.hash.Blake3.init(.{});
-    hasher.update("DIFZTREE-PATCH\x01");
+    hasher.update(if (v2) "DIFZTREE-PATCH\x02" else "DIFZTREE-PATCH\x01");
     hasher.update(output.items[0..checksum_offset]);
     hasher.update(output.items[header_length..]);
     var checksum: [32]u8 = undefined;
@@ -186,7 +196,7 @@ pub fn applyPatch(
 ) !OwnedSnapshot {
     var decoded = try decodePatch(allocator, patch_bytes, limits);
     defer decoded.deinit();
-    const actual_source_hash = try directory.treeHash(source);
+    const actual_source_hash = if (decoded.version == 2) try directory.treeHashV2(source) else try directory.treeHash(source);
     if (!std.mem.eql(u8, &actual_source_hash, &decoded.source_hash)) return error.SourceHashMismatch;
 
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -223,11 +233,17 @@ pub fn applyPatch(
         }
         if (data.len > limits.max_output_bytes -| output_bytes) return error.LimitExceeded;
         output_bytes += data.len;
-        entries[index] = .{ .path = path, .kind = kind, .mode = encoded.mode, .data = data };
+        entries[index] = .{
+            .path = path,
+            .kind = kind,
+            .mode = encoded.mode,
+            .data = data,
+            .meta = try dupeMetadata(arena_allocator, encoded.meta),
+        };
     }
 
     try directory.validateSnapshot(entries);
-    const actual_target_hash = try directory.treeHash(entries);
+    const actual_target_hash = if (decoded.version == 2) try directory.treeHashV2(entries) else try directory.treeHash(entries);
     if (!std.mem.eql(u8, &actual_target_hash, &decoded.target_hash)) return error.TargetHashMismatch;
     return .{ .arena = arena, .entries = entries };
 }
@@ -237,16 +253,25 @@ const EncodedEntry = struct {
     mode: u16,
     path: []const u8,
     payload: []const u8,
+    meta: metadata.Metadata = .{},
 };
 
 const DecodedPatch = struct {
     allocator: std.mem.Allocator,
+    version: u16,
     rules: []path_filter.Rule,
     entries: []EncodedEntry,
     source_hash: [32]u8,
     target_hash: [32]u8,
 
     fn deinit(self: *DecodedPatch) void {
+        if (self.version == 2) {
+            for (self.entries) |entry| {
+                self.allocator.free(entry.meta.xattrs);
+                self.allocator.free(entry.meta.aces);
+                self.allocator.free(entry.meta.holes);
+            }
+        }
         self.allocator.free(self.rules);
         self.allocator.free(self.entries);
         self.* = undefined;
@@ -258,10 +283,12 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
     if (bytes.len < header_length) return error.UnexpectedEndOfInput;
     if (!std.mem.eql(u8, bytes[0..8], magic)) return error.InvalidMagic;
 
+    const patch_version = std.mem.readInt(u16, bytes[8..10], .little);
+    if (patch_version != 1 and patch_version != 2) return error.UnsupportedVersion;
     var expected_checksum: [32]u8 = undefined;
     @memcpy(&expected_checksum, bytes[checksum_offset..header_length]);
     var hasher = std.crypto.hash.Blake3.init(.{});
-    hasher.update("DIFZTREE-PATCH\x01");
+    hasher.update(if (patch_version == 2) "DIFZTREE-PATCH\x02" else "DIFZTREE-PATCH\x01");
     hasher.update(bytes[0..checksum_offset]);
     hasher.update(bytes[header_length..]);
     var actual_checksum: [32]u8 = undefined;
@@ -269,8 +296,10 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
     if (!std.mem.eql(u8, &actual_checksum, &expected_checksum)) return error.PatchHashMismatch;
 
     var reader = Reader{ .bytes = bytes, .position = 8 };
-    if (try reader.readInt(u16) != format_version) return error.UnsupportedVersion;
-    if (try reader.readInt(u16) > reader_version) return error.ReaderTooOld;
+    if (try reader.readInt(u16) != patch_version) return error.UnsupportedVersion;
+    const needed_reader = try reader.readInt(u16);
+    const supported_reader: u16 = if (patch_version == 2) 2 else reader_version;
+    if (needed_reader > supported_reader) return error.ReaderTooOld;
     if (try reader.readInt(u32) != 0) return error.UnsupportedFlags;
     const rule_count = try countToUsize(try reader.readInt(u32), limits.max_rules);
     const entry_count = try countToUsize(try reader.readInt(u32), limits.max_entries);
@@ -311,6 +340,11 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
         const payload_length = std.math.cast(usize, payload_length_u64) orelse return error.LimitExceeded;
         const path = try reader.take(path_length);
         const payload = try reader.take(payload_length);
+        const meta = if (patch_version == 2) blk: {
+            const meta_length = try countToUsize(try reader.readInt(u32), limits.max_payload_bytes);
+            const meta_bytes = try reader.take(meta_length);
+            break :blk try metadata.decodeCanonical(allocator, meta_bytes);
+        } else metadata.Metadata{};
 
         const kind: directory.EntryKind = switch (operation) {
             .directory => blk: {
@@ -327,18 +361,56 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
             },
             .file_raw, .file_delta => .file,
         };
-        entry.* = .{ .operation = operation, .mode = mode, .path = path, .payload = payload };
-        view.* = .{ .path = path, .kind = kind, .mode = mode, .data = if (kind == .directory) "" else payload };
+        entry.* = .{ .operation = operation, .mode = mode, .path = path, .payload = payload, .meta = meta };
+        view.* = .{ .path = path, .kind = kind, .mode = mode, .data = if (kind == .directory) "" else payload, .meta = meta };
     }
     if (reader.position != bytes.len) return error.TrailingData;
     try directory.validateSnapshot(snapshot_view);
 
     return .{
         .allocator = allocator,
+        .version = patch_version,
         .rules = rules,
         .entries = entries,
         .source_hash = source_hash,
         .target_hash = target_hash,
+    };
+}
+
+fn dupeMetadata(allocator: std.mem.Allocator, meta: metadata.Metadata) !metadata.Metadata {
+    const xattrs = try allocator.alloc(metadata.Xattr, meta.xattrs.len);
+    for (meta.xattrs, xattrs) |source, *target| {
+        target.* = .{
+            .class = source.class,
+            .name = try allocator.dupe(u8, source.name),
+            .value = try allocator.dupe(u8, source.value),
+        };
+    }
+    const aces = try allocator.alloc(metadata.Ace, meta.aces.len);
+    for (meta.aces, aces) |source, *target| {
+        target.* = .{
+            .tag = source.tag,
+            .read = source.read,
+            .write = source.write,
+            .execute = source.execute,
+            .name = try allocator.dupe(u8, source.name),
+        };
+    }
+    const native_acl: ?metadata.NativeAcl = if (meta.native_acl) |acl| .{
+        .origin = acl.origin,
+        .bytes = try allocator.dupe(u8, acl.bytes),
+    } else null;
+    const holes = try allocator.dupe(metadata.Hole, meta.holes);
+    const hardlink_to = if (meta.hardlink_to) |path| try allocator.dupe(u8, path) else null;
+    return .{
+        .xattrs = xattrs,
+        .aces = aces,
+        .native_acl = native_acl,
+        .times = meta.times,
+        .finder_flags = meta.finder_flags,
+        .finder_info = meta.finder_info,
+        .holes = holes,
+        .hardlink_to = hardlink_to,
     };
 }
 
@@ -447,6 +519,63 @@ const target_fixture = [_]directory.Entry{
     .{ .path = "same.txt", .kind = .file, .mode = 0o755, .data = "same bytes" },
 };
 
+test "v2 patch round-trips every metadata family" {
+    const meta = @import("metadata.zig");
+    const info = [_]u8{0x11} ** 32;
+    const source = [_]directory.Entry{
+        .{ .path = "a.txt", .kind = .file, .mode = 0o644, .data = "same" },
+    };
+    const target = [_]directory.Entry{
+        .{
+            .path = "a.txt",
+            .kind = .file,
+            .mode = 0o644,
+            .data = "same",
+            .meta = .{
+                .xattrs = &[_]meta.Xattr{
+                    .{ .class = .logical, .name = "comment", .value = "hi" },
+                    .{ .class = .raw, .name = "user.raw", .value = "r" },
+                },
+                .aces = &[_]meta.Ace{.{ .tag = .owner, .read = true, .write = true }},
+                .native_acl = .{ .origin = .windows, .bytes = "DACL" },
+                .times = .{ .mtime = .{ .sec = 42, .nsec = 7 }, .btime = .{ .sec = 1, .nsec = 0 } },
+                .finder_flags = 0x8000,
+                .finder_info = info,
+                .holes = &[_]meta.Hole{.{ .offset = 0, .length = 2 }},
+            },
+        },
+        .{
+            .path = "b.txt",
+            .kind = .file,
+            .mode = 0o644,
+            .data = "",
+            .meta = .{ .hardlink_to = "a.txt" },
+        },
+    };
+    const patch_bytes = try createPatch(testing.allocator, &source, &target, .{});
+    defer testing.allocator.free(patch_bytes);
+    try testing.expectEqual(@as(u16, 2), std.mem.readInt(u16, patch_bytes[8..10], .little));
+    var reconstructed = try applyPatch(testing.allocator, &source, patch_bytes, .{});
+    defer reconstructed.deinit();
+    const got = reconstructed.entries[0].meta;
+    try testing.expectEqual(@as(usize, 2), got.xattrs.len);
+    try testing.expectEqualStrings("comment", got.xattrs[0].name);
+    try testing.expectEqualStrings("hi", got.xattrs[0].value);
+    try testing.expectEqualStrings("user.raw", got.xattrs[1].name);
+    try testing.expectEqual(@as(i64, 42), got.times.mtime.?.sec);
+    try testing.expectEqual(@as(u32, 7), got.times.mtime.?.nsec);
+    try testing.expectEqual(@as(i64, 1), got.times.btime.?.sec);
+    try testing.expectEqual(@as(u32, 0x8000), got.finder_flags);
+    try testing.expectEqualSlices(u8, &info, &got.finder_info.?);
+    try testing.expectEqual(@as(u64, 2), got.holes[0].length);
+    try testing.expectEqual(meta.AclOrigin.windows, got.native_acl.?.origin);
+    try testing.expectEqualStrings("DACL", got.native_acl.?.bytes);
+    try testing.expect(got.aces[0].read and got.aces[0].write);
+    try testing.expectEqualStrings("a.txt", reconstructed.entries[1].meta.hardlink_to.?);
+    const again = try directory.treeHashV2(reconstructed.entries);
+    try testing.expectEqualSlices(u8, &(try directory.treeHashV2(&target)), &again);
+}
+
 test "directory patch deterministically reconstructs all baseline operations" {
     const first = try createPatch(testing.allocator, &source_fixture, &target_fixture, .{});
     defer testing.allocator.free(first);
@@ -535,7 +664,7 @@ test "version and parser limits reject before output allocation" {
 
     const future_format = try testing.allocator.dupe(u8, original);
     defer testing.allocator.free(future_format);
-    future_format[8] = 2;
+    future_format[8] = 3;
     recomputeChecksum(future_format);
     try testing.expectError(error.UnsupportedVersion, applyPatch(testing.allocator, &empty, future_format, .{}));
 

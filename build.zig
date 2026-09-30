@@ -117,6 +117,12 @@ pub fn build(b: *std.Build) void {
     // Get progrez dependency (C FFI progress library)
     // Build a static lib from source — progrez's build.zig registers both
     // static and dynamic libs with the same name, making artifact() ambiguous.
+    const xattr_dep = b.dependency("xattr_stream", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const xattr_mod = xattr_dep.module("xattr_stream");
+
     const progrez_dep = b.dependency("progrez", .{
         .target = target,
         .optimize = optimize,
@@ -140,6 +146,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "blar", .module = blar_compute },
             .{ .name = "printable_binary", .module = pb_module },
+            .{ .name = "xattr_stream", .module = xattr_mod },
         },
     });
     difz_module.addIncludePath(pcre2_lib.getEmittedIncludeTree());
@@ -154,6 +161,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "blar", .module = blar_compute },
             .{ .name = "printable_binary", .module = pb_module },
+            .{ .name = "xattr_stream", .module = xattr_mod },
         },
     });
     lib_module.addIncludePath(pcre2_lib.getEmittedIncludeTree());

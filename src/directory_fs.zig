@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const testing = std.testing;
 const directory = @import("directory.zig");
 const directory_patch = @import("directory_patch.zig");
+const metadata = @import("metadata.zig");
 const path_filter = @import("path_filter.zig");
 
 pub const OwnedSnapshot = struct {
@@ -101,8 +102,15 @@ pub fn applyPatchToNewDir(
 
     var staged_snapshot = try snapshotDir(allocator, io, stage, &.{});
     defer staged_snapshot.deinit();
-    const expected_hash = try directory.treeHash(reconstructed.entries);
-    const staged_hash = try directory.treeHash(staged_snapshot.entries);
+    const expect_metadata = directory.usesMetadata(reconstructed.entries);
+    const expected_hash = if (expect_metadata)
+        try directory.treeHashV2(reconstructed.entries)
+    else
+        try directory.treeHash(reconstructed.entries);
+    const staged_hash = if (expect_metadata)
+        try directory.treeHashV2(staged_snapshot.entries)
+    else
+        try directory.treeHash(staged_snapshot.entries);
     if (!std.mem.eql(u8, &expected_hash, &staged_hash)) return error.StagedHashMismatch;
 
     try output_parent.renamePreserve(staging_name, output_parent, output_name, io);
@@ -171,6 +179,15 @@ fn writeSnapshot(
                 try permissionsForMode(entry.mode, .directory),
                 .{ .follow_symlinks = false },
             );
+        }
+    }
+    // After content and permission writes, which can bump mtime.
+    for (entries) |entry| {
+        if (entry.meta.times.mtime) |mtime| {
+            try root.setTimestamps(io, entry.path, .{
+                .follow_symlinks = false,
+                .modify_timestamp = .{ .new = timestampFromTime(mtime) },
+            });
         }
     }
 }
@@ -258,6 +275,7 @@ fn walk(
                     .path = path,
                     .kind = .directory,
                     .mode = canonicalMode(stat, .directory),
+                    .meta = modificationMetadata(stat.mtime),
                 });
                 var child = try current.openDir(io, item.name, .{
                     .iterate = true,
@@ -282,6 +300,7 @@ fn walk(
                     .kind = .file,
                     .mode = canonicalMode(opened_stat, .file),
                     .data = data,
+                    .meta = modificationMetadata(opened_stat.mtime),
                 });
             },
             .sym_link => {
@@ -292,6 +311,7 @@ fn walk(
                     .kind = .symlink,
                     .mode = 0o777,
                     .data = try allocator.dupe(u8, buffer[0..length]),
+                    .meta = modificationMetadata(stat.mtime),
                 });
             },
             else => return error.UnsupportedEntryKind,
@@ -343,6 +363,22 @@ fn findEntry(entries: []const directory.Entry, path: []const u8) ?usize {
 
 fn entryLessThan(_: void, left: directory.Entry, right: directory.Entry) bool {
     return std.mem.order(u8, left.path, right.path) == .lt;
+}
+
+/// Access time is omitted on purpose: relatime changes it between reads.
+fn modificationMetadata(timestamp: std.Io.Timestamp) metadata.Metadata {
+    return .{ .times = .{ .mtime = timeFromTimestamp(timestamp) } };
+}
+
+fn timeFromTimestamp(timestamp: std.Io.Timestamp) metadata.Time {
+    const scale: i96 = std.time.ns_per_s;
+    const seconds = @divFloor(timestamp.nanoseconds, scale);
+    const nanoseconds = timestamp.nanoseconds - seconds * scale;
+    return .{ .sec = @intCast(seconds), .nsec = @intCast(nanoseconds) };
+}
+
+fn timestampFromTime(time: metadata.Time) std.Io.Timestamp {
+    return .{ .nanoseconds = @as(i96, time.sec) * std.time.ns_per_s + time.nsec };
 }
 
 fn canonicalMode(stat: std.Io.File.Stat, kind: directory.EntryKind) u16 {
@@ -526,6 +562,73 @@ test "filesystem directory patch round-trip is deterministic and staged" {
         &(try directory.treeHash(expected.entries)),
         &(try directory.treeHash(actual.entries)),
     );
+}
+
+fn mtimeNanoseconds(seconds: i64, nanoseconds: u32) i96 {
+    return @as(i96, seconds) * std.time.ns_per_s + nanoseconds;
+}
+
+test "filesystem apply restores last-modification time" {
+    var tmp = testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try tmp.dir.createDir(io, "source", .default_dir);
+    try tmp.dir.createDir(io, "target", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true, .follow_symlinks = false });
+    defer source.close(io);
+    var target = try tmp.dir.openDir(io, "target", .{ .iterate = true, .follow_symlinks = false });
+    defer target.close(io);
+
+    try target.createDir(io, "folder", .default_dir);
+    try target.writeFile(io, .{ .sub_path = "folder/note.txt", .data = "same" });
+    // Directory stamp is older than the child, so a parent updated by create still fails.
+    const file_ns = mtimeNanoseconds(1_700_000_000, 123_456_789);
+    const directory_ns = mtimeNanoseconds(1_600_000_000, 1);
+    try target.setTimestamps(io, "folder/note.txt", .{
+        .follow_symlinks = false,
+        .modify_timestamp = .{ .new = .{ .nanoseconds = file_ns } },
+    });
+    try target.setTimestamps(io, "folder", .{
+        .follow_symlinks = false,
+        .modify_timestamp = .{ .new = .{ .nanoseconds = directory_ns } },
+    });
+    var link_ns: ?i96 = null;
+    if (comptime builtin.os.tag != .windows) {
+        try target.symLink(io, "folder/note.txt", "alias", .{});
+        link_ns = mtimeNanoseconds(1_500_000_000, 2);
+        try target.setTimestamps(io, "alias", .{
+            .follow_symlinks = false,
+            .modify_timestamp = .{ .new = .{ .nanoseconds = link_ns.? } },
+        });
+    }
+
+    const patch = try createPatchFromDirs(testing.allocator, io, source, target, .{});
+    defer testing.allocator.free(patch);
+    try applyPatchToNewDir(
+        testing.allocator,
+        io,
+        source,
+        tmp.dir,
+        "output",
+        ".output.difz-mtime",
+        patch,
+        .{},
+    );
+
+    var output = try tmp.dir.openDir(io, "output", .{ .iterate = true, .follow_symlinks = false });
+    defer output.close(io);
+    // Stat is the oracle. A metadata hash of two empty records would match
+    // even when the applied tree kept "now" as its modification time.
+    const file_stat = try output.statFile(io, "folder/note.txt", .{ .follow_symlinks = false });
+    try testing.expectEqual(file_ns, file_stat.mtime.nanoseconds);
+    const directory_stat = try output.statFile(io, "folder", .{ .follow_symlinks = false });
+    try testing.expectEqual(directory_ns, directory_stat.mtime.nanoseconds);
+    if (link_ns) |expected_link| {
+        const link_stat = try output.statFile(io, "alias", .{ .follow_symlinks = false });
+        try testing.expectEqual(expected_link, link_stat.mtime.nanoseconds);
+        const note_stat = try output.statFile(io, "folder/note.txt", .{ .follow_symlinks = false });
+        try testing.expectEqual(file_ns, note_stat.mtime.nanoseconds);
+    }
 }
 
 test "filesystem patch rejects wrong sources and staging collisions without partial output" {

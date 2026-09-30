@@ -40,6 +40,10 @@
             .url = "https://github.com/pmarreck/bzip2z/archive/9b9e28d.tar.gz",
             .hash = "bzip2z-0.1.0-m5NdlsYYCACrnvOCZyqsVmJYY84BRf1XPFi08RfbnWPW",
         },
+        .xattr_stream = .{
+            .url = "https://github.com/pmarreck/xattr_stream/archive/880600b3b1113f89e4e00a4a2145dbda4d63a485.tar.gz",
+            .hash = "xattr_stream-0.2.0-PcXBcIttAgDOK1vV-ouXL6quqFGjE5DZL50zd1kSX7Of",
+        },
     },
     .paths = .{
         "build.zig",
