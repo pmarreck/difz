@@ -3,14 +3,14 @@
 ## Active
 
 - [ ] DIFZTREE v2 records xattrs, ACLs, timestamps, Finder flags, sparse extents, and hardlink identity; create can omit families; apply restores best-effort and warns when a foreign native form is only preserved aside. (context: docs/plan_context/metadata-v2.md)
-- [ ] On m4max, accept the Xcode license so `xcrun stapler validate` can run, and allow Developer ID signing from SSH. The login keychain returns errSecInternalComponent. (context: docs/plan_context/mac-archive-oracle.md)
+- [ ] Allow Developer ID signing from SSH on m4max. The login keychain returns errSecInternalComponent. (context: docs/plan_context/mac-archive-oracle.md)
+- [x] Xcode license is accepted on m4max. xcrun stapler validate passed on installed Beamer and balenaEtcher, on a restored Beamer zip, and on original and restored PDF Pals.app. (done 2026-10-01 4:29pm EDT) (context: docs/plan_context/mac-archive-oracle.md)
 - [ ] Make `--max-rss-bytes` enforceable on Darwin. `setrlimit(RLIMIT_AS)` returns EINVAL, so difz exits before create. The PDFPals run stayed under 8 GiB when observed with `/usr/bin/time -l`. (context: docs/plan_context/mac-archive-oracle.md)
 - [x] Measure PDFPals 1.8.1 to 1.9.0 on m4max: publisher dmgs patched at 99.70% (ULFO versus UDZO); ditto zips of PDF Pals.app patched at 16.10% and codesign --verify --deep --strict passed with the ticket still stapled. (done 2026-10-01 4:02pm EDT) (context: docs/plan_context/mac-archive-oracle.md)
 - [x] Qualify archive-first Mac deltas on m4max: Nix difz 0.1.0 restored a ditto zip of stapled Beamer.app and codesign --verify --deep --strict passed with the ticket still stapled. (done 2026-10-01 3:55pm EDT) (context: docs/plan_context/mac-archive-oracle.md)
 
 ## Recently completed (2026-09-29)
 
-- [x] Diff size optimization: currently 3x larger than bsdiff/xdelta3 — investigate compression of insert data and more efficient encoding. On Neovim AppImages, difz 5,349,393 B vs bsdiff 5,338,146 B vs xdelta3 5,319,624 B (within 0.6%); the 11× ELF vs bsdiff gap is pair-specific, not a general 3× encoding bug. (2026-09-29 ~3:45pm EDT)
 - [x] Progress indication: the Zig core currently provides no progress callbacks; need to add a callback mechanism for the C CLI to display stage progress. `difz_set_progress_callback` emits diff/encode/patch stages; CLI wires them to progrez. (2026-09-29 ~3:45pm EDT)
 - [x] Translation groundwork: lay foundation for 30-language support per AGENTS.md CLI guidelines. Prepare-phase: `--lang`, `DIFZ_LANG`, `--hilfe`, 50-locale codes, missing-locale WARN. RULES.md records enabled/prepare. (2026-09-29 ~3:45pm EDT)
 - [x] Fuzzing suite: fuzz the encoder/decoder for robustness. `./fuzz` mutates a valid ZDIF patch and asserts apply never aborts. (2026-09-29 ~3:45pm EDT)

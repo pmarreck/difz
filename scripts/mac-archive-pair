@@ -57,6 +57,18 @@ ticket_of() {
 	codesign -dv --verbose=4 "$1" 2>&1 | awk -F= '/^Notarization Ticket=/{print $2; exit}'
 }
 
+STAPLER_FAIL=0
+stapler_ok() {
+	local label="$1" app="$2"
+	if xcrun stapler validate "$app" >"$WORK/stapler-${label}.txt" 2>&1; then
+		echo "PASS: stapler validate $label"
+	else
+		echo "FAIL: stapler validate $label"
+		cat "$WORK/stapler-${label}.txt"
+		STAPLER_FAIL=1
+	fi
+}
+
 attach_ro() {
 	local dmg="$1" mp="$2" pid i rc
 	mkdir -p "$mp"
@@ -133,6 +145,7 @@ if attach_ro "$SRC" "$WORK/srcmp" && attach_ro "$DST" "$WORK/dstmp"; then
 	if [ -n "$SRC_APP" ] && [ -n "$DST_APP" ]; then
 		codesign --verify --deep --strict "$DST_APP" && echo "PASS: original target app codesign" || echo "FAIL: original target app codesign rc=$?"
 		echo "original_ticket=$(ticket_of "$DST_APP")"
+		stapler_ok original "$DST_APP"
 		ditto -c -k --keepParent "$SRC_APP" "$WORK/src.zip"
 		ditto -c -k --keepParent "$DST_APP" "$WORK/dst.zip"
 		echo "zip bytes source=$(bytes "$WORK/src.zip") target=$(bytes "$WORK/dst.zip")"
@@ -162,6 +175,7 @@ if attach_ro "$SRC" "$WORK/srcmp" && attach_ro "$DST" "$WORK/dstmp"; then
 			if [ -n "$REST_APP" ]; then
 				codesign --verify --deep --strict "$REST_APP" && echo "PASS: restored zip app codesign" || echo "FAIL: restored zip app codesign rc=$?"
 				echo "restored_ticket=$(ticket_of "$REST_APP")"
+				stapler_ok restored-zip "$REST_APP"
 			fi
 		else
 			echo "FAIL: no zip patch"
@@ -181,9 +195,14 @@ if [ -f "$WORK/restored.dmg" ]; then
 		if [ -n "$RAPP" ]; then
 			codesign --verify --deep --strict "$RAPP" && echo "PASS: restored dmg app codesign" || echo "FAIL: restored dmg app codesign rc=$?"
 			echo "restored_dmg_ticket=$(ticket_of "$RAPP")"
+			stapler_ok restored-dmg "$RAPP"
 		fi
 		detach_mp "$WORK/restmp"
 	fi
 fi
 
+if [ "$STAPLER_FAIL" -ne 0 ]; then
+	echo "DONE work=$WORK stapler_failed=1"
+	exit 1
+fi
 echo "DONE work=$WORK"

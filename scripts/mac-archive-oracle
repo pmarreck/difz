@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Qualify the v1 Mac path: difz restores a ditto zip, then codesign accepts
-# the extracted bundle. Run on macOS. DIFZ may be a path or a command name.
+# Qualify the v1 Mac path: difz restores a ditto zip, then codesign and
+# stapler validate accept the extracted bundle. Run on macOS. DIFZ may be
+# a path or a command name.
 # Developer ID signing is attempted and recorded. The login keychain often
 # refuses it over SSH; an already-signed app is the notarized fixture.
 
@@ -135,11 +136,7 @@ pass "signed fixture zip round-trip verifies"
 if xcrun stapler validate "$work/signed-out/$restored_name" >"$work/stapler.txt" 2>&1; then
 	pass "stapler validate"
 else
-	if grep -q "Xcode license" "$work/stapler.txt"; then
-		printf 'BLOCKED: xcrun stapler wants the Xcode license accepted\n'
-	else
-		printf 'STAPLER: %s\n' "$(head -c 400 "$work/stapler.txt")"
-	fi
+	fail "stapler validate: $(head -c 400 "$work/stapler.txt")"
 fi
 
 identity="Developer ID Application: Peter Marreck (4TQUA2F676)"

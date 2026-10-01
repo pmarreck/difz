@@ -48,7 +48,10 @@ patched at 12,121,498 bytes, 16.10% of the target, create 0.61 s and 1,295 MiB.
 Both reconstructions passed `codesign --verify --deep --strict` with the ticket
 still stapled. The 70% cap therefore depends on retaining one packing method.
 `--max-rss-bytes` cannot be armed on this Mac (`RLIMIT_AS` returns `EINVAL`);
-the figures above are from `/usr/bin/time -l`. Details:
+the figures above are from `/usr/bin/time -l`. After the Xcode license was
+accepted, `xcrun stapler validate` passed on restored Beamer.app and on
+original and restored PDF Pals.app. Developer ID signing over SSH still
+returns `errSecInternalComponent`. Details:
 `docs/plan_context/mac-archive-oracle.md`.
 
 ## Measured caps (2026-09-29, Threadripper 3990X, ReleaseFast)

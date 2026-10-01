@@ -4,10 +4,8 @@ Archive reconstruction was measured on m4max on 2026-10-01. Nix-built
 difz 0.1.0 (macOS aarch64) restored a `ditto -c -k --keepParent` zip of
 `/Applications/Beamer.app`. `codesign --verify --deep --strict` passed, and
 `codesign -dv --verbose=4` still reported `Notarization Ticket=stapled`.
-Exact bytes in the main executable are not the whole gate. `xcrun stapler
-validate` did not run: the Xcode license is unaccepted and sudo needs a
-password. Quarantine and a clean-machine launch were not run. A live `.app`
-tree is still not a v1 input.
+Exact bytes in the main executable are not the whole gate. Quarantine and a
+clean-machine launch were not run. A live `.app` tree is still not a v1 input.
 
 The same host then compared PDFPals 1.8.1 and 1.9.0, a real version pair.
 The publisher disk images are different containers (ULFO/lzfse versus
@@ -17,7 +15,14 @@ each `PDF Pals.app` with `ditto -c -k --keepParent` produced a 12,121,498-byte
 patch, 16.10% of the 75,276,424-byte zip. Create took 0.61 s and 1,295 MiB
 RSS. The restored zip and the restored disk image both passed
 `codesign --verify --deep --strict`, and `Notarization Ticket=stapled`
-survived. `xcrun stapler validate` still did not run.
+survived.
+
+Peter accepted the Xcode license on m4max the same day. At 4:29pm EDT,
+`xcrun stapler validate` passed on the installed Beamer.app and
+balenaEtcher.app, on Beamer.app extracted from a restored ditto zip, and
+on PDF Pals.app from the original 1.9.0 image, from the restored disk
+image, and from the restored zip. `/usr/bin/clang` 21.0.0 runs.
+Developer ID signing from SSH still returns `errSecInternalComponent`.
 
 Canonical sources: `EXECUTION_CONTEXT_TRUST.md`, Sparkle BinaryDelta,
 `docs/directory-format-v1.md`.

@@ -13,10 +13,9 @@ Binary: `/nix/store/hgfx6r2plq0hcxg5v59bk2cghs9va6x4-difz-0.1.0/bin/difz`
 
 - Ad-hoc Hello 1.0 zip 3,923 bytes, 1.1 zip 3,918 bytes, patch 2,922 bytes. Extracted 1.1 passed `codesign --verify --deep --strict`.
 - Beamer.app zip 16,909,042 bytes. Patch from the unrelated Hello zip was 16,587,987 bytes (98% of the target). Extracted Beamer passed `codesign --verify --deep --strict`. Ticket before and after: `stapled`.
-- `xcrun stapler validate` exits because the Xcode license is not accepted. `sudo` from SSH asks for a password.
 - `codesign --sign "Developer ID Application: Peter Marreck (4TQUA2F676)"` returns `errSecInternalComponent`. The login keychain will not prompt over this SSH session. Ad-hoc signing works.
 - Quarantine was not written. A clean-machine launch was not run.
-- `/usr/bin/clang` is blocked by the same Xcode license. Zig 0.16 from Nix produced the Hello Mach-O.
+- Zig 0.16 from Nix produced the Hello Mach-O. `/usr/bin/clang` was blocked until the Xcode license was accepted.
 
 DIFZTREE v2 metadata remains separate. It does not make a reconstructed `.app` a Gatekeeper pass.
 
@@ -32,3 +31,11 @@ DIFZTREE v2 metadata remains separate. It does not make a reconstructed `.app` a
 SHA-256 of the disk images: 1.8.1 `3eadbcc357f6a220523a4f3d9d12b836b67b0b1056dbb55388805d7a92e5d8ee`, 1.9.0 `fe9bbb8521f21e4d1ae161b58aa7707d1b9001bbbf2ed0c890f84a00d905a91c`. `hdiutil imageinfo` reports 1.8.1 as `ULFO` (lzfse, Apple_APFS) and 1.9.0 as `UDZO` (zlib, Apple_HFS).
 
 Both restored archives matched the target byte-for-byte. `PDF Pals.app` from the original 1.9.0 image, from the restored disk image, and from the restored zip passed `codesign --verify --deep --strict`. Ticket before and after: `stapled`. The 70% cap accepts the ditto zip and rejects the publisher-dmg pair. Wall and observed RSS stayed inside 120 s / 8 GiB for create and 10 s / 1 GiB for apply. Quarantine was not written. A clean-machine launch was not run. The client did not re-sign.
+
+## Stapler, 2026-10-01 4:29pm EDT
+
+Peter accepted the Xcode license. `xcrun --find stapler` resolved to `/Applications/Xcode.app/Contents/Developer/usr/bin/stapler`. Installed `/Applications/Beamer.app` and `/Applications/balenaEtcher.app` each printed `The validate action worked!`
+
+`scripts/mac-archive-oracle` now fails if stapler fails. Re-run on the same Nix difz: restored Beamer.app passed `xcrun stapler validate`. Ticket remained `stapled`. Developer ID signing of the ad-hoc Hello.app still returned `errSecInternalComponent`. `/usr/bin/clang --version` printed Apple clang 21.0.0, target `arm64-apple-darwin25.6.0`.
+
+`scripts/mac-archive-pair` was re-run on the same PDFPals disk images. The publisher-dmg patch reproduced at 74,726,196 bytes (99.70%). The ditto zips had the same sizes as the 4:02pm run. That second zip patch was 12,067,274 bytes (16.03%). ditto records timestamps, so two packs of the same app are not the same bytes. `xcrun stapler validate` passed for PDF Pals.app from the original 1.9.0 image, from the restored zip, and from the restored disk image.
