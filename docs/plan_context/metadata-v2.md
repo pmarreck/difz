@@ -41,4 +41,4 @@ The patch header records the omit mask. Apply re-snapshots with the same mask, s
 
 Try the native operation. On success, do not leave a sidecar. On failure, write the sidecar and warn on stderr. The staged-tree check still requires the canonical record, which a later snapshot rebuilds from the native API or from the sidecar. If the sidecar cannot be written either, apply fails. That keeps "warning" from meaning "identity silently changed."
 
-Mac deltas stay disabled until a supported bundle profile or post-stapling archive passes native checks. This layer does not make a reconstructed `.app` a Gatekeeper pass.
+The 2026-10-01 m4max measurement covers a ditto zip of an already-signed app, not this metadata layer. A reconstructed `.app` tree is still not a Gatekeeper pass.

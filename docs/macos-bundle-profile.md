@@ -1,8 +1,13 @@
 # macOS bundle profile (difz v1)
 
-macOS `difz` deltas stay **disabled**. Exact bytes in the main executable
-are not a Gatekeeper gate. This file is the supported profile, not a promise
-that delivery is on.
+Archive reconstruction was measured on m4max on 2026-10-01. Nix-built
+difz 0.1.0 (macOS aarch64) restored a `ditto -c -k --keepParent` zip of
+`/Applications/Beamer.app`. `codesign --verify --deep --strict` passed, and
+`codesign -dv --verbose=4` still reported `Notarization Ticket=stapled`.
+Exact bytes in the main executable are not the whole gate. `xcrun stapler
+validate` did not run: the Xcode license is unaccepted and sudo needs a
+password. Quarantine and a clean-machine launch were not run. A live `.app`
+tree is still not a v1 input.
 
 Canonical sources: `EXECUTION_CONTEXT_TRUST.md`, Sparkle BinaryDelta,
 `docs/directory-format-v1.md`.

@@ -3,11 +3,11 @@
 ## Active
 
 - [ ] DIFZTREE v2 records xattrs, ACLs, timestamps, Finder flags, sparse extents, and hardlink identity; create can omit families; apply restores best-effort and warns when a foreign native form is only preserved aside. (context: docs/plan_context/metadata-v2.md)
-- [ ] Wait for Peter's email reply on Mac-delta path: A archive-first v1, B live .app tree, or C keep disabled until a Mac runner exists. (asked 2026-09-29 ~3:50pm EDT)
+- [ ] On m4max, accept the Xcode license so `xcrun stapler validate` can run, and allow Developer ID signing from SSH. The login keychain returns errSecInternalComponent. (context: docs/plan_context/mac-archive-oracle.md)
+- [x] Qualify archive-first Mac deltas on m4max: Nix difz 0.1.0 restored a ditto zip of stapled Beamer.app and codesign --verify --deep --strict passed with the ticket still stapled. (done 2026-10-01 3:55pm EDT) (context: docs/plan_context/mac-archive-oracle.md)
 
 ## Recently completed (2026-09-29)
 
-- [x] After measured ceilings exist, add TDD gates that fail create/apply when those ceilings are exceeded, without exposing signing keys to the patch worker. CLI: `--max-output-bytes`, `--max-output-ratio`, `--max-rss-bytes`, `--max-wall-ms`. FFI: `difz_diff_limited` / `difz_patch_limited` return -4. (2026-09-29 ~3:45pm EDT)
 - [x] Recommend improvements to the deep-code-review skill based on this audit, including evidence standards, threat modeling, language accuracy, and reviewer scheduling; do not change the shared skill without a separate implementation request. Written to docs/deep-code-review-recommendations.md. (2026-09-29 ~3:45pm EDT)
 - [x] Diff size optimization: currently 3x larger than bsdiff/xdelta3 — investigate compression of insert data and more efficient encoding. On Neovim AppImages, difz 5,349,393 B vs bsdiff 5,338,146 B vs xdelta3 5,319,624 B (within 0.6%); the 11× ELF vs bsdiff gap is pair-specific, not a general 3× encoding bug. (2026-09-29 ~3:45pm EDT)
 - [x] Progress indication: the Zig core currently provides no progress callbacks; need to add a callback mechanism for the C CLI to display stage progress. `difz_set_progress_callback` emits diff/encode/patch stages; CLI wires them to progrez. (2026-09-29 ~3:45pm EDT)

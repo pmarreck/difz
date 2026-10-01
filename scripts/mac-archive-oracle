@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# Qualify the v1 Mac path: difz restores a ditto zip, then codesign accepts
+# the extracted bundle. Run on macOS. DIFZ may be a path or a command name.
+# Developer ID signing is attempted and recorded. The login keychain often
+# refuses it over SSH; an already-signed app is the notarized fixture.
+
+set -u
+
+fail() {
+	printf 'FAIL: %s\n' "$1" >&2
+	exit 1
+}
+
+pass() {
+	printf 'PASS: %s\n' "$1"
+}
+
+[ "$(uname -s)" = "Darwin" ] || fail "this oracle runs on macOS"
+command -v ditto >/dev/null 2>&1 || fail "ditto is not on PATH"
+command -v codesign >/dev/null 2>&1 || fail "codesign is not on PATH"
+
+DIFZ="${DIFZ:-difz}"
+if [ ! -x "$DIFZ" ]; then
+	resolved=$(command -v "$DIFZ" 2>/dev/null || true)
+	[ -n "$resolved" ] || fail "difz is not executable ($DIFZ)"
+	DIFZ=$resolved
+fi
+printf 'difz=%s\n' "$DIFZ"
+"$DIFZ" --about || fail "difz --about failed"
+
+ZIG="${ZIG:-/run/current-system/sw/bin/zig}"
+[ -x "$ZIG" ] || fail "zig is required to build the ad-hoc pair ($ZIG)"
+
+work="${DIFZ_ORACLE_WORK:-$(mktemp -d /tmp/difz-mac-oracle.XXXXXX)}"
+printf 'work=%s\n' "$work"
+
+write_plist() {
+	version=$1
+	cat > "$2" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>hello</string>
+<key>CFBundleIdentifier</key><string>arpa.home.agents.difz.hello</string>
+<key>CFBundleName</key><string>Hello</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>${version}</string>
+<key>CFBundleVersion</key><string>${version}</string>
+</dict></plist>
+EOF
+}
+
+build_hello() {
+	version=$1
+	root="$work/src-$version/Hello.app/Contents"
+	mkdir -p "$root/MacOS" "$root/Resources"
+	printf 'export const marker = "DIFZ_ORACLE_%s";\npub fn main() void {}\n' "$version" > "$work/hello-$version.zig"
+	"$ZIG" build-exe -OReleaseSmall -fstrip "$work/hello-$version.zig" \
+		--cache-dir "$work/zig-cache" \
+		--global-cache-dir "$work/zig-global" \
+		-femit-bin="$root/MacOS/hello" || fail "zig build-exe $version failed"
+	write_plist "$version" "$root/Info.plist"
+	printf 'marker %s\n' "$version" > "$root/Resources/marker.txt"
+	if codesign --force --sign - "$work/src-$version/Hello.app"; then
+		pass "ad-hoc sign Hello $version"
+	else
+		fail "ad-hoc sign Hello $version"
+	fi
+	codesign --verify --deep --strict "$work/src-$version/Hello.app" \
+		|| fail "ad-hoc Hello $version failed codesign --verify before packing"
+	ditto -c -k --keepParent "$work/src-$version/Hello.app" "$work/hello-$version.zip" \
+		|| fail "ditto pack Hello $version"
+}
+
+build_hello "1.0"
+build_hello "1.1"
+
+"$DIFZ" --no-progress --simple -o "$work/hello.zdif" \
+	"$work/hello-1.0.zip" "$work/hello-1.1.zip" \
+	|| fail "difz create of the ad-hoc pair"
+"$DIFZ" --patch --no-progress --simple -o "$work/hello-restored.zip" \
+	"$work/hello-1.0.zip" "$work/hello.zdif" \
+	|| fail "difz apply of the ad-hoc pair"
+
+src_bytes=$(wc -c < "$work/hello-1.0.zip" | tr -d ' ')
+tgt_bytes=$(wc -c < "$work/hello-1.1.zip" | tr -d ' ')
+patch_bytes=$(wc -c < "$work/hello.zdif" | tr -d ' ')
+printf 'adhoc bytes source=%s target=%s patch=%s\n' "$src_bytes" "$tgt_bytes" "$patch_bytes"
+[ "$patch_bytes" -lt "$tgt_bytes" ] || fail "ad-hoc patch is not smaller than the target zip"
+
+got=$(shasum -a 256 "$work/hello-restored.zip" | awk '{print $1}')
+want=$(shasum -a 256 "$work/hello-1.1.zip" | awk '{print $1}')
+[ "$got" = "$want" ] || fail "restored ad-hoc zip hash $got != $want"
+mkdir -p "$work/hello-out"
+ditto -x -k "$work/hello-restored.zip" "$work/hello-out" || fail "ditto extract ad-hoc zip"
+codesign --verify --deep --strict "$work/hello-out/Hello.app" \
+	|| fail "extracted ad-hoc Hello failed codesign --verify --deep --strict"
+pass "ad-hoc ditto zip round-trip verifies"
+
+signed_app="${DIFZ_SIGNED_APP:-/Applications/Beamer.app}"
+[ -d "$signed_app" ] || fail "signed fixture missing: $signed_app"
+codesign --verify --deep --strict "$signed_app" \
+	|| fail "signed fixture does not verify before packing: $signed_app"
+ticket_of() {
+	codesign -dv --verbose=4 "$1" 2>&1 | awk -F= '/^Notarization Ticket=/{print $2; exit}'
+}
+ticket=$(ticket_of "$signed_app")
+printf 'fixture=%s notarization_ticket=%s\n' "$signed_app" "${ticket:-none}"
+
+ditto -c -k --keepParent "$signed_app" "$work/signed.zip" || fail "ditto pack signed fixture"
+"$DIFZ" --no-progress --simple -o "$work/signed.zdif" \
+	"$work/hello-1.0.zip" "$work/signed.zip" \
+	|| fail "difz create from ad-hoc zip to signed fixture"
+"$DIFZ" --patch --no-progress --simple -o "$work/signed-restored.zip" \
+	"$work/hello-1.0.zip" "$work/signed.zdif" \
+	|| fail "difz apply of signed fixture"
+got=$(shasum -a 256 "$work/signed-restored.zip" | awk '{print $1}')
+want=$(shasum -a 256 "$work/signed.zip" | awk '{print $1}')
+[ "$got" = "$want" ] || fail "restored signed zip hash $got != $want"
+signed_bytes=$(wc -c < "$work/signed.zip" | tr -d ' ')
+signed_patch=$(wc -c < "$work/signed.zdif" | tr -d ' ')
+printf 'signed bytes target=%s patch=%s\n' "$signed_bytes" "$signed_patch"
+
+mkdir -p "$work/signed-out"
+ditto -x -k "$work/signed-restored.zip" "$work/signed-out" || fail "ditto extract signed zip"
+restored_name=$(basename "$signed_app")
+codesign --verify --deep --strict "$work/signed-out/$restored_name" \
+	|| fail "extracted signed fixture failed codesign --verify --deep --strict"
+restored_ticket=$(ticket_of "$work/signed-out/$restored_name")
+printf 'restored_notarization_ticket=%s\n' "${restored_ticket:-none}"
+[ "${restored_ticket:-none}" = "${ticket:-none}" ] \
+	|| fail "notarization ticket changed from ${ticket:-none} to ${restored_ticket:-none}"
+pass "signed fixture zip round-trip verifies"
+
+if xcrun stapler validate "$work/signed-out/$restored_name" >"$work/stapler.txt" 2>&1; then
+	pass "stapler validate"
+else
+	if grep -q "Xcode license" "$work/stapler.txt"; then
+		printf 'BLOCKED: xcrun stapler wants the Xcode license accepted\n'
+	else
+		printf 'STAPLER: %s\n' "$(head -c 400 "$work/stapler.txt")"
+	fi
+fi
+
+identity="Developer ID Application: Peter Marreck (4TQUA2F676)"
+if codesign --force --sign "$identity" "$work/hello-out/Hello.app" >"$work/devid.txt" 2>&1; then
+	pass "Developer ID re-sign"
+else
+	printf 'BLOCKED: Developer ID sign over this session: %s\n' "$(head -c 300 "$work/devid.txt")"
+fi
+
+pass "mac archive oracle"

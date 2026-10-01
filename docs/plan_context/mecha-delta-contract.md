@@ -25,6 +25,18 @@ Canonical sources: `MECHA_RELEASE_PLAN.md` (Sep23 amendment),
   Windows installed EXE identity is `installed_sha256`, not the ZIP SHA-256.
 - Cold-key regeneration: serve bytes that match the already-signed patch digest
   exactly; otherwise immediate full-artifact fallback. No new hot key.
+## Measured on m4max (2026-10-01)
+
+Nix remote build produced `/nix/store/hgfx6r2plq0hcxg5v59bk2cghs9va6x4-difz-0.1.0`.
+`scripts/mac-archive-oracle` packed two ad-hoc Hello.app zips (patch 2,922 bytes,
+target 3,918) and Beamer.app (Developer ID, stapled ticket; zip 16,909,042 bytes,
+patch 16,587,987 from an unrelated source). Both restored archives extracted with
+ditto and passed `codesign --verify --deep --strict`. Beamer's stapled ticket
+survived. `xcrun stapler validate` is blocked on the Xcode license. Developer ID
+signing from SSH returns `errSecInternalComponent` because the login keychain
+will not prompt. The Beamer patch is 98% of the target, so the 70% worker cap
+would fall back to a full download for that unrelated pair.
+
 - Resource ceilings need fresh actual-artifact measurements. Do not treat the
   89 MB ELF numbers as bounds. Record proposed caps before running those
   measurements.

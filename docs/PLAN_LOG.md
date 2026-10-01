@@ -70,3 +70,7 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 - [x] [Completed Tasks] Task 12: Documentation — CODE_MINIMAP.md, PLAN.md, PROJECT_SPEC.md updates (2026-02-26 ~1:15am EST)
 - [x] [Completed Tasks] Task 13: Edit Distance Cap — cap Myers at sqrt(N+M)*2+16, bail to raw Insert on large dissimilar gaps (~170x speedup on 100KB/10% similar) (2026-02-26)
 - [x] [Next Steps] ~~Performance optimization: Elder/Myers O(ND) is O(n*d) which is very slow for large dissimilar regions~~ — DONE: edit distance cap (Task 13)
+
+## Retired 2026-10-01
+
+- [x] [Recently completed (2026-09-29)] After measured ceilings exist, add TDD gates that fail create/apply when those ceilings are exceeded, without exposing signing keys to the patch worker. CLI: `--max-output-bytes`, `--max-output-ratio`, `--max-rss-bytes`, `--max-wall-ms`. FFI: `difz_diff_limited` / `difz_patch_limited` return -4. (2026-09-29 ~3:45pm EDT)
