@@ -9,6 +9,16 @@ validate` did not run: the Xcode license is unaccepted and sudo needs a
 password. Quarantine and a clean-machine launch were not run. A live `.app`
 tree is still not a v1 input.
 
+The same host then compared PDFPals 1.8.1 and 1.9.0, a real version pair.
+The publisher disk images are different containers (ULFO/lzfse versus
+UDZO/zlib). That patch was 74,726,196 bytes, 99.70% of the 74,948,513-byte
+target, so the 70% worker cap would fall back to a full download. Packing
+each `PDF Pals.app` with `ditto -c -k --keepParent` produced a 12,121,498-byte
+patch, 16.10% of the 75,276,424-byte zip. Create took 0.61 s and 1,295 MiB
+RSS. The restored zip and the restored disk image both passed
+`codesign --verify --deep --strict`, and `Notarization Ticket=stapled`
+survived. `xcrun stapler validate` still did not run.
+
 Canonical sources: `EXECUTION_CONTEXT_TRUST.md`, Sparkle BinaryDelta,
 `docs/directory-format-v1.md`.
 

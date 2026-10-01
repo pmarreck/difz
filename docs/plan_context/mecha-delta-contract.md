@@ -25,6 +25,10 @@ Canonical sources: `MECHA_RELEASE_PLAN.md` (Sep23 amendment),
   Windows installed EXE identity is `installed_sha256`, not the ZIP SHA-256.
 - Cold-key regeneration: serve bytes that match the already-signed patch digest
   exactly; otherwise immediate full-artifact fallback. No new hot key.
+- Resource ceilings need fresh actual-artifact measurements. Do not treat the
+  89 MB ELF numbers as bounds. Record proposed caps before running those
+  measurements.
+
 ## Measured on m4max (2026-10-01)
 
 Nix remote build produced `/nix/store/hgfx6r2plq0hcxg5v59bk2cghs9va6x4-difz-0.1.0`.
@@ -37,9 +41,15 @@ signing from SSH returns `errSecInternalComponent` because the login keychain
 will not prompt. The Beamer patch is 98% of the target, so the 70% worker cap
 would fall back to a full download for that unrelated pair.
 
-- Resource ceilings need fresh actual-artifact measurements. Do not treat the
-  89 MB ELF numbers as bounds. Record proposed caps before running those
-  measurements.
+PDFPals 1.8.1 → 1.9.0 is a real version pair on the same binary. The publisher
+disk images differ (ULFO/lzfse versus UDZO/zlib): patch 74,726,196 bytes,
+99.70% of the target, create 1.33 s and 4,691 MiB. ditto zips of `PDF Pals.app`
+patched at 12,121,498 bytes, 16.10% of the target, create 0.61 s and 1,295 MiB.
+Both reconstructions passed `codesign --verify --deep --strict` with the ticket
+still stapled. The 70% cap therefore depends on retaining one packing method.
+`--max-rss-bytes` cannot be armed on this Mac (`RLIMIT_AS` returns `EINVAL`);
+the figures above are from `/usr/bin/time -l`. Details:
+`docs/plan_context/mac-archive-oracle.md`.
 
 ## Measured caps (2026-09-29, Threadripper 3990X, ReleaseFast)
 

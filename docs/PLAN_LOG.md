@@ -74,3 +74,4 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 ## Retired 2026-10-01
 
 - [x] [Recently completed (2026-09-29)] After measured ceilings exist, add TDD gates that fail create/apply when those ceilings are exceeded, without exposing signing keys to the patch worker. CLI: `--max-output-bytes`, `--max-output-ratio`, `--max-rss-bytes`, `--max-wall-ms`. FFI: `difz_diff_limited` / `difz_patch_limited` return -4. (2026-09-29 ~3:45pm EDT)
+- [x] [Recently completed (2026-09-29)] Recommend improvements to the deep-code-review skill based on this audit, including evidence standards, threat modeling, language accuracy, and reviewer scheduling; do not change the shared skill without a separate implementation request. Written to docs/deep-code-review-recommendations.md. (2026-09-29 ~3:45pm EDT)

@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# Compare two retained macOS disk images. Reconstruct each image, and also
+# reconstruct ditto zips of the .app inside. Never writes quarantine and
+# never re-signs. set -u only: a failed check must be printed, not abort
+# the rest of the run.
+#
+# Mount under $HOME/tmp. A mountpoint in /tmp on m4max failed with
+# "hdiutil: attach failed - Permission denied" after the image verified.
+# --max-rss-bytes is omitted: setrlimit(RLIMIT_AS) returns EINVAL on this
+# macOS, and difz exits before creating a patch. Wall time still uses
+# --max-wall-ms. RSS is observed with /usr/bin/time -l.
+set -u
+
+if [ "$#" -ne 2 ]; then
+	echo "usage: mac-archive-pair <old.dmg> <new.dmg>" >&2
+	exit 2
+fi
+
+SRC=$1
+DST=$2
+case "$SRC" in
+	*.dmg) ;;
+	*) echo "FAIL: source is not a .dmg: $SRC" >&2; exit 2 ;;
+esac
+case "$DST" in
+	*.dmg) ;;
+	*) echo "FAIL: target is not a .dmg: $DST" >&2; exit 2 ;;
+esac
+
+if [ -n "${DIFZ:-}" ]; then
+	:
+elif command -v difz >/dev/null 2>&1; then
+	DIFZ=$(command -v difz)
+else
+	echo "FAIL: set DIFZ to the difz binary" >&2
+	exit 1
+fi
+
+WORK="${DIFZ_ORACLE_WORK:-$(mktemp -d "$HOME/tmp/difz-mac-pair.XXXXXX")}"
+mkdir -p "$HOME/tmp" "$WORK"
+cd "$WORK" || exit 1
+echo "work=$WORK"
+echo "difz=$DIFZ"
+echo "note: --max-rss-bytes omitted; macOS setrlimit(RLIMIT_AS) returns EINVAL"
+"$DIFZ" --about || { echo "FAIL: difz"; exit 1; }
+
+bytes() { /usr/bin/stat -f %z "$1"; }
+sha() { shasum -a 256 "$1" | awk '{print $1}'; }
+pct() {
+	awk -v p="$1" -v t="$2" 'BEGIN { if (t + 0 == 0) print "na"; else printf "%.2f", (100.0 * p) / t }'
+}
+show_time() {
+	awk '/ real / || /maximum resident set size/' "$1"
+}
+
+ticket_of() {
+	codesign -dv --verbose=4 "$1" 2>&1 | awk -F= '/^Notarization Ticket=/{print $2; exit}'
+}
+
+attach_ro() {
+	local dmg="$1" mp="$2" pid i rc
+	mkdir -p "$mp"
+	hdiutil attach -readonly -nobrowse -mountpoint "$mp" "$dmg" >"$mp.attach.log" 2>&1 &
+	pid=$!
+	i=0
+	while kill -0 "$pid" 2>/dev/null; do
+		i=$((i + 1))
+		if [ "$i" -gt 45 ]; then
+			kill "$pid" 2>/dev/null
+			wait "$pid" 2>/dev/null
+			echo "BLOCKED: hdiutil attach hung: $dmg"
+			return 1
+		fi
+		sleep 1
+	done
+	wait "$pid"
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		echo "FAIL: hdiutil attach $dmg rc=$rc"
+		cat "$mp.attach.log"
+	fi
+	return "$rc"
+}
+
+detach_mp() {
+	hdiutil detach "$1" >/dev/null 2>&1 || hdiutil detach -force "$1" >/dev/null 2>&1 || true
+}
+
+find_app() {
+	find "$1" -maxdepth 3 -name '*.app' -print | head -1
+}
+
+echo "src=$SRC bytes=$(bytes "$SRC") sha=$(sha "$SRC")"
+echo "dst=$DST bytes=$(bytes "$DST") sha=$(sha "$DST")"
+echo "--- image format ---"
+hdiutil imageinfo "$SRC" 2>/dev/null | awk '/^Format Description:|^Format:|^Compressed:/{print "src "$0}'
+hdiutil imageinfo "$DST" 2>/dev/null | awk '/^Format Description:|^Format:|^Compressed:/{print "dst "$0}'
+
+echo "=== dmg delta ==="
+/usr/bin/time -l "$DIFZ" --no-progress --simple \
+	--max-wall-ms 120000 \
+	-o "$WORK/dmg.zdif" "$SRC" "$DST" >"$WORK/dmg-create.out" 2>"$WORK/dmg-create.time"
+echo "dmg_create_rc=$?"
+cat "$WORK/dmg-create.out"
+show_time "$WORK/dmg-create.time"
+if [ -f "$WORK/dmg.zdif" ]; then
+	sb=$(bytes "$SRC")
+	db=$(bytes "$DST")
+	pb=$(bytes "$WORK/dmg.zdif")
+	echo "dmg bytes source=$sb target=$db patch=$pb ratio=$(pct "$pb" "$db")%"
+	/usr/bin/time -l "$DIFZ" --patch --no-progress --simple \
+		--max-wall-ms 10000 \
+		-o "$WORK/restored.dmg" "$SRC" "$WORK/dmg.zdif" >"$WORK/dmg-apply.out" 2>"$WORK/dmg-apply.time"
+	echo "dmg_apply_rc=$?"
+	show_time "$WORK/dmg-apply.time"
+	got=$(sha "$WORK/restored.dmg")
+	want=$(sha "$DST")
+	if [ "$got" = "$want" ]; then
+		echo "PASS: dmg byte round-trip"
+	else
+		echo "FAIL: dmg sha got=$got want=$want"
+	fi
+else
+	echo "FAIL: no dmg patch"
+fi
+
+echo "=== mount originals and ditto-zip the apps ==="
+if attach_ro "$SRC" "$WORK/srcmp" && attach_ro "$DST" "$WORK/dstmp"; then
+	SRC_APP=$(find_app "$WORK/srcmp")
+	DST_APP=$(find_app "$WORK/dstmp")
+	echo "src_app=$SRC_APP"
+	echo "dst_app=$DST_APP"
+	if [ -n "$SRC_APP" ] && [ -n "$DST_APP" ]; then
+		codesign --verify --deep --strict "$DST_APP" && echo "PASS: original target app codesign" || echo "FAIL: original target app codesign rc=$?"
+		echo "original_ticket=$(ticket_of "$DST_APP")"
+		ditto -c -k --keepParent "$SRC_APP" "$WORK/src.zip"
+		ditto -c -k --keepParent "$DST_APP" "$WORK/dst.zip"
+		echo "zip bytes source=$(bytes "$WORK/src.zip") target=$(bytes "$WORK/dst.zip")"
+		/usr/bin/time -l "$DIFZ" --no-progress --simple \
+			--max-wall-ms 120000 \
+			-o "$WORK/zip.zdif" "$WORK/src.zip" "$WORK/dst.zip" >"$WORK/zip-create.out" 2>"$WORK/zip-create.time"
+		echo "zip_create_rc=$?"
+		show_time "$WORK/zip-create.time"
+		if [ -f "$WORK/zip.zdif" ]; then
+			zb=$(bytes "$WORK/dst.zip")
+			zp=$(bytes "$WORK/zip.zdif")
+			echo "zip bytes target=$zb patch=$zp ratio=$(pct "$zp" "$zb")%"
+			/usr/bin/time -l "$DIFZ" --patch --no-progress --simple \
+				--max-wall-ms 10000 \
+				-o "$WORK/restored.zip" "$WORK/src.zip" "$WORK/zip.zdif" >"$WORK/zip-apply.out" 2>"$WORK/zip-apply.time"
+			echo "zip_apply_rc=$?"
+			show_time "$WORK/zip-apply.time"
+			if [ "$(sha "$WORK/restored.zip")" = "$(sha "$WORK/dst.zip")" ]; then
+				echo "PASS: ditto zip byte round-trip"
+			else
+				echo "FAIL: zip sha mismatch"
+			fi
+			mkdir -p "$WORK/unzipped"
+			ditto -x -k "$WORK/restored.zip" "$WORK/unzipped"
+			REST_APP=$(find_app "$WORK/unzipped")
+			echo "restored_app=$REST_APP"
+			if [ -n "$REST_APP" ]; then
+				codesign --verify --deep --strict "$REST_APP" && echo "PASS: restored zip app codesign" || echo "FAIL: restored zip app codesign rc=$?"
+				echo "restored_ticket=$(ticket_of "$REST_APP")"
+			fi
+		else
+			echo "FAIL: no zip patch"
+			cat "$WORK/zip-create.out"
+			cat "$WORK/zip-create.time"
+		fi
+	fi
+	detach_mp "$WORK/srcmp"
+	detach_mp "$WORK/dstmp"
+fi
+
+if [ -f "$WORK/restored.dmg" ]; then
+	echo "=== codesign app inside restored dmg ==="
+	if attach_ro "$WORK/restored.dmg" "$WORK/restmp"; then
+		RAPP=$(find_app "$WORK/restmp")
+		echo "restored_dmg_app=$RAPP"
+		if [ -n "$RAPP" ]; then
+			codesign --verify --deep --strict "$RAPP" && echo "PASS: restored dmg app codesign" || echo "FAIL: restored dmg app codesign rc=$?"
+			echo "restored_dmg_ticket=$(ticket_of "$RAPP")"
+		fi
+		detach_mp "$WORK/restmp"
+	fi
+fi
+
+echo "DONE work=$WORK"
