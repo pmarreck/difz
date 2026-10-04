@@ -113,8 +113,62 @@ pub fn applyPatchToNewDir(
         try directory.treeHash(staged_snapshot.entries);
     if (!std.mem.eql(u8, &expected_hash, &staged_hash)) return error.StagedHashMismatch;
 
-    try output_parent.renamePreserve(staging_name, output_parent, output_name, io);
+    try publishStagingDir(io, output_parent, staging_name, output_name);
     owns_stage = false;
+}
+
+/// Move a finished staging directory to its final name, and fail if that name
+/// is already taken. Linux uses renameat2(RENAME_NOREPLACE). Darwin's
+/// renamePreserve hardlinks first, and a directory cannot be hardlinked, so
+/// the publish uses renameatx_np(RENAME_EXCL) instead.
+fn publishStagingDir(
+    io: std.Io,
+    parent: std.Io.Dir,
+    staging_name: []const u8,
+    output_name: []const u8,
+) !void {
+    if (comptime builtin.os.tag != .macos) {
+        try parent.renamePreserve(staging_name, parent, output_name, io);
+        return;
+    }
+    // Analyzed only on macOS: renameatx_np is a Darwin libc symbol.
+    const rename_excl: u32 = 0x00000004;
+    const libc = struct {
+        extern "c" fn renameatx_np(
+            from_fd: std.posix.fd_t,
+            from_path: [*:0]const u8,
+            to_fd: std.posix.fd_t,
+            to_path: [*:0]const u8,
+            flags: u32,
+        ) c_int;
+    };
+    var from_buf: [std.posix.PATH_MAX]u8 = undefined;
+    var to_buf: [std.posix.PATH_MAX]u8 = undefined;
+    const from_z = try terminatedBasename(&from_buf, staging_name);
+    const to_z = try terminatedBasename(&to_buf, output_name);
+    switch (std.c.errno(libc.renameatx_np(parent.handle, from_z, parent.handle, to_z, rename_excl))) {
+        .SUCCESS => {},
+        .EXIST => return error.OutputAlreadyExists,
+        .NOENT => return error.FileNotFound,
+        .ACCES => return error.AccessDenied,
+        .PERM => return error.PermissionDenied,
+        .NOTDIR => return error.NotDir,
+        .NOTEMPTY => return error.DirNotEmpty,
+        .NAMETOOLONG => return error.NameTooLong,
+        .ROFS => return error.ReadOnlyFileSystem,
+        .NOSPC => return error.NoSpaceLeft,
+        .IO => return error.FileSystem,
+        .LOOP => return error.SymLinkLoop,
+        .ILSEQ => return error.BadPathName,
+        else => return error.Unexpected,
+    }
+}
+
+fn terminatedBasename(buffer: []u8, name: []const u8) ![:0]const u8 {
+    if (name.len >= buffer.len) return error.NameTooLong;
+    @memcpy(buffer[0..name.len], name);
+    buffer[name.len] = 0;
+    return buffer[0..name.len :0];
 }
 
 fn deleteOwnedTree(io: std.Io, parent: std.Io.Dir, name: []const u8) !void {
