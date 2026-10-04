@@ -19,6 +19,12 @@ Binary: `/nix/store/hgfx6r2plq0hcxg5v59bk2cghs9va6x4-difz-0.1.0/bin/difz`
 
 DIFZTREE v2 metadata remains separate. It does not make a reconstructed `.app` a Gatekeeper pass.
 
+## Live Beamer tree, 2026-10-04
+
+`std.Io.Dir.renamePreserve` on Darwin hardlinks the staging directory, and macOS returns `EPERM` for a directory hardlink. `publishStagingDir` in `src/directory_fs.zig` uses `renameatx_np` with `RENAME_EXCL` (0x4) on macOS. Linux still uses `renamePreserve`. Zig tests: 117/117 on m4max and on Linux.
+
+The October 1 patch `/Users/Shared/difz-gk/beamer.difztree` (32,071,836 bytes) then applied with a ReleaseFast binary built from this tree. Apply 0.11 s, peak footprint 98,009,496 bytes. Output `/Users/Shared/difz-gk/Beamer.app` (chmod 0755; the staging directory had been 0700). 345 paths on both sides. `codesign --verify --deep --strict`, `xcrun stapler validate`, and `spctl --assess --verbose=4 --type execute` passed. Ticket stayed `stapled`. Restored xattrs: none. Installed xattrs: 345 quarantine, 345 provenance, 1 macl. A `su` to testuser plus `open` ran the app as pmarreck in the current GUI session. That process was quit. No quarantine was written.
+
 ## Version pair, 2026-10-01 4:02pm EDT
 
 `scripts/mac-archive-pair` on the same Nix binary, reading the two disk images already in Downloads on m4max. Mounts used `$HOME/tmp`. A mountpoint under `/tmp` returned `hdiutil: attach failed - Permission denied` after the image checksum verified. `--max-rss-bytes` was not passed: an earlier attempt exited immediately with `difz: cannot apply RSS ceiling (Invalid argument)` because `setrlimit(RLIMIT_AS)` returns `EINVAL` on this macOS. RSS below is `/usr/bin/time -l`.

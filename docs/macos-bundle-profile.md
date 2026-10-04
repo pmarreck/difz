@@ -24,6 +24,27 @@ on PDF Pals.app from the original 1.9.0 image, from the restored disk
 image, and from the restored zip. `/usr/bin/clang` 21.0.0 runs.
 Developer ID signing from SSH still returns `errSecInternalComponent`.
 
+On 2026-10-04 a DIFZTREE of the live `/Applications/Beamer.app` was applied
+on the same Mac. The patch is 32,071,836 bytes, from an empty directory.
+Apply took 0.11 s and 98 MB peak footprint. The restored tree has 345
+paths, matching the installed bundle. `codesign --verify --deep --strict`
+passed, `xcrun stapler validate` printed `The validate action worked!`,
+and `spctl --assess --verbose=4 --type execute` printed `accepted` and
+`source=Notarized Developer ID`. The ticket stayed stapled. Authority
+remained Developer ID Application: Softorino Inc. (7D85YS7677). The folder
+walk does not read extended attributes, so the restored tree has none.
+The installed bundle carries 345 `com.apple.quarantine`, 345
+`com.apple.provenance`, and one `com.apple.macl`. No `com.apple.cs.*`
+attributes were on the source. The output directory is created mode 0700
+because the snapshot does not record the source root's mode; it was set
+to 0755 before a repeat of those three checks, which still passed. `open`
+of `/Users/Shared/difz-gk/Beamer.app` from a `su` to the standard account
+testuser launched the app in the existing GUI session, as pmarreck, and
+that process was quit. A first-open dialog still needs a real login to
+that account. The restored app has no quarantine attribute, so that dialog
+is not expected until the attribute is copied. This run is not a v1
+updater acceptance.
+
 Canonical sources: `EXECUTION_CONTEXT_TRUST.md`, Sparkle BinaryDelta,
 `docs/directory-format-v1.md`.
 

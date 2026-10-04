@@ -76,3 +76,7 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 - [x] [Recently completed (2026-09-29)] After measured ceilings exist, add TDD gates that fail create/apply when those ceilings are exceeded, without exposing signing keys to the patch worker. CLI: `--max-output-bytes`, `--max-output-ratio`, `--max-rss-bytes`, `--max-wall-ms`. FFI: `difz_diff_limited` / `difz_patch_limited` return -4. (2026-09-29 ~3:45pm EDT)
 - [x] [Recently completed (2026-09-29)] Recommend improvements to the deep-code-review skill based on this audit, including evidence standards, threat modeling, language accuracy, and reviewer scheduling; do not change the shared skill without a separate implementation request. Written to docs/deep-code-review-recommendations.md. (2026-09-29 ~3:45pm EDT)
 - [x] [Recently completed (2026-09-29)] Diff size optimization: currently 3x larger than bsdiff/xdelta3 — investigate compression of insert data and more efficient encoding. On Neovim AppImages, difz 5,349,393 B vs bsdiff 5,338,146 B vs xdelta3 5,319,624 B (within 0.6%); the 11× ELF vs bsdiff gap is pair-specific, not a general 3× encoding bug. (2026-09-29 ~3:45pm EDT)
+
+## Retired 2026-10-04
+
+- [x] [Recently completed (2026-09-29)] Progress indication: the Zig core currently provides no progress callbacks; need to add a callback mechanism for the C CLI to display stage progress. `difz_set_progress_callback` emits diff/encode/patch stages; CLI wires them to progrez. (2026-09-29 ~3:45pm EDT)
