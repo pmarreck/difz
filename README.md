@@ -33,6 +33,8 @@ The real pair produced 708,379 difz operations. Difz create peaked at 3,497,792 
 
 Difz create peaked at 413,760 KiB RSS; apply was 0.080 s / 30,772 KiB RSS. On this consecutive AppImage pair, difz, bsdiff, and xdelta3 patches are within 0.6% of each other; difz created ~10× faster than bsdiff. A second public pair, KeePassXC 2.7.9 → 2.7.10 (40.7 MB → 48.2 MB), produced a 47,174,594 B patch (97.86% of target) and was rejected by `--max-output-ratio 70` as designed.
 
+Rerun on 2026-10-03, same host and the same two hashes, ReleaseFast `difz` from this checkout. Create: difz 0.986 s and 426,220 KiB RSS, bsdiff 10.262 s, xdelta3 1.293 s, zstd 0.079 s. Patch bytes: difz 5,341,392 (48.50%), bsdiff 5,338,146, xdelta3 5,319,586, zstd 5,359,536. Apply: difz 0.059 s, bspatch 0.322 s, xdelta3 0.035 s, zstd 0.033 s. All four reconstructions matched the target. bsdiff and zstd patch sizes matched the September row exactly. Current difz emitted 2,119 operations and a patch 8,001 bytes smaller than the September difz patch. The pinned Validate ELF pair was not rerun: Nix could not rebuild those revisions because `monkeysaudio.com` returned HTML and the recorded `libjxlz` archive returned 404.
+
 ### Historical shared-prefix snapshot
 
 This is a historical Apple M4 (aarch64) snapshot using default `--compress best`. Its historical shared-prefix corpus constructed each target as one contiguous prefix from the source followed by a random suffix. A current reproduction of the 10 MiB, 90%-similar case yields only three operations, so this table does not measure scattered edits, rebuilt binaries, or high-operation apply behavior.
