@@ -131,6 +131,13 @@ pub fn treeHash(entries: []const Entry) SnapshotError![32]u8 {
 /// BLAKE3 of each entry's canonical metadata. Metadata must already be
 /// canonical; this function does not sort it.
 pub fn treeHashV2(entries: []const Entry) SnapshotError![32]u8 {
+    return treeHashV2WithRoot(entries, .{});
+}
+
+/// v2 identity plus the snapshot root. The root is not an entry: an empty
+/// path is illegal, and a bundle's quarantine attribute lives on the directory
+/// the user opens. An empty root adds no bytes, so existing v2 digests stay put.
+pub fn treeHashV2WithRoot(entries: []const Entry, root: metadata.Metadata) SnapshotError![32]u8 {
     try validateSnapshot(entries);
     var hasher = std.crypto.hash.Blake3.init(.{});
     hasher.update("DIFZTREE-ID\x02");
@@ -145,6 +152,11 @@ pub fn treeHashV2(entries: []const Entry) SnapshotError![32]u8 {
         hasher.update(entry.data);
         const meta_hash = metadata.canonicalHash(entry.meta);
         hasher.update(&meta_hash);
+    }
+    if (!root.isEmpty()) {
+        hasher.update("DIFZTREE-ROOT\x01");
+        const root_hash = metadata.canonicalHash(root);
+        hasher.update(&root_hash);
     }
     var digest: [32]u8 = undefined;
     hasher.final(&digest);

@@ -5,10 +5,17 @@ const directory = @import("directory.zig");
 const directory_patch = @import("directory_patch.zig");
 const metadata = @import("metadata.zig");
 const path_filter = @import("path_filter.zig");
+const xattr_stream = @import("xattr_stream");
+
+const logical_xattr_opts = xattr_stream.Options{ .follow_symlinks = false };
+const raw_xattr_opts = xattr_stream.Options{ .follow_symlinks = false, .raw_names = true };
 
 pub const OwnedSnapshot = struct {
     arena: std.heap.ArenaAllocator,
     entries: []directory.Entry,
+    // Attributes of the snapshot directory itself. Entries cannot name it:
+    // an empty path is rejected. Gatekeeper reads this directory.
+    root_meta: metadata.Metadata = .{},
 
     pub fn deinit(self: *OwnedSnapshot) void {
         self.arena.deinit();
@@ -27,7 +34,9 @@ pub fn snapshotDir(
     const arena_allocator = arena.allocator();
 
     var raw: std.ArrayListUnmanaged(directory.Entry) = .empty;
-    try walk(arena_allocator, io, root, "", &raw);
+    var root_buf: [std.posix.PATH_MAX]u8 = undefined;
+    const root_len = try root.realPath(io, &root_buf);
+    try walk(arena_allocator, io, root, "", root_buf[0..root_len], &raw);
     std.mem.sort(directory.Entry, raw.items, {}, entryLessThan);
     try directory.validateSnapshot(raw.items);
 
@@ -36,7 +45,12 @@ pub fn snapshotDir(
     else
         try selectEntries(arena_allocator, raw.items, rules);
     try directory.validateSnapshot(entries);
-    return .{ .arena = arena, .entries = entries };
+    const root_xattrs = try readXattrs(arena_allocator, root_buf[0..root_len]);
+    const root_meta: metadata.Metadata = if (root_xattrs.len == 0)
+        .{}
+    else
+        try metadata.canonicalize(arena_allocator, .{ .xattrs = root_xattrs }, .{});
+    return .{ .arena = arena, .entries = entries, .root_meta = root_meta };
 }
 
 pub fn createPatchFromDirs(
@@ -50,11 +64,14 @@ pub fn createPatchFromDirs(
     defer source_snapshot.deinit();
     var target_snapshot = try snapshotDir(allocator, io, target, options.rules);
     defer target_snapshot.deinit();
+    var patch_options = options;
+    patch_options.source_root = source_snapshot.root_meta;
+    patch_options.target_root = target_snapshot.root_meta;
     return directory_patch.createPatch(
         allocator,
         source_snapshot.entries,
         target_snapshot.entries,
-        options,
+        patch_options,
     );
 }
 
@@ -82,11 +99,12 @@ pub fn applyPatchToNewDir(
     defer owned_rules.deinit();
     var source_snapshot = try snapshotDir(allocator, io, source, owned_rules.rules);
     defer source_snapshot.deinit();
-    var reconstructed = try directory_patch.applyPatch(
+    var reconstructed = try directory_patch.applyPatchRoot(
         allocator,
         source_snapshot.entries,
         patch_bytes,
         limits,
+        source_snapshot.root_meta,
     );
     defer reconstructed.deinit();
 
@@ -98,17 +116,17 @@ pub fn applyPatchToNewDir(
         .follow_symlinks = false,
     });
     defer stage.close(io);
-    try writeSnapshot(allocator, io, stage, reconstructed.entries);
+    try writeSnapshot(allocator, io, stage, reconstructed.entries, reconstructed.root_meta);
 
     var staged_snapshot = try snapshotDir(allocator, io, stage, &.{});
     defer staged_snapshot.deinit();
-    const expect_metadata = directory.usesMetadata(reconstructed.entries);
+    const expect_metadata = directory.usesMetadata(reconstructed.entries) or !reconstructed.root_meta.isEmpty();
     const expected_hash = if (expect_metadata)
-        try directory.treeHashV2(reconstructed.entries)
+        try directory.treeHashV2WithRoot(reconstructed.entries, reconstructed.root_meta)
     else
         try directory.treeHash(reconstructed.entries);
     const staged_hash = if (expect_metadata)
-        try directory.treeHashV2(staged_snapshot.entries)
+        try directory.treeHashV2WithRoot(staged_snapshot.entries, staged_snapshot.root_meta)
     else
         try directory.treeHash(staged_snapshot.entries);
     if (!std.mem.eql(u8, &expected_hash, &staged_hash)) return error.StagedHashMismatch;
@@ -197,11 +215,17 @@ fn makeDirectoriesWritable(io: std.Io, root: std.Io.Dir) !void {
     }
 }
 
+fn treeHasXattrs(entries: []const directory.Entry) bool {
+    for (entries) |entry| if (entry.meta.xattrs.len != 0) return true;
+    return false;
+}
+
 fn writeSnapshot(
     allocator: std.mem.Allocator,
     io: std.Io,
     root: std.Io.Dir,
     entries: []const directory.Entry,
+    root_meta: metadata.Metadata,
 ) !void {
     try directory.validateSnapshot(entries);
     for (entries) |entry| {
@@ -233,6 +257,21 @@ fn writeSnapshot(
                 try permissionsForMode(entry.mode, .directory),
                 .{ .follow_symlinks = false },
             );
+        }
+    }
+    // Extended attributes before the timestamp. setxattr can bump mtime,
+    // and the staged hash compares the stamp the patch recorded.
+    if (treeHasXattrs(entries) or root_meta.xattrs.len != 0) {
+        var root_buf: [std.posix.PATH_MAX]u8 = undefined;
+        const root_len = try root.realPath(io, &root_buf);
+        for (entries) |entry| {
+            if (entry.meta.xattrs.len == 0) continue;
+            var abs_buf: [std.posix.PATH_MAX]u8 = undefined;
+            const abs_path = std.fmt.bufPrint(&abs_buf, "{s}/{s}", .{ root_buf[0..root_len], entry.path }) catch return error.NameTooLong;
+            try restoreXattrs(allocator, abs_path, entry.meta);
+        }
+        if (root_meta.xattrs.len != 0) {
+            try restoreXattrs(allocator, root_buf[0..root_len], root_meta);
         }
     }
     // After content and permission writes, which can bump mtime.
@@ -312,6 +351,7 @@ fn walk(
     io: std.Io,
     current: std.Io.Dir,
     prefix: []const u8,
+    abs_dir: []const u8,
     entries: *std.ArrayListUnmanaged(directory.Entry),
 ) !void {
     var iterator = current.iterate();
@@ -321,7 +361,10 @@ fn walk(
         else
             try std.fmt.allocPrint(allocator, "{s}/{s}", .{ prefix, item.name });
         try directory.validatePath(path);
+        var abs_buf: [std.posix.PATH_MAX]u8 = undefined;
+        const abs_path = std.fmt.bufPrint(&abs_buf, "{s}/{s}", .{ abs_dir, item.name }) catch return error.NameTooLong;
         const stat = try current.statFile(io, item.name, .{ .follow_symlinks = false });
+        const meta = try metadataFor(allocator, stat.mtime, abs_path);
 
         switch (stat.kind) {
             .directory => {
@@ -329,14 +372,14 @@ fn walk(
                     .path = path,
                     .kind = .directory,
                     .mode = canonicalMode(stat, .directory),
-                    .meta = modificationMetadata(stat.mtime),
+                    .meta = meta,
                 });
                 var child = try current.openDir(io, item.name, .{
                     .iterate = true,
                     .follow_symlinks = false,
                 });
                 defer child.close(io);
-                try walk(allocator, io, child, path, entries);
+                try walk(allocator, io, child, path, abs_path, entries);
             },
             .file => {
                 var file = try current.openFile(io, item.name, .{
@@ -349,12 +392,16 @@ fn walk(
                 if (opened_stat.kind != .file) return error.FileChangedDuringSnapshot;
                 var reader = file.reader(io, &.{});
                 const data = try reader.interface.allocRemaining(allocator, .unlimited);
+                const file_meta = if (opened_stat.mtime.nanoseconds == stat.mtime.nanoseconds)
+                    meta
+                else
+                    try metadataFor(allocator, opened_stat.mtime, abs_path);
                 try entries.append(allocator, .{
                     .path = path,
                     .kind = .file,
                     .mode = canonicalMode(opened_stat, .file),
                     .data = data,
-                    .meta = modificationMetadata(opened_stat.mtime),
+                    .meta = file_meta,
                 });
             },
             .sym_link => {
@@ -365,12 +412,122 @@ fn walk(
                     .kind = .symlink,
                     .mode = 0o777,
                     .data = try allocator.dupe(u8, buffer[0..length]),
-                    .meta = modificationMetadata(stat.mtime),
+                    .meta = meta,
                 });
             },
             else => return error.UnsupportedEntryKind,
         }
     }
+}
+
+/// Extended attributes for one object, classified through xattr_stream.
+/// Logical names restore without a warning. `com.apple.ResourceFork` is
+/// omitted (resource-fork payload, not a portable attribute). Names this OS
+/// cannot store are read back from the `difz.raw-xattrs` sidecar.
+fn readXattrs(allocator: std.mem.Allocator, abs_path: []const u8) ![]const metadata.Xattr {
+    var listed = xattr_stream.list(allocator, abs_path, raw_xattr_opts) catch |err| switch (err) {
+        error.Unsupported, error.NotFound => return &.{},
+        else => return err,
+    };
+    defer listed.deinit(allocator);
+
+    var xattrs: std.ArrayListUnmanaged(metadata.Xattr) = .empty;
+    var sidecar: ?[]const u8 = null;
+    var it = listed.iterator();
+    while (it.next()) |native| {
+        if (metadata.isTransportName(native)) {
+            if (std.mem.eql(u8, transportBare(native), "difz.raw-xattrs")) {
+                sidecar = try xattr_stream.get(allocator, abs_path, "difz.raw-xattrs", logical_xattr_opts);
+            }
+            continue;
+        }
+        if (excludedXattr(native)) continue;
+        if (xattr_stream.names.fromNative(xattr_stream.os, native, .{ .raw = false })) |logical| {
+            if (metadata.isTransportName(logical)) continue;
+            const value = try xattr_stream.get(allocator, abs_path, logical, logical_xattr_opts);
+            try xattrs.append(allocator, .{
+                .class = .logical,
+                .name = try allocator.dupe(u8, logical),
+                .value = value,
+            });
+        } else {
+            const value = try xattr_stream.get(allocator, abs_path, native, raw_xattr_opts);
+            try xattrs.append(allocator, .{
+                .class = .raw,
+                .name = try allocator.dupe(u8, native),
+                .value = value,
+            });
+        }
+    }
+    if (sidecar) |blob| {
+        const decoded = try metadata.decodeCanonical(allocator, blob);
+        for (decoded.xattrs) |xattr| {
+            if (xattr.class != .raw) continue;
+            if (hasXattr(xattrs.items, xattr.class, xattr.name)) continue;
+            try xattrs.append(allocator, .{
+                .class = .raw,
+                .name = try allocator.dupe(u8, xattr.name),
+                .value = try allocator.dupe(u8, xattr.value),
+            });
+        }
+    }
+    return xattrs.toOwnedSlice(allocator);
+}
+
+fn metadataFor(allocator: std.mem.Allocator, timestamp: std.Io.Timestamp, abs_path: []const u8) !metadata.Metadata {
+    var meta = modificationMetadata(timestamp);
+    meta.xattrs = try readXattrs(allocator, abs_path);
+    if (meta.xattrs.len == 0) return meta;
+    return metadata.canonicalize(allocator, meta, .{});
+}
+
+fn restoreXattrs(allocator: std.mem.Allocator, abs_path: []const u8, meta: metadata.Metadata) !void {
+    const os = switch (builtin.os.tag) {
+        .macos => metadata.Os.macos,
+        .windows => metadata.Os.windows,
+        else => metadata.Os.linux,
+    };
+    var preserved: std.ArrayListUnmanaged(metadata.Xattr) = .empty;
+    defer preserved.deinit(allocator);
+    for (meta.xattrs) |xattr| {
+        switch (xattr.class) {
+            .logical => xattr_stream.set(abs_path, xattr.name, xattr.value, logical_xattr_opts) catch return error.XattrRestoreFailed,
+            .raw => {
+                if (!metadata.rawAccepted(os, xattr.name)) {
+                    try preserved.append(allocator, xattr);
+                    continue;
+                }
+                xattr_stream.set(abs_path, xattr.name, xattr.value, raw_xattr_opts) catch |err| switch (err) {
+                    error.Permission, error.Unsupported => try preserved.append(allocator, xattr),
+                    else => return error.XattrRestoreFailed,
+                };
+            },
+        }
+    }
+    if (preserved.items.len == 0) return;
+    const blob = try metadata.encodeCanonical(allocator, .{ .xattrs = preserved.items });
+    defer allocator.free(blob);
+    xattr_stream.set(abs_path, "difz.raw-xattrs", blob, logical_xattr_opts) catch return error.XattrRestoreFailed;
+    std.debug.print("difz: raw attributes that this OS cannot store were preserved in difz.raw-xattrs\n", .{});
+}
+
+fn excludedXattr(native: []const u8) bool {
+    const bare = transportBare(native);
+    if (std.mem.eql(u8, bare, "com.apple.ResourceFork")) return true;
+    if (std.mem.eql(u8, native, "system.posix_acl_access")) return true;
+    if (std.mem.eql(u8, native, "system.posix_acl_default")) return true;
+    return false;
+}
+
+fn transportBare(name: []const u8) []const u8 {
+    return if (std.mem.startsWith(u8, name, "user.")) name["user.".len..] else name;
+}
+
+fn hasXattr(xattrs: []const metadata.Xattr, class: metadata.XattrClass, name: []const u8) bool {
+    for (xattrs) |xattr| {
+        if (xattr.class == class and std.mem.eql(u8, xattr.name, name)) return true;
+    }
+    return false;
 }
 
 fn selectEntries(
@@ -834,4 +991,138 @@ test "staged filesystem apply cleans up every injected allocation failure" {
     }.run, .{ io, source, tmp.dir, patch_bytes });
     try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, "output", .{}));
     try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, ".output.difz-stage-allocation-test", .{}));
+}
+
+test "filesystem snapshot and apply round-trip logical and raw extended attributes" {
+    if (comptime builtin.os.tag == .windows) return;
+    var tmp = testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try tmp.dir.createDir(io, "source", .default_dir);
+    try tmp.dir.createDir(io, "target", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true, .follow_symlinks = false });
+    defer source.close(io);
+    var target = try tmp.dir.openDir(io, "target", .{ .iterate = true, .follow_symlinks = false });
+    defer target.close(io);
+    try source.writeFile(io, .{ .sub_path = "note.txt", .data = "old" });
+    try target.writeFile(io, .{ .sub_path = "note.txt", .data = "kept-bytes" });
+
+    var root_buf: [std.posix.PATH_MAX]u8 = undefined;
+    const root_len = try target.realPath(io, &root_buf);
+    var file_buf: [std.posix.PATH_MAX]u8 = undefined;
+    const file_path = std.fmt.bufPrint(&file_buf, "{s}/note.txt", .{root_buf[0..root_len]}) catch return error.NameTooLong;
+    const logical = xattr_stream.Options{ .follow_symlinks = false };
+    const raw = xattr_stream.Options{ .follow_symlinks = false, .raw_names = true };
+    // Nix builds on this machine's ZFS store return EOPNOTSUPP for every
+    // setxattr, including on the sandbox tmpfs. Skip there. A host tmpfs and
+    // APFS still run the assertions.
+    if (!try setXattrOrSkip(file_path, "comment", "kept", logical)) return;
+    // macOS stores the Gatekeeper attribute under its real name. Linux raw
+    // names need a namespace, and this one is not a logical name.
+    const raw_name = if (comptime builtin.os.tag == .macos) "com.apple.quarantine" else "user.com.apple.quarantine";
+    const raw_value = "03c1;difz";
+    try xattr_stream.set(file_path, raw_name, raw_value, raw);
+
+    var snapshot = try snapshotDir(testing.allocator, io, target, &.{});
+    defer snapshot.deinit();
+    const note = entryByPath(snapshot.entries, "note.txt") orelse return error.FileNotFound;
+    try expectXattr(note.meta, .logical, "comment", "kept");
+    try expectXattr(note.meta, .raw, raw_name, raw_value);
+
+    const patch = try createPatchFromDirs(testing.allocator, io, source, target, .{});
+    defer testing.allocator.free(patch);
+    try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".output.difz-stage-xattr", patch, .{});
+    var output = try tmp.dir.openDir(io, "output", .{ .iterate = true, .follow_symlinks = false });
+    defer output.close(io);
+    var out_root_buf: [std.posix.PATH_MAX]u8 = undefined;
+    const out_root_len = try output.realPath(io, &out_root_buf);
+    var out_file_buf: [std.posix.PATH_MAX]u8 = undefined;
+    const out_file = std.fmt.bufPrint(&out_file_buf, "{s}/note.txt", .{out_root_buf[0..out_root_len]}) catch return error.NameTooLong;
+    try expectStoredXattr(out_file, "comment", "kept", logical);
+    try expectStoredXattr(out_file, raw_name, raw_value, raw);
+}
+
+test "filesystem snapshot keeps an extended attribute on the snapshot root" {
+    if (comptime builtin.os.tag == .windows) return;
+    var tmp = testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try tmp.dir.createDir(io, "source", .default_dir);
+    try tmp.dir.createDir(io, "target", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true, .follow_symlinks = false });
+    defer source.close(io);
+    var target = try tmp.dir.openDir(io, "target", .{ .iterate = true, .follow_symlinks = false });
+    defer target.close(io);
+    try source.writeFile(io, .{ .sub_path = "note.txt", .data = "old" });
+    try target.writeFile(io, .{ .sub_path = "note.txt", .data = "kept-bytes" });
+
+    var source_buf: [std.posix.PATH_MAX]u8 = undefined;
+    const source_len = try source.realPath(io, &source_buf);
+    var target_buf: [std.posix.PATH_MAX]u8 = undefined;
+    const target_len = try target.realPath(io, &target_buf);
+    const logical = xattr_stream.Options{ .follow_symlinks = false };
+    const raw = xattr_stream.Options{ .follow_symlinks = false, .raw_names = true };
+    const quarantine_name = if (comptime builtin.os.tag == .macos) "com.apple.quarantine" else "user.com.apple.quarantine";
+    const quarantine_value = "03c1;difz";
+    if (!try setXattrOrSkip(source_buf[0..source_len], "comment", "src", logical)) return;
+    try xattr_stream.set(target_buf[0..target_len], "comment", "bundle", logical);
+    try xattr_stream.set(target_buf[0..target_len], quarantine_name, quarantine_value, raw);
+    if (comptime builtin.os.tag == .macos) {
+        try xattr_stream.set(target_buf[0..target_len], "com.apple.provenance", "probe", raw);
+        try xattr_stream.set(target_buf[0..target_len], "com.apple.macl", "probe", raw);
+    }
+
+    var snapshot = try snapshotDir(testing.allocator, io, target, &.{});
+    defer snapshot.deinit();
+    try expectXattr(snapshot.root_meta, .logical, "comment", "bundle");
+    try expectXattr(snapshot.root_meta, .raw, quarantine_name, quarantine_value);
+    if (comptime builtin.os.tag == .macos) {
+        try expectXattr(snapshot.root_meta, .raw, "com.apple.provenance", "probe");
+        try expectXattr(snapshot.root_meta, .raw, "com.apple.macl", "probe");
+    }
+
+    const patch = try createPatchFromDirs(testing.allocator, io, source, target, .{});
+    defer testing.allocator.free(patch);
+    try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".output.difz-stage-root-xattr", patch, .{});
+    var output = try tmp.dir.openDir(io, "output", .{ .iterate = true, .follow_symlinks = false });
+    defer output.close(io);
+    var out_buf: [std.posix.PATH_MAX]u8 = undefined;
+    const out_len = try output.realPath(io, &out_buf);
+    try expectStoredXattr(out_buf[0..out_len], "comment", "bundle", logical);
+    try expectStoredXattr(out_buf[0..out_len], quarantine_name, quarantine_value, raw);
+    if (comptime builtin.os.tag == .macos) {
+        try expectStoredXattr(out_buf[0..out_len], "com.apple.provenance", "probe", raw);
+        try expectStoredXattr(out_buf[0..out_len], "com.apple.macl", "probe", raw);
+    }
+}
+
+/// False when this filesystem refuses extended attributes. The Nix ZFS
+/// sandbox returns EOPNOTSUPP for setxattr. Any other error still fails.
+fn setXattrOrSkip(path: []const u8, name: []const u8, value: []const u8, opts: xattr_stream.Options) !bool {
+    xattr_stream.set(path, name, value, opts) catch |err| switch (err) {
+        error.Unsupported => return false,
+        else => return err,
+    };
+    return true;
+}
+
+fn entryByPath(entries: []const directory.Entry, path: []const u8) ?directory.Entry {
+    for (entries) |entry| if (std.mem.eql(u8, entry.path, path)) return entry;
+    return null;
+}
+
+fn expectXattr(meta: metadata.Metadata, class: metadata.XattrClass, name: []const u8, value: []const u8) !void {
+    for (meta.xattrs) |xattr| {
+        if (xattr.class == class and std.mem.eql(u8, xattr.name, name)) {
+            try testing.expectEqualSlices(u8, value, xattr.value);
+            return;
+        }
+    }
+    return error.FileNotFound;
+}
+
+fn expectStoredXattr(path: []const u8, name: []const u8, value: []const u8, opts: xattr_stream.Options) !void {
+    const got = try xattr_stream.get(testing.allocator, path, name, opts);
+    defer testing.allocator.free(got);
+    try testing.expectEqualSlices(u8, value, got);
 }

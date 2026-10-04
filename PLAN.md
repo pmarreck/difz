@@ -2,8 +2,9 @@
 
 ## Active
 
-- [ ] Log in as testuser on m4max and open `/Users/Shared/difz-gk/Beamer.app`. The restored tree has no quarantine xattr, so a first-open dialog is not expected until DIFZTREE copies `com.apple.quarantine`. (context: docs/macos-bundle-profile.md)
-- [ ] DIFZTREE v2 records xattrs, ACLs, timestamps, Finder flags, sparse extents, and hardlink identity; create can omit families; apply restores best-effort and warns when a foreign native form is only preserved aside. (context: docs/plan_context/metadata-v2.md)
+- [ ] Log in as testuser on m4max and open a Beamer.app restored by a DIFZTREE that copies `com.apple.quarantine`. The tree at `/Users/Shared/difz-gk/Beamer.app` is the 2026-10-04 apply from before xattr capture. (context: docs/macos-bundle-profile.md)
+- [ ] DIFZTREE v2 still owes ACLs, Finder flags, sparse extents, hardlink identity, birth-time sidecars, and `--omit-metadata`. (context: docs/plan_context/metadata-v2.md)
+- [x] DIFZTREE v2 carries logical and raw extended attributes, including attributes on the snapshot root, and restores them through xattr_stream. (done 2026-10-04 10:40am EDT) (context: docs/plan_context/metadata-v2.md)
 - [x] Apply a DIFZTREE of live Beamer.app on m4max. codesign --verify --deep --strict, xcrun stapler validate, and spctl --assess passed; quarantine, provenance, and macl were not copied. (done 2026-10-04 10:09am EDT) (context: docs/plan_context/mac-archive-oracle.md)
 - [ ] Allow Developer ID signing from SSH on m4max. The login keychain returns errSecInternalComponent. (context: docs/plan_context/mac-archive-oracle.md)
 - [x] Xcode license is accepted on m4max. xcrun stapler validate passed on installed Beamer and balenaEtcher, on a restored Beamer zip, and on original and restored PDF Pals.app. (done 2026-10-01 4:29pm EDT) (context: docs/plan_context/mac-archive-oracle.md)
@@ -13,7 +14,6 @@
 
 ## Recently completed (2026-09-29)
 
-- [x] Translation groundwork: lay foundation for 30-language support per AGENTS.md CLI guidelines. Prepare-phase: `--lang`, `DIFZ_LANG`, `--hilfe`, 50-locale codes, missing-locale WARN. RULES.md records enabled/prepare. (2026-09-29 ~3:45pm EDT)
 - [x] Fuzzing suite: fuzz the encoder/decoder for robustness. `./fuzz` mutates a valid ZDIF patch and asserts apply never aborts. (2026-09-29 ~3:45pm EDT)
 - [x] Cross-platform CI: test on Linux x86_64/aarch64 and Windows. `./test` builds windows-gnu; flake evaluates aarch64-linux packages.default; GitHub CI runs `./test` on yolo. (2026-09-29 ~3:45pm EDT)
 - [x] **Directory tree diffing** — DIFZTREE v1 is in tree (`docs/directory-format-v1.md`, `difz_directory_diff` / `difz_directory_patch`). (done 2026-08-27; checked 2026-09-29 ~3:45pm EDT)

@@ -35,7 +35,23 @@ When the volume's tick is coarser than the stored nanoseconds (NTFS 100 ns, exFA
 
 ## Omit
 
-The patch header records the omit mask. Apply re-snapshots with the same mask, so an omitted family is absent from both sides of the identity check and produces no warning.
+`--omit-metadata` strips families before the hash. That flag is not wired to the CLI yet, and the header does not store an omit mask. An omitted family is absent from the patch and the identity and produces no warning. Apply of a patch that was built with a mask has to re-snapshot with the same mask; that re-snapshot is still ahead.
+
+Header flag bit 0 (`0x1`) is unrelated. It is set only on a v2 patch, and only when the target snapshot root has metadata. The body then ends with a `u32` length and one canonical metadata record for that root. Flags `0` keep today's body, with no trailer. Any other flag bit is rejected. A v1 patch with bit 0 set is rejected. The source root is part of the source hash and is not stored: apply re-reads it from the source directory.
+
+The snapshot root cannot be an entry. `validatePath` rejects an empty path. Gatekeeper looks at the directory the user opens (`Beamer.app`), so its attributes have to ride this trailer. `treeHashV2` with an empty root is unchanged. A non-empty root appends the domain `DIFZTREE-ROOT\x01` and the BLAKE3 of that canonical record.
+
+## Extended attributes on disk
+
+Snapshot and apply call `xattr_stream` with `follow_symlinks = false`. A name `fromNative` accepts is stored as logical, without a `user.` prefix. Anything else is raw, under the native name. `com.apple.ResourceFork` is skipped. So are `system.posix_acl_access` and `system.posix_acl_default`; those belong to the ACL family. Transport names are not captured again, except `difz.raw-xattrs`, which is decoded and merged back so a sidecar still hashes as the original raw attributes.
+
+Logical names are set on apply. A failure there fails the apply. A raw name this OS rejects, or a raw set that returns permission or unsupported, is packed into `difz.raw-xattrs` with one stderr line. Values above 64 KiB fail the snapshot (`error.TooLarge`) rather than being dropped.
+
+The filesystem root record is xattrs only. Root mtime, mode, and the other families are not captured on this path. Child mtimes are still written last, after content, permissions, and xattrs, because `setxattr` can bump mtime. The staged check hashes entries and the root record together.
+
+The 2026-10-04 host tests cover a logical `comment` and a raw quarantine name on a file, and the same pair on the snapshot root, through create and apply. On macOS the root also carries `com.apple.provenance` and `com.apple.macl`. The quarantine name is `com.apple.quarantine` there and `user.com.apple.quarantine` on Linux. Writing a quarantine attribute that was not on the source is not part of this path.
+
+`./test` builds inside Nix's sandbox. On this machine that store is `nixpool/nix` and `setxattr` returns EOPNOTSUPP there, including on the sandbox tmpfs, so those two filesystem tests return before asserting. `nix develop -c zig build test` uses the host tmpfs, which accepts `user.*`, and that is the run that executes them. The pure patch tests, including the root trailer and the source-root hash, still run in the sandbox.
 
 ## Best-effort restore
 

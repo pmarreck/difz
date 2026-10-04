@@ -80,3 +80,4 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 ## Retired 2026-10-04
 
 - [x] [Recently completed (2026-09-29)] Progress indication: the Zig core currently provides no progress callbacks; need to add a callback mechanism for the C CLI to display stage progress. `difz_set_progress_callback` emits diff/encode/patch stages; CLI wires them to progrez. (2026-09-29 ~3:45pm EDT)
+- [x] [Recently completed (2026-09-29)] Translation groundwork: lay foundation for 30-language support per AGENTS.md CLI guidelines. Prepare-phase: `--lang`, `DIFZ_LANG`, `--hilfe`, 50-locale codes, missing-locale WARN. RULES.md records enabled/prepare. (2026-09-29 ~3:45pm EDT)

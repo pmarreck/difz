@@ -491,7 +491,7 @@ fn validateRaw(name: []const u8) MetaError!void {
     }
 }
 
-fn rawAccepted(os: Os, name: []const u8) bool {
+pub fn rawAccepted(os: Os, name: []const u8) bool {
     switch (os) {
         .linux => {
             const prefixes = [_][]const u8{ "user.", "system.", "security.", "trusted." };

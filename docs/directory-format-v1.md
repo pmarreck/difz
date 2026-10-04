@@ -76,7 +76,7 @@ All integers are little-endian. Header:
 magic                       8 bytes: "DIFZTREE"
 format_version              u16: 1
 minimum_reader_version      u16: 1
-flags                       u32: 0
+flags                       u32: 0 for v1. v2 may set bit 0; see docs/plan_context/metadata-v2.md
 rule_count                  u32
 entry_count                 u32
 source_tree_blake3          32 bytes
