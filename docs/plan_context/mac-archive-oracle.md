@@ -25,6 +25,12 @@ DIFZTREE v2 metadata remains separate. It does not make a reconstructed `.app` a
 
 The October 1 patch `/Users/Shared/difz-gk/beamer.difztree` (32,071,836 bytes) then applied with a ReleaseFast binary built from this tree. Apply 0.11 s, peak footprint 98,009,496 bytes. Output `/Users/Shared/difz-gk/Beamer.app` (chmod 0755; the staging directory had been 0700). 345 paths on both sides. `codesign --verify --deep --strict`, `xcrun stapler validate`, and `spctl --assess --verbose=4 --type execute` passed. Ticket stayed `stapled`. Restored xattrs: none. Installed xattrs: 345 quarantine, 345 provenance, 1 macl. A `su` to testuser plus `open` ran the app as pmarreck in the current GUI session. That process was quit. No quarantine was written.
 
+## Owner decisions, 2026-10-06
+
+Peter chose two walking-brief items. Developer ID signing stays attended: coordinate it when he is at the Mac, and do not unlock the login keychain from SSH. For the clean-account check, prepare the current restored app and a short checklist. He will do the launch.
+
+Rechecked `/Users/Shared/difz-gk/Beamer.app` the same morning. `codesign --verify --deep --strict`, `xcrun stapler validate`, and `spctl --assess --type execute --verbose=4` passed. `spctl --status` was `assessments enabled`. The tree had no extended attributes. Every directory is traversable by other and every file is readable by other. `Contents/MacOS/Beamer` is mode 0755. testuser (uid 503) can reach it through `/Users/Shared`. No attributes were added, and the installed `/Applications/Beamer.app` was not touched.
+
 ## Version pair, 2026-10-01 4:02pm EDT
 
 `scripts/mac-archive-pair` on the same Nix binary, reading the two disk images already in Downloads on m4max. Mounts used `$HOME/tmp`. A mountpoint under `/tmp` returned `hdiutil: attach failed - Permission denied` after the image checksum verified. `--max-rss-bytes` was not passed: an earlier attempt exited immediately with `difz: cannot apply RSS ceiling (Invalid argument)` because `setrlimit(RLIMIT_AS)` returns `EINVAL` on this macOS. RSS below is `/usr/bin/time -l`.
