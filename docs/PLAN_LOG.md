@@ -85,3 +85,4 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 ## Retired 2026-10-06
 
 - [x] [Recently completed (2026-09-29)] Fuzzing suite: fuzz the encoder/decoder for robustness. `./fuzz` mutates a valid ZDIF patch and asserts apply never aborts. (2026-09-29 ~3:45pm EDT)
+- [x] [Recently completed (2026-09-29)] Cross-platform CI: test on Linux x86_64/aarch64 and Windows. `./test` builds windows-gnu; flake evaluates aarch64-linux packages.default; GitHub CI runs `./test` on yolo. (2026-09-29 ~3:45pm EDT)

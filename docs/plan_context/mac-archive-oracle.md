@@ -31,6 +31,8 @@ Peter chose two walking-brief items. Developer ID signing stays attended: coordi
 
 Rechecked `/Users/Shared/difz-gk/Beamer.app` the same morning. `codesign --verify --deep --strict`, `xcrun stapler validate`, and `spctl --assess --type execute --verbose=4` passed. `spctl --status` was `assessments enabled`. The tree had no extended attributes. Every directory is traversable by other and every file is readable by other. `Contents/MacOS/Beamer` is mode 0755. testuser (uid 503) can reach it through `/Users/Shared`. No attributes were added, and the installed `/Applications/Beamer.app` was not touched.
 
+Peter opened that path as testuser the same afternoon. The only prompt was permission to access the network, which he allowed. At 1:47pm EDT the tree still had no extended attributes. `codesign --verify --deep --strict` still passed, and `spctl --assess --type execute --verbose=4` still reported `accepted` / `Notarized Developer ID`. This copy has no `com.apple.quarantine`, so the launch did not exercise a download-style first-open prompt.
+
 ## Version pair, 2026-10-01 4:02pm EDT
 
 `scripts/mac-archive-pair` on the same Nix binary, reading the two disk images already in Downloads on m4max. Mounts used `$HOME/tmp`. A mountpoint under `/tmp` returned `hdiutil: attach failed - Permission denied` after the image checksum verified. `--max-rss-bytes` was not passed: an earlier attempt exited immediately with `difz: cannot apply RSS ceiling (Invalid argument)` because `setrlimit(RLIMIT_AS)` returns `EINVAL` on this macOS. RSS below is `/usr/bin/time -l`.
