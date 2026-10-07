@@ -8,7 +8,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 FLAKE_REF="${FLAKE_REF:-$ROOT_DIR}"
 EXPECTED='["aarch64-darwin","aarch64-linux","x86_64-linux"]'
 EXPECTED_RANDOM_INPUTS='["random-luajit"]'
-EXPECTED_RANDOM_REV='7a3ee0fd511edd3819369a2691bc190541e20cbf'
+EXPECTED_RANDOM_REV='a758c902143f8f1dc08c3f33964b8fde7e4a2218'
 EXPECTED_CI_TEST_COMMAND='./test'
 EXPECTED_CI_BADGE='[![CI](https://github.com/pmarreck/difz/actions/workflows/ci.yml/badge.svg?branch=yolo)](https://github.com/pmarreck/difz/actions/workflows/ci.yml)'
 
