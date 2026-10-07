@@ -3,7 +3,7 @@
 ## Active
 
 - [x] Remeasure the shared-prefix rows and the Neovim AppImage pair with the `./bm` method. The August Validate ELFs were not available and were not rebuilt. (done 2026-10-07 9:40am EDT)
-- [ ] Split create time between the matcher and the `--compress best` probe, and record which of LZMA2, bzip2, and zstd the probe picks. Do this on an idle host.
+- [x] Split create time between the matcher and the `--compress best` probe. On a pinned seed, `best` matched LZMA2 or uncompressed, and the probe was the extra cost. (done 2026-10-07 10:08am EDT)
 - [x] Peter opened `/Users/Shared/difz-gk/Beamer.app` as testuser. The only prompt was a network Allow. Afterward the tree still had no xattrs, and codesign plus spctl still passed. (done 2026-10-06 1:47pm EDT) (context: docs/plan_context/mac-archive-oracle.md)
 - [ ] DIFZTREE v2 still owes ACLs, Finder flags, sparse extents, hardlink identity, birth-time sidecars, and `--omit-metadata`. (context: docs/plan_context/metadata-v2.md)
 - [x] DIFZTREE v2 carries logical and raw extended attributes, including attributes on the snapshot root, and restores them through xattr_stream. (done 2026-10-04 10:40am EDT) (context: docs/plan_context/metadata-v2.md)
