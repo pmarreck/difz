@@ -20,7 +20,7 @@ This 2026-08-28 run used an AMD Ryzen Threadripper 3990X and difz commit `fc72e2
 | Apply CPU time | 0.690 s | 0.460 s | 0.290 s | 0.210 s |
 | Patch size | 4,513,223 B | 398,412 B | 3,985,436 B | 6,031,834 B |
 
-The real pair produced 708,379 difz operations. Difz create peaked at 3,497,792 KiB RSS and apply peaked at 213,752 KiB. On this pair, difz created the patch faster than bsdiff but slower than xdelta3 and zstd; it applied slower than all three. Its patch was smaller than xdelta3 and zstd, while bsdiff's patch was 11.3 times smaller than difz's. These are single-run resource measurements; the full inputs, hashes, timings, and sizes are in `tests/benchmark/benchmark_log_v3.csv`.
+The real pair produced 708,379 difz operations. Difz create peaked at 3,497,792 KiB RSS and apply peaked at 213,752 KiB. On this pair, difz created the patch faster than bsdiff but slower than xdelta3 and zstd; it applied slower than all three. Its patch was 4,513,223 bytes, smaller than zstd's 6,031,834 and larger than xdelta3's 3,985,436. bsdiff's patch was 11.3 times smaller than difz's. These are single-run resource measurements; the full inputs, hashes, timings, and sizes are in `tests/benchmark/benchmark_log_v3.csv`. This Validate pair was not measured again on 2026-10-07. The published binaries are not current Nix outputs, and rebuilding those two commits still fetches sources that are private or redirected.
 
 ### Public Linux x86_64 AppImage pair (updater pilot)
 
@@ -34,6 +34,8 @@ The real pair produced 708,379 difz operations. Difz create peaked at 3,497,792 
 Difz create peaked at 413,760 KiB RSS; apply was 0.080 s / 30,772 KiB RSS. On this consecutive AppImage pair, difz, bsdiff, and xdelta3 patches are within 0.6% of each other; difz created ~10× faster than bsdiff. A second public pair, KeePassXC 2.7.9 → 2.7.10 (40.7 MB → 48.2 MB), produced a 47,174,594 B patch (97.86% of target) and was rejected by `--max-output-ratio 70` as designed.
 
 Rerun on 2026-10-03, same host and the same two hashes, ReleaseFast `difz` from this checkout. Create: difz 0.986 s and 426,220 KiB RSS, bsdiff 10.262 s, xdelta3 1.293 s, zstd 0.079 s. Patch bytes: difz 5,341,392 (48.50%), bsdiff 5,338,146, xdelta3 5,319,586, zstd 5,359,536. Apply: difz 0.059 s, bspatch 0.322 s, xdelta3 0.035 s, zstd 0.033 s. All four reconstructions matched the target. bsdiff and zstd patch sizes matched the September row exactly. Current difz emitted 2,119 operations and a patch 8,001 bytes smaller than the September difz patch. The pinned Validate ELF pair was not rerun. Those revisions predate the private-source seed. Their zigDeps step runs `zig build --fetch=all` with no credentials, and the anonymous `libjxlz` archive URL returns 404 because the repository is private. The commit is still there. Current Validate takes that source as a locked non-flake input, `git+ssh://git@github.com/pmarreck/libjxlz`, runs `zig fetch` on the store path, and only then runs `--fetch=all`. The Monkey's Audio SDK URL pinned by those same revisions now redirects to `notfound.html`.
+
+Rerun on 2026-10-07, same host and the same two hashes, ReleaseFast `difz` at `78a2358`. Create used the same three ceilings. difz created in 0.961 s at 398,180 KiB RSS and emitted 2,001 operations. Patch bytes: difz 5,341,213 (48.50% of the target), bsdiff 5,338,146, xdelta3 5,319,624, zstd 5,359,536. Apply: difz 0.061 s, bspatch 0.318 s, xdelta3 0.042 s, zstd 0.024 s. All four reconstructions matched the target. bsdiff, xdelta3, and zstd patch sizes match the 2026-09-29 row. The 2026-10-03 note listed xdelta3 at 5,319,586 bytes, and this run did not reproduce that figure.
 
 ### Historical shared-prefix snapshot
 
@@ -58,6 +60,8 @@ difz    131.7 ms ± 4.3 ms    7.93x slower than zstd
 bsdiff     2.30 s ± 0.13 s  138.42x slower than zstd
 ```
 
+A 2026-10-07 reproduction on this Threadripper, ReleaseFast `difz` at `78a2358`, used the same seeds. Every shared-prefix row and the interleaved row kept the August operation count. Each difz patch is 9 bytes larger than the 2026-08-28 row. bsdiff, xdelta3, and zstd sizes match those rows byte for byte. Hyperfine create on the 10 MiB, 90% pair (10 runs): zstd 49.4 ms ± 5.9 ms, xdelta3 307.0 ms ± 4.8 ms, difz 327.1 ms ± 13.2 ms, bsdiff 3.423 s ± 0.046 s. The harness flagged the single 20 MiB, 90% create sample, 1,045 ms wall and 870 ms CPU against 538 ms and 540 ms in August. The other shared-prefix create samples stayed near the August times. That one sample was not repeated. The full rows are in `tests/benchmark/benchmark_log_v3.csv`.
+
 ## How it works
 
 Two-stage algorithm:
@@ -66,7 +70,7 @@ Two-stage algorithm:
 
 2. **Elder/Myers O(ND) byte diff** — For gaps between matched chunks, a fine-grained byte-level diff produces compact Copy+Insert instructions. An edit distance cap prevents quadratic blowup on dissimilar regions.
 
-Output is encoded as source- and target-bound ZDIF v3 in [BLIP](https://github.com/pmarreck/BLIP) format with selectable compression (LZMA2, bzip2, LZ4, or none). The patch stores Gear CDC cut criteria (min, target, max, and bitmask) so inspect/apply can see how chunks were cut. By default (`--compress best`), LZMA2 and bzip2 are both tried and the smallest result is kept. LZ4 is available for speed-over-size use cases but is not included in `best` mode since it never wins on ratio. ZDIF v1 patches are rejected because that format has no cryptographic file identities.
+Output is encoded as source- and target-bound ZDIF v3 in [BLIP](https://github.com/pmarreck/BLIP) format with selectable compression (LZMA2, bzip2, LZ4, or none). The patch stores Gear CDC cut criteria (min, target, max, and bitmask) so inspect/apply can see how chunks were cut. By default (`--compress best`), LZMA2, bzip2, and zstd are each tried on a sample and the smallest one compresses the whole patch. The sample is the entire serialized patch below 384 KiB, and three 128 KiB slices (start, middle, end) above that. LZ4 is available for speed-over-size use cases but is not included in `best` mode. ZDIF v1 patches are rejected because that format has no cryptographic file identities.
 
 ## Usage
 
