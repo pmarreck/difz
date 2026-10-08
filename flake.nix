@@ -20,6 +20,11 @@
 			let
 				pkgs = import nixpkgs { inherit system; };
 				randomPackage = random.packages.${system}.random-luajit;
+				# Local Unix-only fix until the shared profiler supports long cases
+				# and kills the workload's children when its deadline expires.
+				performancePackage = performance-profiling.packages.${system}.default.overrideAttrs (old: {
+					patches = (old.patches or []) ++ [ ./nix/performance-profile-timeout.patch ];
+				});
 
 				# Single hash for the entire Zig dependency tree.
 				# To update: set to "" or pkgs.lib.fakeHash, run `nix build`,
@@ -112,6 +117,7 @@
 			{
 				packages.default = releaseFast;
 				packages.zstd-benchmark = zstdBenchmark;
+				packages.performance-benchmark = performancePackage;
 
 				checks = {
 					build = releaseFast;
@@ -140,8 +146,9 @@
 					benchmark-contract = pkgs.runCommand "difz-benchmark-contract"
 						{
 							nativeBuildInputs = with pkgs; [
-								bash coreutils file gnugrep gnused gawk time jq hyperfine randomPackage zstdBenchmark
+								bash coreutils file gnugrep gnused gawk time jq hyperfine luajit randomPackage zstdBenchmark
 							];
+							PERFORMANCE_PROCESS_MODULE = "${performancePackage}/share/performance-profile/src/process.lua";
 						} ''
 							cp -r ${./.} work
 							chmod -R u+w work
@@ -165,9 +172,11 @@
 						file
 						git
 						jq
-						performance-profiling.packages.${system}.default
+						luajit
+						performancePackage
 						randomPackage
 					];
+					PERFORMANCE_PROCESS_MODULE = "${performancePackage}/share/performance-profile/src/process.lua";
 				};
 			}
 		);

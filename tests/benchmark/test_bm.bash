@@ -439,12 +439,21 @@ if jq -e '
 	([.cases[].cores] | unique) == [1,12] and
 	([.cases[].command[2]] | unique) == ["cdc","zstd"] and
 	([.cases[].command[3]] | unique) == ["moved","replacement","scattered"] and
-	(.cases | length) == 12 and
-	all(.cases[]; .sizes == [1048576,2097152,4194304,8388608,16777216,33554432,67108864,134217728,268435456])
+	(.cases | length) == 108 and
+	([.cases[].sizes[]] | unique) == [1048576,2097152,4194304,8388608,16777216,33554432,67108864,134217728,268435456] and
+	all(.cases[]; (.sizes | length) == 1) and
+	([.cases[] | [.command[2],.command[3],.cores,.sizes[0]]] | unique | length) == 108
 ' "$ROOT_DIR/profiling.json" >/dev/null 2>&1; then
 	pass "engine matrix covers both engines, three edit patterns, nine sizes, and both core counts"
 else
 	fail "engine matrix covers both engines, three edit patterns, nine sizes, and both core counts"
+fi
+
+if luajit "$ROOT_DIR/tests/benchmark/test_profiler_timeout.lua" "${PERFORMANCE_PROCESS_MODULE:?profiler process module required}" \
+	> "$TEST_DIR/timeout.stdout" 2> "$TEST_DIR/timeout.stderr"; then
+	pass "profiler honors case deadlines and kills the complete workload group"
+else
+	fail "profiler honors case deadlines and kills the complete workload group"
 fi
 
 printf "\n%d tests, %d failures\n" "$TESTS" "$ERRORS"

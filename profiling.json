@@ -9,70 +9,8 @@
   },
   "cases": [
     {
-      "name": "cdc-scattered-1core",
-      "definition": "difz-engine-comparison-v1",
-      "cores": 1,
-      "mode": "bm",
-      "metric": "wall_ns",
-      "comparison": "absolute",
-      "bounds": [
-        1,
-        120000000000
-      ],
-      "command": [
-        "bash",
-        "tests/benchmark/engine_case.bash",
-        "cdc",
-        "scattered",
-        "{sizes}",
-        "{seed}"
-      ],
-      "sizes": [
-        1048576,
-        2097152,
-        4194304,
-        8388608,
-        16777216,
-        33554432,
-        67108864,
-        134217728,
-        268435456
-      ]
-    },
-    {
-      "name": "cdc-scattered-12core",
-      "definition": "difz-engine-comparison-v1",
-      "cores": 12,
-      "mode": "bm",
-      "metric": "wall_ns",
-      "comparison": "absolute",
-      "bounds": [
-        1,
-        120000000000
-      ],
-      "command": [
-        "bash",
-        "tests/benchmark/engine_case.bash",
-        "cdc",
-        "scattered",
-        "{sizes}",
-        "{seed}"
-      ],
-      "sizes": [
-        1048576,
-        2097152,
-        4194304,
-        8388608,
-        16777216,
-        33554432,
-        67108864,
-        134217728,
-        268435456
-      ]
-    },
-    {
-      "name": "cdc-moved-1core",
-      "definition": "difz-engine-comparison-v1",
+      "name": "cdc-moved-1core-1MiB",
+      "definition": "difz-engine-comparison-v2",
       "cores": 1,
       "mode": "bm",
       "metric": "wall_ns",
@@ -90,20 +28,35 @@
         "{seed}"
       ],
       "sizes": [
-        1048576,
-        2097152,
-        4194304,
-        8388608,
-        16777216,
-        33554432,
-        67108864,
-        134217728,
-        268435456
+        1048576
       ]
     },
     {
-      "name": "cdc-moved-12core",
-      "definition": "difz-engine-comparison-v1",
+      "name": "zstd-moved-1core-1MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576
+      ]
+    },
+    {
+      "name": "cdc-moved-12core-1MiB",
+      "definition": "difz-engine-comparison-v2",
       "cores": 12,
       "mode": "bm",
       "metric": "wall_ns",
@@ -121,20 +74,35 @@
         "{seed}"
       ],
       "sizes": [
-        1048576,
-        2097152,
-        4194304,
-        8388608,
-        16777216,
-        33554432,
-        67108864,
-        134217728,
-        268435456
+        1048576
       ]
     },
     {
-      "name": "cdc-replacement-1core",
-      "definition": "difz-engine-comparison-v1",
+      "name": "zstd-moved-12core-1MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576
+      ]
+    },
+    {
+      "name": "cdc-replacement-1core-1MiB",
+      "definition": "difz-engine-comparison-v2",
       "cores": 1,
       "mode": "bm",
       "metric": "wall_ns",
@@ -152,20 +120,35 @@
         "{seed}"
       ],
       "sizes": [
-        1048576,
-        2097152,
-        4194304,
-        8388608,
-        16777216,
-        33554432,
-        67108864,
-        134217728,
-        268435456
+        1048576
       ]
     },
     {
-      "name": "cdc-replacement-12core",
-      "definition": "difz-engine-comparison-v1",
+      "name": "zstd-replacement-1core-1MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576
+      ]
+    },
+    {
+      "name": "cdc-replacement-12core-1MiB",
+      "definition": "difz-engine-comparison-v2",
       "cores": 12,
       "mode": "bm",
       "metric": "wall_ns",
@@ -183,20 +166,58 @@
         "{seed}"
       ],
       "sizes": [
-        1048576,
-        2097152,
-        4194304,
-        8388608,
-        16777216,
-        33554432,
-        67108864,
-        134217728,
-        268435456
+        1048576
       ]
     },
     {
-      "name": "zstd-scattered-1core",
-      "definition": "difz-engine-comparison-v1",
+      "name": "zstd-replacement-12core-1MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576
+      ]
+    },
+    {
+      "name": "cdc-scattered-1core-1MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576
+      ]
+    },
+    {
+      "name": "zstd-scattered-1core-1MiB",
+      "definition": "difz-engine-comparison-v2",
       "cores": 1,
       "mode": "bm",
       "metric": "wall_ns",
@@ -214,20 +235,35 @@
         "{seed}"
       ],
       "sizes": [
-        1048576,
-        2097152,
-        4194304,
-        8388608,
-        16777216,
-        33554432,
-        67108864,
-        134217728,
-        268435456
+        1048576
       ]
     },
     {
-      "name": "zstd-scattered-12core",
-      "definition": "difz-engine-comparison-v1",
+      "name": "cdc-scattered-12core-1MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576
+      ]
+    },
+    {
+      "name": "zstd-scattered-12core-1MiB",
+      "definition": "difz-engine-comparison-v2",
       "cores": 12,
       "mode": "bm",
       "metric": "wall_ns",
@@ -245,20 +281,35 @@
         "{seed}"
       ],
       "sizes": [
-        1048576,
-        2097152,
-        4194304,
-        8388608,
-        16777216,
-        33554432,
-        67108864,
-        134217728,
-        268435456
+        1048576
       ]
     },
     {
-      "name": "zstd-moved-1core",
-      "definition": "difz-engine-comparison-v1",
+      "name": "cdc-moved-1core-2MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        2097152
+      ]
+    },
+    {
+      "name": "zstd-moved-1core-2MiB",
+      "definition": "difz-engine-comparison-v2",
       "cores": 1,
       "mode": "bm",
       "metric": "wall_ns",
@@ -276,20 +327,35 @@
         "{seed}"
       ],
       "sizes": [
-        1048576,
-        2097152,
-        4194304,
-        8388608,
-        16777216,
-        33554432,
-        67108864,
-        134217728,
-        268435456
+        2097152
       ]
     },
     {
-      "name": "zstd-moved-12core",
-      "definition": "difz-engine-comparison-v1",
+      "name": "cdc-moved-12core-2MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        2097152
+      ]
+    },
+    {
+      "name": "zstd-moved-12core-2MiB",
+      "definition": "difz-engine-comparison-v2",
       "cores": 12,
       "mode": "bm",
       "metric": "wall_ns",
@@ -307,20 +373,35 @@
         "{seed}"
       ],
       "sizes": [
-        1048576,
-        2097152,
-        4194304,
-        8388608,
-        16777216,
-        33554432,
-        67108864,
-        134217728,
-        268435456
+        2097152
       ]
     },
     {
-      "name": "zstd-replacement-1core",
-      "definition": "difz-engine-comparison-v1",
+      "name": "cdc-replacement-1core-2MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        2097152
+      ]
+    },
+    {
+      "name": "zstd-replacement-1core-2MiB",
+      "definition": "difz-engine-comparison-v2",
       "cores": 1,
       "mode": "bm",
       "metric": "wall_ns",
@@ -338,20 +419,35 @@
         "{seed}"
       ],
       "sizes": [
-        1048576,
-        2097152,
-        4194304,
-        8388608,
-        16777216,
-        33554432,
-        67108864,
-        134217728,
-        268435456
+        2097152
       ]
     },
     {
-      "name": "zstd-replacement-12core",
-      "definition": "difz-engine-comparison-v1",
+      "name": "cdc-replacement-12core-2MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        2097152
+      ]
+    },
+    {
+      "name": "zstd-replacement-12core-2MiB",
+      "definition": "difz-engine-comparison-v2",
       "cores": 12,
       "mode": "bm",
       "metric": "wall_ns",
@@ -369,14 +465,2030 @@
         "{seed}"
       ],
       "sizes": [
-        1048576,
-        2097152,
-        4194304,
-        8388608,
-        16777216,
-        33554432,
-        67108864,
-        134217728,
+        2097152
+      ]
+    },
+    {
+      "name": "cdc-scattered-1core-2MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        2097152
+      ]
+    },
+    {
+      "name": "zstd-scattered-1core-2MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        2097152
+      ]
+    },
+    {
+      "name": "cdc-scattered-12core-2MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        2097152
+      ]
+    },
+    {
+      "name": "zstd-scattered-12core-2MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        2097152
+      ]
+    },
+    {
+      "name": "cdc-moved-1core-4MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        4194304
+      ]
+    },
+    {
+      "name": "zstd-moved-1core-4MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        4194304
+      ]
+    },
+    {
+      "name": "cdc-moved-12core-4MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        4194304
+      ]
+    },
+    {
+      "name": "zstd-moved-12core-4MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        4194304
+      ]
+    },
+    {
+      "name": "cdc-replacement-1core-4MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        4194304
+      ]
+    },
+    {
+      "name": "zstd-replacement-1core-4MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        4194304
+      ]
+    },
+    {
+      "name": "cdc-replacement-12core-4MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        4194304
+      ]
+    },
+    {
+      "name": "zstd-replacement-12core-4MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        4194304
+      ]
+    },
+    {
+      "name": "cdc-scattered-1core-4MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        4194304
+      ]
+    },
+    {
+      "name": "zstd-scattered-1core-4MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        4194304
+      ]
+    },
+    {
+      "name": "cdc-scattered-12core-4MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        4194304
+      ]
+    },
+    {
+      "name": "zstd-scattered-12core-4MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        4194304
+      ]
+    },
+    {
+      "name": "cdc-moved-1core-8MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        8388608
+      ]
+    },
+    {
+      "name": "zstd-moved-1core-8MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        8388608
+      ]
+    },
+    {
+      "name": "cdc-moved-12core-8MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        8388608
+      ]
+    },
+    {
+      "name": "zstd-moved-12core-8MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        8388608
+      ]
+    },
+    {
+      "name": "cdc-replacement-1core-8MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        8388608
+      ]
+    },
+    {
+      "name": "zstd-replacement-1core-8MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        8388608
+      ]
+    },
+    {
+      "name": "cdc-replacement-12core-8MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        8388608
+      ]
+    },
+    {
+      "name": "zstd-replacement-12core-8MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        8388608
+      ]
+    },
+    {
+      "name": "cdc-scattered-1core-8MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        8388608
+      ]
+    },
+    {
+      "name": "zstd-scattered-1core-8MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        8388608
+      ]
+    },
+    {
+      "name": "cdc-scattered-12core-8MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        8388608
+      ]
+    },
+    {
+      "name": "zstd-scattered-12core-8MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        8388608
+      ]
+    },
+    {
+      "name": "cdc-moved-1core-16MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        16777216
+      ]
+    },
+    {
+      "name": "zstd-moved-1core-16MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        16777216
+      ]
+    },
+    {
+      "name": "cdc-moved-12core-16MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        16777216
+      ]
+    },
+    {
+      "name": "zstd-moved-12core-16MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        16777216
+      ]
+    },
+    {
+      "name": "cdc-replacement-1core-16MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        16777216
+      ]
+    },
+    {
+      "name": "zstd-replacement-1core-16MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        16777216
+      ]
+    },
+    {
+      "name": "cdc-replacement-12core-16MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        16777216
+      ]
+    },
+    {
+      "name": "zstd-replacement-12core-16MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        16777216
+      ]
+    },
+    {
+      "name": "cdc-scattered-1core-16MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        16777216
+      ]
+    },
+    {
+      "name": "zstd-scattered-1core-16MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        16777216
+      ]
+    },
+    {
+      "name": "cdc-scattered-12core-16MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        16777216
+      ]
+    },
+    {
+      "name": "zstd-scattered-12core-16MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        16777216
+      ]
+    },
+    {
+      "name": "cdc-moved-1core-32MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        33554432
+      ]
+    },
+    {
+      "name": "zstd-moved-1core-32MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        33554432
+      ]
+    },
+    {
+      "name": "cdc-moved-12core-32MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        33554432
+      ]
+    },
+    {
+      "name": "zstd-moved-12core-32MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        33554432
+      ]
+    },
+    {
+      "name": "cdc-replacement-1core-32MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        33554432
+      ]
+    },
+    {
+      "name": "zstd-replacement-1core-32MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        33554432
+      ]
+    },
+    {
+      "name": "cdc-replacement-12core-32MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        33554432
+      ]
+    },
+    {
+      "name": "zstd-replacement-12core-32MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        33554432
+      ]
+    },
+    {
+      "name": "cdc-scattered-1core-32MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        33554432
+      ]
+    },
+    {
+      "name": "zstd-scattered-1core-32MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        33554432
+      ]
+    },
+    {
+      "name": "cdc-scattered-12core-32MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        33554432
+      ]
+    },
+    {
+      "name": "zstd-scattered-12core-32MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        33554432
+      ]
+    },
+    {
+      "name": "cdc-moved-1core-64MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        67108864
+      ]
+    },
+    {
+      "name": "zstd-moved-1core-64MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        67108864
+      ]
+    },
+    {
+      "name": "cdc-moved-12core-64MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        67108864
+      ]
+    },
+    {
+      "name": "zstd-moved-12core-64MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        67108864
+      ]
+    },
+    {
+      "name": "cdc-replacement-1core-64MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        67108864
+      ]
+    },
+    {
+      "name": "zstd-replacement-1core-64MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        67108864
+      ]
+    },
+    {
+      "name": "cdc-replacement-12core-64MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        67108864
+      ]
+    },
+    {
+      "name": "zstd-replacement-12core-64MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        67108864
+      ]
+    },
+    {
+      "name": "cdc-scattered-1core-64MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        67108864
+      ]
+    },
+    {
+      "name": "zstd-scattered-1core-64MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        67108864
+      ]
+    },
+    {
+      "name": "cdc-scattered-12core-64MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        67108864
+      ]
+    },
+    {
+      "name": "zstd-scattered-12core-64MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        67108864
+      ]
+    },
+    {
+      "name": "cdc-moved-1core-128MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        134217728
+      ]
+    },
+    {
+      "name": "zstd-moved-1core-128MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        134217728
+      ]
+    },
+    {
+      "name": "cdc-moved-12core-128MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        134217728
+      ]
+    },
+    {
+      "name": "zstd-moved-12core-128MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        134217728
+      ]
+    },
+    {
+      "name": "cdc-replacement-1core-128MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        134217728
+      ]
+    },
+    {
+      "name": "zstd-replacement-1core-128MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        134217728
+      ]
+    },
+    {
+      "name": "cdc-replacement-12core-128MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        134217728
+      ]
+    },
+    {
+      "name": "zstd-replacement-12core-128MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        134217728
+      ]
+    },
+    {
+      "name": "cdc-scattered-1core-128MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        134217728
+      ]
+    },
+    {
+      "name": "zstd-scattered-1core-128MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        134217728
+      ]
+    },
+    {
+      "name": "cdc-scattered-12core-128MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        134217728
+      ]
+    },
+    {
+      "name": "zstd-scattered-12core-128MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        134217728
+      ]
+    },
+    {
+      "name": "cdc-moved-1core-256MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        268435456
+      ]
+    },
+    {
+      "name": "zstd-moved-1core-256MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        268435456
+      ]
+    },
+    {
+      "name": "cdc-moved-12core-256MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        268435456
+      ]
+    },
+    {
+      "name": "zstd-moved-12core-256MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        268435456
+      ]
+    },
+    {
+      "name": "cdc-replacement-1core-256MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        268435456
+      ]
+    },
+    {
+      "name": "zstd-replacement-1core-256MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        268435456
+      ]
+    },
+    {
+      "name": "cdc-replacement-12core-256MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        268435456
+      ]
+    },
+    {
+      "name": "zstd-replacement-12core-256MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        268435456
+      ]
+    },
+    {
+      "name": "cdc-scattered-1core-256MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        268435456
+      ]
+    },
+    {
+      "name": "zstd-scattered-1core-256MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        268435456
+      ]
+    },
+    {
+      "name": "cdc-scattered-12core-256MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        268435456
+      ]
+    },
+    {
+      "name": "zstd-scattered-12core-256MiB",
+      "definition": "difz-engine-comparison-v2",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
         268435456
       ]
     }

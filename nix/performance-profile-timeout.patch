@@ -1,0 +1,19 @@
+--- a/src/process.lua
++++ b/src/process.lua
+@@ -5,4 +5,4 @@
+ 	local stdin,stdout,stderr=uv.new_pipe(false),uv.new_pipe(false),uv.new_pipe(false)
+ 	local args={}; for i=2,#argv do args[i-1]=argv[i] end
+-	local rc,signal,timed_out,handle
++	local rc,signal,timed_out,handle,pid
+ 	local clock=options.clock or function() return tonumber(uv.hrtime()) end
+@@ -18,3 +18,3 @@
+-	handle=uv.spawn(argv[1],{args=args,cwd=options.cwd,env=env,stdio={stdin,stdout,stderr}},function(code,sig)
++	handle,pid=uv.spawn(argv[1],{args=args,cwd=options.cwd,env=env,stdio={stdin,stdout,stderr},detached=true},function(code,sig)
+ 		rc,signal=code,sig; timer:stop(); timer:close(); handle:close()
+ 	end)
+@@ -39,4 +39,4 @@
+-	timer:start(options.timeout_ms or 30000,0,function() timed_out=true; handle:kill('sigkill') end)
++	timer:start(options.timeout_ms or tonumber(os.getenv('PERFORMANCE_TIMEOUT_MS')) or 30000,0,function() timed_out=true; uv.kill(-pid,'sigkill') end)
+ 	uv.run()
+ 	return {rc=rc,signal=signal,stdout=table.concat(out),stderr=table.concat(err),timed_out=timed_out or false,ready_ns=ready_ns}
+ end

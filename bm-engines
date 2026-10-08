@@ -10,6 +10,7 @@ Measures CDC and zstd engines across sizes and edit patterns, on 1 and 12 cores.
 Exit 3 means valid unbaselined or inconclusive measurements; inspect the records.
 DIFZ_CDC / DIFZ_ZSTD override optimized executable paths.
 DIFZ_BENCH_HISTORY overrides the external history directory.
+PERFORMANCE_TIMEOUT_MS overrides the 600000 ms deadline for each complete case.
 EOF
 	exit 0
 fi
@@ -24,6 +25,7 @@ if [ -z "${DIFZ_ZSTD:-}" ]; then
 	DIFZ_ZSTD="$new_prefix/bin/difz"
 fi
 export DIFZ_CDC DIFZ_ZSTD
+export PERFORMANCE_TIMEOUT_MS="${PERFORMANCE_TIMEOUT_MS:-600000}"
 history="${DIFZ_BENCH_HISTORY:-$HOME/.local/state/performance-history}"
 mkdir -p "$history" || exit 1
 history="$(cd "$history" && pwd)" || exit 1
