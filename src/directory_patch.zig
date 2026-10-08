@@ -420,6 +420,7 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
         target_root = try metadata.decodeCanonical(arena_allocator, meta_bytes);
         if (hasOmittedMetadata(target_root, omit)) return error.OmittedMetadataPresent;
         if (target_root.isEmpty()) return error.BadMetadata;
+        try directory.validateRootMetadata(target_root);
     }
     if (reader.position != bytes.len) return error.TrailingData;
     try directory.validateSnapshot(snapshot_view);
@@ -1005,12 +1006,15 @@ test "omission flags reject contradictory entry and root payloads" {
     };
     target[0].meta = rich;
     target[0].meta.hardlink_to = null;
+    var root = rich;
+    root.holes = &.{};
+    root.hardlink_to = null;
     for ([_]bool{ false, true }) |on_root| {
         const bytes = try createPatch(testing.allocator, &empty, if (on_root) &empty else &target, .{
-            .target_root = if (on_root) rich else .{},
+            .target_root = if (on_root) root else .{},
         });
         defer testing.allocator.free(bytes);
-        for (0..6) |index| {
+        for (0..@as(usize, if (on_root) 4 else 6)) |index| {
             std.mem.writeInt(u32, bytes[12..16], @as(u32, @intFromBool(on_root)) | (@as(u32, 2) << @intCast(index)), .little);
             recomputeChecksum(bytes);
             try testing.expectError(error.OmittedMetadataPresent, applyPatch(testing.allocator, &empty, bytes, .{}));
@@ -1044,4 +1048,38 @@ test "hardlink operation stores a canonical path and expands by aliasing" {
     var without_links = try decodePatch(testing.allocator, omitted, .{});
     defer without_links.deinit();
     try testing.expectEqual(@as(u8, 4), @intFromEnum(without_links.entries[1].operation));
+}
+
+test "writer and preflight reject physical metadata on the directory root" {
+    const cases = [_]struct { meta: metadata.Metadata, expected: anyerror }{
+        .{ .meta = .{ .holes = &.{.{ .offset = 0, .length = 1 }} }, .expected = error.InvalidSparseExtent },
+        .{ .meta = .{ .hardlink_to = "canonical123" }, .expected = error.InvalidHardlinkRelation },
+    };
+    for (cases) |case| {
+        for ([_]bool{ false, true }) |on_target| {
+            if (createPatch(testing.allocator, &.{}, &.{}, .{
+                .source_root = if (on_target) .{} else case.meta,
+                .target_root = if (on_target) case.meta else .{},
+            })) |unexpected| {
+                testing.allocator.free(unexpected);
+                return error.InvalidRootAccepted;
+            } else |err| try testing.expectEqual(case.expected, err);
+        }
+        // Replace a valid, equally sized root record and recompute the checksum.
+        // Rejection must come from the root's object contract, not corruption.
+        const bytes = try createPatch(testing.allocator, &.{}, &.{}, .{
+            .target_root = .{ .xattrs = &.{.{ .class = .logical, .name = "comment", .value = "" }} },
+        });
+        defer testing.allocator.free(bytes);
+        const replacement = try metadata.encodeCanonical(testing.allocator, case.meta);
+        defer testing.allocator.free(replacement);
+        try testing.expectEqual(bytes.len - header_length - 4, replacement.len);
+        @memcpy(bytes[header_length + 4 ..], replacement);
+        recomputeChecksum(bytes);
+        if (readOptions(testing.allocator, bytes, .{})) |accepted| {
+            var unexpected = accepted;
+            unexpected.deinit();
+            return error.InvalidRootAccepted;
+        } else |err| try testing.expectEqual(case.expected, err);
+    }
 }

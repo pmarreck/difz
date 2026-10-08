@@ -123,7 +123,7 @@ metadata                    metadata_length canonical bytes
 
 When header bit 0 is set, the entries are followed by `u32 root_metadata_length` and a nonempty canonical target-root metadata record. The source root is hashed but not stored; apply obtains it from the source snapshot.
 
-Header bits 1 through 6 omit xattrs, ACLs, timestamps, Finder fields, sparse extents, and hardlinks, respectively. Bits 7 through 31 are reserved. A payload containing an omitted family is invalid, including in the root record.
+Header bits 1 through 6 omit xattrs, ACLs, timestamps, Finder fields, sparse extents, and hardlinks, respectively. Bits 7 through 31 are reserved. A payload containing an omitted family is invalid, including in the root record. Sparse extents and hardlink references are invalid on the directory root, regardless of omission settings; decoding rejects them before filesystem staging.
 
 Canonical metadata serializes xattrs, portable ACL entries, an optional origin-tagged native ACL, optional timestamps, Finder flags and information, sparse holes, and an optional hardlink path, in that order. Collection counts and byte lengths are u32; sparse offsets and lengths are u64; timestamps use signed i64 seconds and u32 nanoseconds. An empty canonical record is 20 zero bytes. See `src/metadata.zig` for the field layout and [metadata scope](plan_context/metadata-v2.md) for capture and restore decisions.
 
@@ -150,4 +150,4 @@ The C apply call returns a compromise mask only after publication; the CLI emits
 
 Create writes a temporary patch beside the requested output and renames it only after encoding succeeds. Apply requires a nonexistent output path, creates a uniquely named sibling staging directory, validates the complete patch and source identity, writes entries without following symlinks, and re-snapshots the stage. Any failure closes handles and removes only that owned staging path. A verified stage is renamed to the requested output path. The source remains unchanged, and replacing a live tree remains a separate caller action.
 
-The logical bundle contents, relative paths, symlink targets, portable modes, and currently supported metadata can round-trip exactly. Remaining native metadata work and updater qualification must pass before claiming filesystem equivalence for a notarized macOS `.app`.
+The logical bundle contents, relative paths, symlink targets, portable modes, and canonical metadata can round-trip exactly, including through reported transport fallbacks. Native filesystem qualification and updater qualification must pass before claiming filesystem equivalence for a notarized macOS `.app`.

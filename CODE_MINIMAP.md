@@ -47,6 +47,17 @@ All business logic lives in Zig, and the C CLI dogfoods the FFI. File diffing an
 - Deterministic no-follow snapshots with ordered PCRE2 filters
 - New sibling staging, independent post-write re-snapshot, non-replacing rename
 - Cleanup of owned stages, including read-only directory modes
+- Native metadata restore with verified transport fallbacks and per-apply compromise reporting
+
+### `src/metadata.zig`, `src/symlink_transport.zig` — Canonical metadata
+- Bounded canonical records, omission masks, and metadata identity
+- Parent-directory transport for symlink fields and explicit absence
+
+### `src/native_stat.zig`, `src/native_acl.zig`, `src/native_finder.zig`, `src/native_sparse.zig` — Native metadata ports
+- No-follow file identity and birth time
+- Linux access/default ACLs, macOS extended ACLs, and Windows DACLs
+- macOS Finder information and staging-safe BSD flags
+- Sparse extent queries and hole punching with readback verification
 
 ### `src/path_filter.zig`, `src/glob.zig`, `src/pcre2.zig` — Path classifier
 - dirtree-compatible glob conversion and PCRE2 matching
@@ -73,8 +84,8 @@ All business logic lives in Zig, and the C CLI dogfoods the FFI. File diffing an
 
 ## Scripts
 
-- `build` — `nix develop -c zig build` (ReleaseFast default, `--test`/`--debug` flags)
-- `test` — runs Zig unit tests + CLI integration tests, accumulates errors
+- `build` — optimized Nix build by default; `debug` selects a direct Zig Debug build
+- `test` — required host metadata tests and default CLI path, Nix unit/CLI/installed-C checks, benchmark contracts, and Windows cross-build; accumulates failures
 - `bm` — benchmark suite: hyperfine stats, difz vs bsdiff vs xdelta3, regression detection
 
 ## Test Suites

@@ -92,3 +92,9 @@ Capture validates transported references against the complete snapshot, then gro
 Apply first attempts native linking. Unsupported linking, permission restrictions, cross-device errors, and link-count limits permit a copy fallback. Storage exhaustion and unrelated errors remain failures. Each copied alias stores a canonical metadata record containing only `hardlink_to` in `difz.hardlink-to`. Readback validates the group and the complete staged identity before publication. The CLI reports the copy compromise once per apply. Failure to store the transport fails apply.
 
 Linux tests inject unsupported linking, independently confirm distinct inodes for the resulting copies, check canonical readback and omission, and exercise every allocation failure with stage cleanup. Pure tests exhaust all 32 subsets of two interleaved groups and classify the complete native linking error set.
+
+## Validation, 2026-10-08
+
+The complete `./test` entry point passed, including required host metadata assertions, the default CLI metadata path, sandbox unit and CLI checks, the installed C consumer, benchmark contracts, and the Windows x86_64 build. The root-metadata regression first reproduced acceptance of regular-file-only fields, then verified rejection by both writer and preflight reader with a recomputed valid patch checksum.
+
+ReleaseFast builds passed for Linux x86_64 and aarch64, macOS aarch64, and Windows x86_64 and aarch64. Native metadata runtime assertions ran on Linux x86_64. Cross-build success does not qualify native Mac or Windows filesystem behavior; those host runs and macOS updater qualification remain separate work.

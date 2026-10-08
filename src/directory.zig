@@ -120,6 +120,7 @@ pub fn treeHash(entries: []const Entry) SnapshotError![32]u8 {
 pub fn treeHashWithRoot(entries: []const Entry, root: metadata.Metadata) SnapshotError![32]u8 {
     try validateSnapshot(entries);
     try validateMetadataRelations(entries);
+    try validateRootMetadata(root);
     var hasher = std.crypto.hash.Blake3.init(.{});
     hasher.update("DIFZTREE-ID\x02");
     hashInt(&hasher, u32, @intCast(entries.len));
@@ -158,6 +159,11 @@ fn findPath(entries: []const Entry, path: []const u8) ?usize {
     return null;
 }
 
+pub fn validateRootMetadata(root: metadata.Metadata) SnapshotError!void {
+    if (root.holes.len != 0) return error.InvalidSparseExtent;
+    if (root.hardlink_to != null) return error.InvalidHardlinkRelation;
+}
+
 /// Requires expanded file bytes. Encoded deltas cannot satisfy this boundary.
 pub fn validateMetadataRelations(entries: []const Entry) SnapshotError!void {
     for (entries, 0..) |entry, index| {
@@ -186,6 +192,15 @@ fn hashInt(hasher: *std.crypto.hash.Blake3, comptime T: type, value: T) void {
     var bytes: [@sizeOf(T)]u8 = undefined;
     std.mem.writeInt(T, &bytes, value, .little);
     hasher.update(&bytes);
+}
+
+test "directory roots reject metadata reserved for regular files" {
+    try testing.expectError(error.InvalidSparseExtent, treeHashWithRoot(&.{}, .{
+        .holes = &.{.{ .offset = 0, .length = 1 }},
+    }));
+    try testing.expectError(error.InvalidHardlinkRelation, treeHashWithRoot(&.{}, .{
+        .hardlink_to = "canonical123",
+    }));
 }
 
 test "hardlink references classify complete snapshot relations" {

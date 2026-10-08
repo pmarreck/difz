@@ -67,4 +67,4 @@ difz --about
 
 ## Status
 
-v0.1.0: file and directory diff/patch paths are functional. DIFZTREE v2 is the sole directory codec, with canonical records for every metadata family. The filesystem adapter currently restores xattrs and mtime; remaining native metadata and transport work is tracked in `PLAN.md` and `docs/plan_context/metadata-v2.md`. macOS updater qualification remains a separate requirement.
+v0.1.0: file and directory diff/patch paths are functional. DIFZTREE v2 is the sole directory codec. The filesystem adapter captures and restores xattrs, ACLs, mtime, birth time, Finder fields, sparse extents, hardlink groups, and snapshot-root metadata. Unsupported native forms use verified transport with compromise reporting, including parent-directory transport for symlinks. Linux runtime tests cover native operations and fallbacks; Mac and Windows filesystem behavior still needs native host qualification. See `docs/plan_context/metadata-v2.md` for scope and limits. macOS updater qualification remains a separate requirement.
