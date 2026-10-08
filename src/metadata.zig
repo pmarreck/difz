@@ -149,6 +149,7 @@ pub const CompromiseCode = enum(u8) {
     hardlink_copied = 7,
     raw_xattr_preserved = 8,
     symlink_metadata_preserved = 9,
+    modification_time_preserved = 10,
 };
 
 /// Per-apply effects, reported only after the verified tree is published.
@@ -199,6 +200,7 @@ pub const MetaError = error{
 /// Sidecar attribute names. Snapshot must not treat these as user xattrs.
 pub const transport_names = [_][]const u8{
     "difz.btime",
+    "difz.mtime",
     "difz.finder-info",
     "difz.bsd-flags",
     "difz.native-acl",
@@ -245,6 +247,79 @@ pub fn parseOmit(text: []const u8) MetaError!Omit {
         }
     }
     return omit;
+}
+
+pub fn encodeTimeOverride(value: ?Time, buffer: *[13]u8) MetaError![]const u8 {
+    try validateTime(value);
+    buffer[0] = @intFromBool(value != null);
+    if (value) |time| {
+        std.mem.writeInt(i64, buffer[1..9], time.sec, .little);
+        std.mem.writeInt(u32, buffer[9..13], time.nsec, .little);
+        return buffer;
+    }
+    return buffer[0..1];
+}
+
+pub fn decodeTimeOverride(bytes: []const u8) MetaError!?Time {
+    if (bytes.len == 1 and bytes[0] == 0) return null;
+    if (bytes.len != 13 or bytes[0] != 1) return error.BadMetadata;
+    const value: Time = .{ .sec = std.mem.readInt(i64, bytes[1..9], .little), .nsec = std.mem.readInt(u32, bytes[9..13], .little) };
+    try validateTime(value);
+    return value;
+}
+
+pub const ModificationOverride = struct { original: ?Time, observed: Time };
+
+pub fn encodeModificationOverride(value: ModificationOverride, buffer: *[25]u8) MetaError![]const u8 {
+    var original: [13]u8 = undefined;
+    const bytes = try encodeTimeOverride(value.original, &original);
+    try validateTime(value.observed);
+    @memcpy(buffer[0..bytes.len], bytes);
+    std.mem.writeInt(i64, buffer[bytes.len..][0..8], value.observed.sec, .little);
+    std.mem.writeInt(u32, buffer[bytes.len + 8 ..][0..4], value.observed.nsec, .little);
+    return buffer[0 .. bytes.len + 12];
+}
+
+pub fn decodeModificationOverride(bytes: []const u8) MetaError!ModificationOverride {
+    if (bytes.len != 13 and bytes.len != 25) return error.BadMetadata;
+    const prefix = bytes.len - 12;
+    const original = try decodeTimeOverride(bytes[0..prefix]);
+    const observed: Time = .{ .sec = std.mem.readInt(i64, bytes[prefix..][0..8], .little), .nsec = std.mem.readInt(u32, bytes[prefix + 8 ..][0..4], .little) };
+    try validateTime(observed);
+    return .{ .original = original, .observed = observed };
+}
+
+test "mtime transport binds the original value to the observed native stamp" {
+    for ([_]?Time{ null, .{ .sec = std.math.maxInt(i64), .nsec = 999_999_999 } }) |original| {
+        const value: ModificationOverride = .{ .original = original, .observed = .{ .sec = -1, .nsec = 4 } };
+        var buffer: [25]u8 = undefined;
+        const bytes = try encodeModificationOverride(value, &buffer);
+        try testing.expectEqualDeep(value, try decodeModificationOverride(bytes));
+        for (0..bytes.len) |length| {
+            if (decodeModificationOverride(bytes[0..length])) |_| return error.TruncationAccepted else |_| {}
+        }
+    }
+}
+
+test "timestamp transport preserves presence signed seconds and nanosecond boundaries" {
+    const values = [_]?Time{ null, .{}, .{ .sec = -1, .nsec = 999_999_999 }, .{ .sec = std.math.minInt(i64) }, .{ .sec = std.math.maxInt(i64), .nsec = 999_999_999 } };
+    for (values) |value| {
+        var buffer: [13]u8 = undefined;
+        const bytes = try encodeTimeOverride(value, &buffer);
+        try testing.expectEqual(if (value == null) @as(usize, 1) else 13, bytes.len);
+        const decoded = try decodeTimeOverride(bytes);
+        try testing.expectEqualDeep(value, decoded);
+        var again: [13]u8 = undefined;
+        try testing.expectEqualSlices(u8, bytes, try encodeTimeOverride(decoded, &again));
+    }
+    var wire = [_]u8{1} ++ [_]u8{0xff} ** 8 ++ [_]u8{ 0xff, 0xc9, 0x9a, 0x3b };
+    try testing.expectEqualDeep(@as(?Time, .{ .sec = -1, .nsec = 999_999_999 }), try decodeTimeOverride(&wire));
+    for (0..13) |length| try testing.expectError(error.BadMetadata, decodeTimeOverride(wire[0..length]));
+    wire[0] = 2;
+    try testing.expectError(error.BadMetadata, decodeTimeOverride(&wire));
+    wire[0] = 1;
+    std.mem.writeInt(u32, wire[9..13], 1_000_000_000, .little);
+    try testing.expectError(error.InvalidNsec, decodeTimeOverride(&wire));
 }
 
 /// Sort and validate a metadata record. `allocator` should be an arena: an
@@ -459,6 +534,7 @@ pub fn planRestore(meta: Metadata, caps: Caps) MetaError!Plan {
 
 pub fn compromiseText(compromise: Compromise, buf: []u8) []const u8 {
     switch (compromise.code) {
+        .modification_time_preserved => return "modification-time metadata was preserved in difz.mtime",
         .symlink_metadata_preserved => return "symlink metadata was preserved in difz.symlinks on the parent directory",
         .native_acl_preserved => {
             const which = switch (compromise.origin orelse .windows) {

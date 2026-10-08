@@ -67,6 +67,8 @@ static const struct {
 	const char *omit_directories_only;
 	const char *raw_xattrs_preserved;
 	const char *symlink_metadata_preserved;
+	const char *birth_time_preserved;
+	const char *modification_time_preserved;
 } metadata_messages = {
 	"  --omit-metadata <list>  Omit xattr,acl,timestamps,finder,sparse,hardlink\n",
 	"difz: --omit-metadata requires a nonempty comma-separated list\n",
@@ -74,7 +76,9 @@ static const struct {
 	"difz: --omit-metadata is stored when a directory patch is created\n",
 	"difz: --omit-metadata requires directory inputs\n",
 	"difz: warning: raw attributes were preserved in difz.raw-xattrs\n",
-	"difz: warning: symlink metadata was preserved in difz.symlinks on the parent directory\n"
+	"difz: warning: symlink metadata was preserved in difz.symlinks on the parent directory\n",
+	"difz: warning: birth-time metadata was preserved in difz.btime\n",
+	"difz: warning: modification-time metadata was preserved in difz.mtime\n"
 };
 
 static void print_usage(FILE *out) {
@@ -491,6 +495,8 @@ static int run_directory_patch(
 	if (rc == 0) {
 		if (compromises & DIFZ_COMPROMISE_RAW_XATTR) fputs(metadata_messages.raw_xattrs_preserved, stderr);
 		if (compromises & DIFZ_COMPROMISE_SYMLINK) fputs(metadata_messages.symlink_metadata_preserved, stderr);
+		if (compromises & DIFZ_COMPROMISE_BIRTH_TIME) fputs(metadata_messages.birth_time_preserved, stderr);
+		if (compromises & DIFZ_COMPROMISE_MTIME) fputs(metadata_messages.modification_time_preserved, stderr);
 	}
 	return rc == 0 ? 0 : 1;
 }

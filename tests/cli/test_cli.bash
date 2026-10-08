@@ -587,6 +587,12 @@ fi
 
 printf "\n[Directory diff + staged patch]\n"
 
+TREE_SCOPE_OPTIONS=()
+if [ "${DIFZ_TEST_DIRECTORY_OMIT:-}" != "" ]; then
+	TREE_SCOPE_OPTIONS=(--omit-metadata "$DIFZ_TEST_DIRECTORY_OMIT")
+	printf 'Directory round trips omit %s in this environment; ./test also requires default metadata on the host.\n' "$DIFZ_TEST_DIRECTORY_OMIT"
+fi
+
 mkdir -p "$TEST_DIR/empty source" "$TEST_DIR/empty target"
 EMPTY_TREE_ERR=$("$DIFZ" --no-progress "$TEST_DIR/empty source" "$TEST_DIR/empty target" -o "$TEST_DIR/empty-tree.patch" 2>&1)
 EMPTY_TREE_RC=$?
@@ -686,6 +692,7 @@ ln -s bin "$TEST_DIR/tree target/current"
 chmod 711 "$TEST_DIR/tree target/empty"
 
 TREE_DIFF_STDERR=$("$DIFZ" --no-progress \
+	"${TREE_SCOPE_OPTIONS[@]}" \
 	"$TEST_DIR/tree source" "$TEST_DIR/tree target" -o "$TEST_DIR/tree.patch" 2>&1)
 TREE_DIFF_RC=$?
 if [ $TREE_DIFF_RC -eq 0 ] && [ -s "$TEST_DIR/tree.patch" ]; then
@@ -702,6 +709,7 @@ else
 fi
 
 TREE_DIFF_2_STDERR=$("$DIFZ" --no-progress \
+	"${TREE_SCOPE_OPTIONS[@]}" \
 	"$TEST_DIR/tree source" "$TEST_DIR/tree target" -o "$TEST_DIR/tree-2.patch" 2>&1)
 TREE_DIFF_2_RC=$?
 if [ $TREE_DIFF_2_RC -eq 0 ] && cmp -s "$TEST_DIR/tree.patch" "$TEST_DIR/tree-2.patch"; then
@@ -786,6 +794,7 @@ printf 'old cache\n' > "$TEST_DIR/filter source/kept/cache.tmp"
 printf 'new\n' > "$TEST_DIR/filter target/kept/data.txt"
 printf 'new cache\n' > "$TEST_DIR/filter target/kept/cache.tmp"
 FILTER_DIFF_STDERR=$("$DIFZ" --no-progress --allow 'kept/**' --deny '**/*.tmp' \
+	"${TREE_SCOPE_OPTIONS[@]}" \
 	"$TEST_DIR/filter source" "$TEST_DIR/filter target" -o "$TEST_DIR/filter.patch" 2>&1)
 FILTER_DIFF_RC=$?
 FILTER_PATCH_STDERR=$("$DIFZ" --patch --no-progress \

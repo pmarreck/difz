@@ -102,7 +102,9 @@
 						if ! zig build test -Doptimize=${optimize} 2>&1; then
 							errors=$((errors + 1))
 						fi
-					if ! DIFZ="$out/bin/difz" DIFZ_PREBUILT=1 bash tests/cli/test_cli.bash; then
+					# The sandbox can prohibit xattr writes needed for Linux birth time.
+					# ./test requires the default metadata path through the host CLI too.
+					if ! DIFZ="$out/bin/difz" DIFZ_PREBUILT=1 DIFZ_TEST_DIRECTORY_OMIT=timestamps bash tests/cli/test_cli.bash; then
 						errors=$((errors + 1))
 					fi
 					if ! DIFZ_PREFIX="$out" bash tests/ffi/test_installed_lib.bash; then

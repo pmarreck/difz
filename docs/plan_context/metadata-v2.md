@@ -27,11 +27,11 @@ The v2 hash includes it, and the staged tree has to match the publisher hash. ta
 
 Apply sets mtime last, on the object itself, after bytes, xattrs, ACLs, and hole punches. Symlinks are updated without following them. A directory's mtime is set after its children exist. Hardlinked names share one stamp, set on the canonical file. A timestamp-only change uses `file_copy` (bytes taken from the source tree, empty payload) plus the metadata record.
 
-Linux snapshot and apply do this for files, directories, and symlinks. The filesystem test checks the applied stamps with `stat`. When the reconstructed tree carries metadata, the staged-tree check uses the v2 hash. Birth time is not captured on this path yet.
+Snapshot and apply cover files, directories, symlinks, and the snapshot root. Filesystem tests check applied stamps with `stat`, and the staged-tree check always uses the v2 hash. Linux birth time comes from `statx` when available; macOS and Windows use their native metadata APIs. Runtime assertions currently run on Linux; native Mac and Windows setters have cross-build coverage.
 
-Birth time is recorded. macOS and Windows set it natively. Linux writes `difz.btime` and warns once per apply. Capture prefers that sidecar over the kernel birth time.
+Birth time is recorded. macOS and Windows attempt native setters and verify readback. Linux writes `difz.btime` and warns once per apply. Capture prefers that sidecar over the kernel birth time. The sidecar explicitly represents either absence or signed seconds plus nanoseconds; it can suppress a new inode's birth time when the original recorded none. Symlinks use parent transport for the same purpose.
 
-When the volume's tick is coarser than the stored nanoseconds (NTFS 100 ns, exFAT 10 ms, HFS+ 1 s, FAT 2 s), apply keeps the value the volume stored, writes the original to `difz.mtime`, and warns once. Capture prefers the sidecar, so the staged hash still matches, and a later apply onto ext4, btrfs, xfs, or APFS can restore the original. Those four already store the nanoseconds directly, so the sidecar stays absent there.
+When a volume cannot represent the requested timestamp, apply keeps the native value, preserves the original in `difz.mtime`, and warns once. The transport also records the native stamp observed during restore. Capture uses the original only while that stamp still matches; changing the native timestamp invalidates the stale sidecar and causes source verification to fail. The host regression uses an out-of-range timestamp on a read-only file to exercise this fallback and then checks rejection after a native timestamp change. The pure Windows mapping test checks 100 ns precision; other volume granularities require runtime qualification on those filesystems.
 
 ## Omit
 
@@ -47,11 +47,11 @@ Snapshot and apply call `xattr_stream` with `follow_symlinks = false`. A name `f
 
 Logical names are set on apply. A failure there fails the apply. A raw name this OS rejects, or a raw set that returns permission or unsupported, is packed into `difz.raw-xattrs` with one stderr line. Values above 64 KiB fail the snapshot (`error.TooLarge`) rather than being dropped.
 
-The filesystem root record is xattrs only. Root mtime, mode, and the other families are not captured on this path. Child mtimes are still written last, after content, permissions, and xattrs, because `setxattr` can bump mtime. The staged check hashes entries and the root record together.
+The filesystem root record includes xattrs, mtime, and birth time. Root mode and the remaining native families are not captured on this path yet. Timestamp transport is stored while objects are writable, then final permissions are applied. Directory times follow child writes. The staged check hashes entries and the root record together.
 
 The 2026-10-04 host tests cover a logical `comment` and a raw quarantine name on a file, and the same pair on the snapshot root, through create and apply. On macOS the root also carries `com.apple.provenance` and `com.apple.macl`. The quarantine name is `com.apple.quarantine` there and `user.com.apple.quarantine` on Linux. Writing a quarantine attribute that was not on the source is not part of this path.
 
-`./test` requires the host filesystem metadata suite as well as the Nix checks. It sets `DIFZ_REQUIRE_XATTR_TESTS=1` for the host run, so unsupported xattrs fail the complete entry point. In the Nix sandbox, a filesystem without xattrs reports those cases as skipped rather than silently passing them. The host run supplies the required real-adapter assertions; pure patch tests also run in the sandbox.
+`./test` requires the host filesystem metadata suite and the default CLI path as well as the Nix checks. It sets `DIFZ_REQUIRE_XATTR_TESTS=1` for the host unit run, so unsupported xattrs fail the complete entry point. In the Nix sandbox, a filesystem without xattrs reports metadata-dependent unit cases as skipped. The sandbox CLI round trips explicitly omit timestamps because Linux birth-time preservation requires attribute writes; the required host CLI round trips keep default metadata. Pure patch tests also run in the sandbox. This split keeps sandbox limitations visible while requiring the complete metadata path on the host.
 
 ## Best-effort restore
 

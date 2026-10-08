@@ -82,7 +82,8 @@ enum difz_metadata_compromise {
 	DIFZ_COMPROMISE_SPARSE = 32,
 	DIFZ_COMPROMISE_HARDLINK = 64,
 	DIFZ_COMPROMISE_RAW_XATTR = 128,
-	DIFZ_COMPROMISE_SYMLINK = 256
+	DIFZ_COMPROMISE_SYMLINK = 256,
+	DIFZ_COMPROMISE_MTIME = 512
 };
 
 /* Apply a DIFZTREE patch into a new output directory through a verified,

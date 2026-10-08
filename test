@@ -15,6 +15,11 @@ if ! nix develop -c env DIFZ_REQUIRE_XATTR_TESTS=1 zig build test -Doptimize=Deb
 	errors=$((errors + 1))
 fi
 
+# Exercise default directory metadata through the C boundary on the host.
+if ! nix develop -c env -u DIFZ_TEST_DIRECTORY_OMIT DIFZ_PREBUILT=0 DIFZ=./zig-out/bin/difz bash tests/cli/test_cli.bash; then
+	errors=$((errors + 1))
+fi
+
 system="$(nix eval --impure --raw --expr builtins.currentSystem)"
 if ! nix build -L \
 	".#checks.${system}.test" \

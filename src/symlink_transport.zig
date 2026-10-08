@@ -7,7 +7,7 @@ pub const attribute = "difz.symlinks";
 pub const max_bytes = 65_536;
 const magic = "DIFZLINK\x01";
 
-pub const Record = struct { name: []const u8, meta: metadata.Metadata };
+pub const Record = struct { name: []const u8, meta: metadata.Metadata, absent_times: u8 = 0, observed_mtime: ?metadata.Time = null };
 pub const Decoded = struct {
     arena: std.heap.ArenaAllocator,
     records: []Record,
@@ -19,7 +19,7 @@ pub const Decoded = struct {
 };
 
 pub fn encode(allocator: std.mem.Allocator, records: []const Record) ![]u8 {
-    if (records.len > (max_bytes - magic.len - 4) / 29) return error.TransportTooLarge;
+    if (records.len > (max_bytes - magic.len - 4) / 31) return error.TransportTooLarge;
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     var bytes: std.ArrayListUnmanaged(u8) = .empty;
@@ -32,10 +32,14 @@ pub fn encode(allocator: std.mem.Allocator, records: []const Record) ![]u8 {
         const canonical = try metadata.canonicalize(arena.allocator(), record.meta, .{});
         const blob = try metadata.encodeCanonical(allocator, canonical);
         defer allocator.free(blob);
-        const needed = std.math.add(usize, 8 + record.name.len, blob.len) catch return error.TransportTooLarge;
+        var time_buffer: [13]u8 = undefined;
+        const observed = try metadata.encodeTimeOverride(record.observed_mtime, &time_buffer);
+        const needed = std.math.add(usize, 9 + observed.len + record.name.len, blob.len) catch return error.TransportTooLarge;
         if (needed > max_bytes - bytes.items.len) return error.TransportTooLarge;
         try appendInt(allocator, &bytes, @intCast(record.name.len));
         try appendInt(allocator, &bytes, @intCast(blob.len));
+        try bytes.append(allocator, record.absent_times);
+        try bytes.appendSlice(allocator, observed);
         try bytes.appendSlice(allocator, record.name);
         try bytes.appendSlice(allocator, blob);
     }
@@ -48,20 +52,26 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !Decoded {
     var reader = Reader{ .bytes = bytes };
     if (!std.mem.eql(u8, try reader.take(magic.len), magic)) return error.InvalidTransport;
     const count = try reader.readInt();
-    if (count > (bytes.len - reader.position) / 29) return error.InvalidTransport;
+    if (count > (bytes.len - reader.position) / 31) return error.InvalidTransport;
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
     const records = try arena.allocator().alloc(Record, count);
     for (records, 0..) |*record, index| {
         const name_len = try reader.readInt();
         const meta_len = try reader.readInt();
+        const absent_times = (try reader.take(1))[0];
+        const time_start = reader.position;
+        const presence = (try reader.take(1))[0];
+        if (presence > 1) return error.InvalidTransport;
+        if (presence == 1) _ = try reader.take(12);
+        const observed = metadata.decodeTimeOverride(bytes[time_start..reader.position]) catch return error.InvalidTransport;
         const name = try reader.take(name_len);
         const blob = try reader.take(meta_len);
         const meta = metadata.decodeCanonical(arena.allocator(), blob) catch |err| switch (err) {
             error.OutOfMemory => return err,
             else => return error.InvalidTransport,
         };
-        record.* = .{ .name = name, .meta = meta };
+        record.* = .{ .name = name, .meta = meta, .absent_times = absent_times, .observed_mtime = observed };
         try validateRecord(record.*);
         if (index > 0 and std.mem.order(u8, records[index - 1].name, name) != .lt) return error.InvalidTransport;
     }
@@ -70,8 +80,14 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !Decoded {
 }
 
 fn validateRecord(record: Record) !void {
+    const keeps_mtime = record.meta.times.mtime != null or record.absent_times & 1 != 0;
+    if (keeps_mtime != (record.observed_mtime != null)) return error.InvalidTransport;
     directory.validatePath(record.name) catch return error.InvalidTransport;
-    if (std.mem.indexOfScalar(u8, record.name, '/') != null or record.meta.isEmpty() or
+    if (record.absent_times & ~@as(u8, 7) != 0 or
+        (record.absent_times & 1 != 0 and record.meta.times.mtime != null) or
+        (record.absent_times & 2 != 0 and record.meta.times.atime != null) or
+        (record.absent_times & 4 != 0 and record.meta.times.btime != null)) return error.InvalidTransport;
+    if (std.mem.indexOfScalar(u8, record.name, '/') != null or (record.meta.isEmpty() and record.absent_times == 0) or
         record.meta.holes.len != 0 or record.meta.hardlink_to != null) return error.InvalidTransport;
 }
 
@@ -163,6 +179,20 @@ test "parent transport decoder rejects forged order names and version" {
     try testing.expectError(error.InvalidTransport, decode(testing.allocator, bytes));
     bytes[magic.len - 1] = 2;
     try testing.expectError(error.InvalidTransport, decode(testing.allocator, bytes));
+}
+
+test "parent transport can preserve absent timestamps independently of native values" {
+    const records = [_]Record{.{ .name = "a", .meta = .{}, .absent_times = 5, .observed_mtime = .{ .sec = 42 } }};
+    const bytes = try encode(testing.allocator, &records);
+    defer testing.allocator.free(bytes);
+    var decoded = try decode(testing.allocator, bytes);
+    defer decoded.deinit();
+    try testing.expectEqual(@as(u8, 5), decoded.records[0].absent_times);
+    try testing.expect(decoded.records[0].meta.isEmpty());
+    for ([_]u8{ 8, 128, 255 }) |flags| {
+        try testing.expectError(error.InvalidTransport, encode(testing.allocator, &.{.{ .name = "a", .meta = .{}, .absent_times = flags }}));
+    }
+    try testing.expectError(error.InvalidTransport, encode(testing.allocator, &.{.{ .name = "a", .meta = fixture[0].meta, .absent_times = 4 }}));
 }
 
 test "parent transport rejects truncation trailing bytes and impossible counts without leaks" {
