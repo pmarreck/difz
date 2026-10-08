@@ -7,7 +7,7 @@ pub const attribute = "difz.symlinks";
 pub const max_bytes = 65_536;
 const magic = "DIFZLINK\x01";
 
-pub const Record = struct { name: []const u8, meta: metadata.Metadata, absent_times: u8 = 0, observed_mtime: ?metadata.Time = null };
+pub const Record = struct { name: []const u8, meta: metadata.Metadata, absent_times: u8 = 0, observed_mtime: ?metadata.Time = null, acl_override: bool = false };
 pub const Decoded = struct {
     arena: std.heap.ArenaAllocator,
     records: []Record,
@@ -38,7 +38,7 @@ pub fn encode(allocator: std.mem.Allocator, records: []const Record) ![]u8 {
         if (needed > max_bytes - bytes.items.len) return error.TransportTooLarge;
         try appendInt(allocator, &bytes, @intCast(record.name.len));
         try appendInt(allocator, &bytes, @intCast(blob.len));
-        try bytes.append(allocator, record.absent_times);
+        try bytes.append(allocator, record.absent_times | (@as(u8, @intFromBool(record.acl_override)) << 3));
         try bytes.appendSlice(allocator, observed);
         try bytes.appendSlice(allocator, record.name);
         try bytes.appendSlice(allocator, blob);
@@ -59,7 +59,8 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !Decoded {
     for (records, 0..) |*record, index| {
         const name_len = try reader.readInt();
         const meta_len = try reader.readInt();
-        const absent_times = (try reader.take(1))[0];
+        const flags = (try reader.take(1))[0];
+        if (flags & 0xf0 != 0) return error.InvalidTransport;
         const time_start = reader.position;
         const presence = (try reader.take(1))[0];
         if (presence > 1) return error.InvalidTransport;
@@ -71,7 +72,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !Decoded {
             error.OutOfMemory => return err,
             else => return error.InvalidTransport,
         };
-        record.* = .{ .name = name, .meta = meta, .absent_times = absent_times, .observed_mtime = observed };
+        record.* = .{ .name = name, .meta = meta, .absent_times = flags & 7, .observed_mtime = observed, .acl_override = flags & 8 != 0 };
         try validateRecord(record.*);
         if (index > 0 and std.mem.order(u8, records[index - 1].name, name) != .lt) return error.InvalidTransport;
     }
@@ -87,7 +88,7 @@ fn validateRecord(record: Record) !void {
         (record.absent_times & 1 != 0 and record.meta.times.mtime != null) or
         (record.absent_times & 2 != 0 and record.meta.times.atime != null) or
         (record.absent_times & 4 != 0 and record.meta.times.btime != null)) return error.InvalidTransport;
-    if (std.mem.indexOfScalar(u8, record.name, '/') != null or (record.meta.isEmpty() and record.absent_times == 0) or
+    if (std.mem.indexOfScalar(u8, record.name, '/') != null or (record.meta.isEmpty() and record.absent_times == 0 and !record.acl_override) or
         record.meta.holes.len != 0 or record.meta.hardlink_to != null) return error.InvalidTransport;
 }
 

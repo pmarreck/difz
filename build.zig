@@ -70,6 +70,7 @@ pub fn build(b: *std.Build) void {
     difz_module.linkLibrary(pcre2_lib);
     difz_module.linkLibrary(zstd_lib);
     difz_module.link_libc = true;
+    if (target.result.os.tag == .windows) difz_module.linkSystemLibrary("advapi32", .{});
 
     // Static library (needs its own module instance)
     const lib_module = b.createModule(.{
@@ -85,6 +86,7 @@ pub fn build(b: *std.Build) void {
     lib_module.linkLibrary(pcre2_lib);
     lib_module.linkLibrary(zstd_lib);
     lib_module.link_libc = true;
+    if (target.result.os.tag == .windows) lib_module.linkSystemLibrary("advapi32", .{});
 
     const lib = b.addLibrary(.{
         .linkage = .static,

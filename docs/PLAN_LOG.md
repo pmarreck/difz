@@ -120,3 +120,4 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 - [x] [Active] Adopt zstdz on yolo and preserve the CDC tip as old-cdc-plus-compression-probe-design; keep both local unless publication is requested. (done 2026-10-08 14:17 EDT)
 - [x] [Active] Make DIFZTREE v2 the only supported tree format, including metadata-free trees; remove v1 codec and identity branches and reject v1 input. (done 2026-10-08 14:23 EDT)
 - [x] [Active › Complete the remaining DIFZTREE v2 metadata work after adopt…] Verify metadata-bearing decoder cleanup under truncation, trailing data, and every injected allocation failure; reject impossible collection counts and noncanonical metadata. (done 2026-10-08 14:31 EDT)
+- [x] [Active › Complete the remaining DIFZTREE v2 metadata work after adopt…] Require host filesystem xattr assertions through ./test; report sandbox skips explicitly and fail when required host support is unavailable. (done 2026-10-08 14:31 EDT)

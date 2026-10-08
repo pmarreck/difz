@@ -69,6 +69,8 @@ static const struct {
 	const char *symlink_metadata_preserved;
 	const char *birth_time_preserved;
 	const char *modification_time_preserved;
+	const char *native_acl_preserved;
+	const char *portable_acl_preserved;
 } metadata_messages = {
 	"  --omit-metadata <list>  Omit xattr,acl,timestamps,finder,sparse,hardlink\n",
 	"difz: --omit-metadata requires a nonempty comma-separated list\n",
@@ -78,7 +80,9 @@ static const struct {
 	"difz: warning: raw attributes were preserved in difz.raw-xattrs\n",
 	"difz: warning: symlink metadata was preserved in difz.symlinks on the parent directory\n",
 	"difz: warning: birth-time metadata was preserved in difz.btime\n",
-	"difz: warning: modification-time metadata was preserved in difz.mtime\n"
+	"difz: warning: modification-time metadata was preserved in difz.mtime\n",
+	"difz: warning: native ACL metadata was preserved in difz.native-acl\n",
+	"difz: warning: portable ACL metadata was preserved in difz.portable-acl\n"
 };
 
 static void print_usage(FILE *out) {
@@ -497,6 +501,8 @@ static int run_directory_patch(
 		if (compromises & DIFZ_COMPROMISE_SYMLINK) fputs(metadata_messages.symlink_metadata_preserved, stderr);
 		if (compromises & DIFZ_COMPROMISE_BIRTH_TIME) fputs(metadata_messages.birth_time_preserved, stderr);
 		if (compromises & DIFZ_COMPROMISE_MTIME) fputs(metadata_messages.modification_time_preserved, stderr);
+		if (compromises & DIFZ_COMPROMISE_NATIVE_ACL) fputs(metadata_messages.native_acl_preserved, stderr);
+		if (compromises & DIFZ_COMPROMISE_PORTABLE_ACL) fputs(metadata_messages.portable_acl_preserved, stderr);
 	}
 	return rc == 0 ? 0 : 1;
 }

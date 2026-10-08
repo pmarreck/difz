@@ -6,6 +6,7 @@ const directory_patch = @import("directory_patch.zig");
 const metadata = @import("metadata.zig");
 const symlink_transport = @import("symlink_transport.zig");
 const native_stat = @import("native_stat.zig");
+const native_acl = @import("native_acl.zig");
 const path_filter = @import("path_filter.zig");
 const xattr_stream = @import("xattr_stream");
 
@@ -263,30 +264,40 @@ fn writeSnapshot(
             const keep_birth = !omit.timestamps and try birthNeedsTransport(temp, io, root, entry.path, abs_path, entry.meta.times.btime);
             if (entry.kind == .symlink) {
                 const keep_mtime = !omit.timestamps and try mtimeNeedsTransport(io, root, entry.path, entry.meta.times.mtime);
+                const actual_acl = if (omit.acl) metadata.Metadata{} else try metadata.canonicalize(temp, try native_acl.capture(temp, abs_path), .{});
+                const keep_acl = !omit.acl and !std.mem.eql(u8, &metadata.canonicalHash(aclOnly(actual_acl)), &metadata.canonicalHash(aclOnly(entry.meta)));
                 const kept: metadata.Metadata = .{
                     .xattrs = kept_xattrs,
-                    .aces = entry.meta.aces,
-                    .native_acl = entry.meta.native_acl,
+                    .aces = if (keep_acl) entry.meta.aces else &.{},
+                    .native_acl = if (keep_acl) entry.meta.native_acl else null,
                     .times = .{ .btime = if (keep_birth) entry.meta.times.btime else null, .mtime = if (keep_mtime) entry.meta.times.mtime else null },
                     .finder_info = entry.meta.finder_info,
                     .finder_flags = entry.meta.finder_flags,
                 };
                 const absent_times: u8 = @as(u8, @intFromBool(keep_mtime and entry.meta.times.mtime == null)) |
                     (@as(u8, @intFromBool(keep_birth and entry.meta.times.btime == null)) << 2);
-                if (!kept.isEmpty() or absent_times != 0) {
+                if (!kept.isEmpty() or absent_times != 0 or keep_acl) {
                     const parent = if (std.mem.lastIndexOfScalar(u8, entry.path, '/')) |slash| entry.path[0..slash] else "";
                     const name = if (parent.len == 0) entry.path else entry.path[parent.len + 1 ..];
                     const slot = try parents.getOrPut(temp, parent);
                     if (!slot.found_existing) slot.value_ptr.* = .empty;
-                    try slot.value_ptr.append(temp, .{ .name = name, .meta = kept, .absent_times = absent_times, .observed_mtime = if (keep_mtime) timeFromTimestamp((try root.statFile(io, entry.path, .{ .follow_symlinks = false })).mtime) else null });
+                    try slot.value_ptr.append(temp, .{ .name = name, .meta = kept, .absent_times = absent_times, .observed_mtime = if (keep_mtime) timeFromTimestamp((try root.statFile(io, entry.path, .{ .follow_symlinks = false })).mtime) else null, .acl_override = keep_acl });
                 }
             } else if (keep_birth) {
                 try writeTimeOverride(abs_path, "difz.btime", entry.meta.times.btime);
                 report.add(.birth_time_preserved);
             }
+            if (!omit.acl and entry.kind != .symlink) {
+                try restoreAcl(temp, abs_path, entry.meta, &report);
+                try root.setFilePermissions(io, entry.path, if (entry.kind == .directory) writableDirectoryPermissions() else writableFilePermissions(), .{ .follow_symlinks = false });
+            }
         }
         if (root_meta.xattrs.len != 0) {
             _ = try restoreXattrs(temp, root_buf[0..root_len], root_meta, false, &report);
+        }
+        if (!omit.acl) {
+            try restoreAcl(temp, root_buf[0..root_len], root_meta, &report);
+            try root.setFilePermissions(io, ".", writableDirectoryPermissions(), .{ .follow_symlinks = false });
         }
         if (!omit.timestamps and try birthNeedsTransport(temp, io, root, ".", root_buf[0..root_len], root_meta.times.btime)) {
             try writeTimeOverride(root_buf[0..root_len], "difz.btime", root_meta.times.btime);
@@ -315,6 +326,20 @@ fn writeSnapshot(
             report.add(.modification_time_preserved);
         }
         if (entry.kind != .symlink) try root.setFilePermissions(io, entry.path, try permissionsForMode(entry.mode, entry.kind), .{ .follow_symlinks = false });
+    }
+    if (!omit.acl) {
+        var root_buf: [std.posix.PATH_MAX]u8 = undefined;
+        const root_len = try root.realPath(io, &root_buf);
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        native_acl.restore(arena.allocator(), root_buf[0..root_len], root_meta) catch |err| if (err == error.OutOfMemory) return err;
+        // Windows can propagate inheritable ACEs to existing descendants.
+        // Restore parent ACLs first, then give each descendant its final ACL.
+        for (entries) |entry| {
+            if (entry.kind == .symlink) continue;
+            const abs_path = try std.fmt.allocPrint(arena.allocator(), "{s}/{s}", .{ root_buf[0..root_len], entry.path });
+            native_acl.restore(arena.allocator(), abs_path, entry.meta) catch |err| if (err == error.OutOfMemory) return err;
+        }
     }
     if (!omit.timestamps and try mtimeNeedsTransport(io, root, ".", root_meta.times.mtime)) {
         var root_buf: [std.posix.PATH_MAX]u8 = undefined;
@@ -534,7 +559,7 @@ fn readSymlinkTransport(allocator: std.mem.Allocator, io: std.Io, parent: std.Io
             else => return err,
         };
         if (stat.kind != .sym_link) return error.InvalidTransport;
-        target.* = .{ .name = record.name, .meta = try metadata.canonicalize(allocator, record.meta, .{}), .absent_times = record.absent_times, .observed_mtime = record.observed_mtime };
+        target.* = .{ .name = record.name, .meta = try metadata.canonicalize(allocator, record.meta, .{}), .absent_times = record.absent_times, .observed_mtime = record.observed_mtime, .acl_override = record.acl_override };
     }
     return records;
 }
@@ -548,6 +573,10 @@ fn mergeSymlinkMetadata(allocator: std.mem.Allocator, native: metadata.Metadata,
     result.xattrs = try attrs.toOwnedSlice(allocator);
     if (kept.aces.len != 0) result.aces = kept.aces;
     if (kept.native_acl != null) result.native_acl = kept.native_acl;
+    if (record.acl_override) {
+        result.aces = kept.aces;
+        result.native_acl = kept.native_acl;
+    }
     if (std.meta.eql(native.times.mtime, record.observed_mtime)) {
         if (kept.times.mtime != null or record.absent_times & 1 != 0) result.times.mtime = kept.times.mtime;
     }
@@ -570,7 +599,48 @@ fn metadataFor(allocator: std.mem.Allocator, timestamp: std.Io.Timestamp, abs_pa
         }
     }
     meta.xattrs = if (omit.xattr) &.{} else try readXattrs(allocator, abs_path);
+    if (!omit.acl) {
+        const acl = try readAcl(allocator, abs_path);
+        meta.aces = acl.aces;
+        meta.native_acl = acl.native_acl;
+    }
     return metadata.canonicalize(allocator, meta, .{});
+}
+
+fn aclOnly(meta: metadata.Metadata) metadata.Metadata {
+    return .{ .aces = meta.aces, .native_acl = meta.native_acl };
+}
+
+fn readAcl(allocator: std.mem.Allocator, path: []const u8) !metadata.Metadata {
+    var result = try native_acl.capture(allocator, path);
+    for ([_][]const u8{ "difz.native-acl", "difz.portable-acl" }, 0..) |name, index| {
+        const bytes = xattr_stream.get(allocator, path, name, logical_xattr_opts) catch |err| switch (err) {
+            error.Missing, error.Unsupported => continue,
+            else => return err,
+        };
+        const decoded = try metadata.decodeCanonical(allocator, bytes);
+        var family = metadata.Metadata{};
+        if (index == 0) family.native_acl = decoded.native_acl else family.aces = decoded.aces;
+        if (!std.mem.eql(u8, &metadata.canonicalHash(decoded), &metadata.canonicalHash(family))) return error.InvalidTransport;
+        if (index == 0) result.native_acl = decoded.native_acl else result.aces = decoded.aces;
+    }
+    return result;
+}
+
+fn restoreAcl(allocator: std.mem.Allocator, path: []const u8, meta: metadata.Metadata, report: *metadata.RestoreReport) !void {
+    native_acl.restore(allocator, path, meta) catch |err| if (err == error.OutOfMemory) return err;
+    const actual = try metadata.canonicalize(allocator, try native_acl.capture(allocator, path), .{});
+    const desired = aclOnly(meta);
+    if (!std.mem.eql(u8, &metadata.canonicalHash(.{ .native_acl = actual.native_acl }), &metadata.canonicalHash(.{ .native_acl = desired.native_acl }))) {
+        const blob = try metadata.encodeCanonical(allocator, .{ .native_acl = desired.native_acl });
+        try xattr_stream.set(path, "difz.native-acl", blob, logical_xattr_opts);
+        report.add(.native_acl_preserved);
+    }
+    if (!std.mem.eql(u8, &metadata.canonicalHash(.{ .aces = actual.aces }), &metadata.canonicalHash(.{ .aces = desired.aces }))) {
+        const blob = try metadata.encodeCanonical(allocator, .{ .aces = desired.aces });
+        try xattr_stream.set(path, "difz.portable-acl", blob, logical_xattr_opts);
+        report.add(.portable_acl_preserved);
+    }
 }
 
 const TimeOverride = struct { value: ?metadata.Time };
@@ -1552,4 +1622,95 @@ fn expectStoredXattr(path: []const u8, name: []const u8, value: []const u8, opts
     const got = try xattr_stream.get(testing.allocator, path, name, opts);
     defer testing.allocator.free(got);
     try testing.expectEqualSlices(u8, value, got);
+}
+
+test "Linux access and default ACLs survive create apply and native readback" {
+    if (comptime builtin.os.tag != .linux) return error.SkipZigTest;
+    var tmp = testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try requireTransportFs(io, tmp.dir);
+    try tmp.dir.createDir(io, "source", .default_dir);
+    try tmp.dir.createDir(io, "target", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true });
+    defer source.close(io);
+    var target = try tmp.dir.openDir(io, "target", .{ .iterate = true });
+    defer target.close(io);
+    try target.writeFile(io, .{ .sub_path = "data", .data = "ACL payload" });
+    var buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const length = try target.realPath(io, &buffer);
+    const path = try std.fmt.allocPrint(testing.allocator, "{s}/data", .{buffer[0..length]});
+    defer testing.allocator.free(path);
+    const acl = [_]u8{ 2, 0, 0, 0, 1, 0, 7, 0, 255, 255, 255, 255, 2, 0, 4, 0, 123, 0, 0, 0, 4, 0, 5, 0, 255, 255, 255, 255, 16, 0, 5, 0, 255, 255, 255, 255, 32, 0, 0, 0, 255, 255, 255, 255 };
+    try setFixtureXattr(path, "system.posix_acl_access", &acl, raw_xattr_opts);
+    try setFixtureXattr(buffer[0..length], "system.posix_acl_default", &acl, raw_xattr_opts);
+    var snapshot = try snapshotDir(testing.allocator, io, target, .{});
+    defer snapshot.deinit();
+    const file_meta = snapshot.entries[0].meta;
+    try testing.expectEqual(@as(usize, 5), file_meta.aces.len);
+    try testing.expectEqualSlices(u8, &acl, (try native_acl.decodeLinux(file_meta.native_acl.?.bytes)).access);
+    try testing.expectEqualSlices(u8, &acl, (try native_acl.decodeLinux(snapshot.root_meta.native_acl.?.bytes)).default);
+    const patch = try createPatchFromDirs(testing.allocator, io, source, target, .{});
+    defer testing.allocator.free(patch);
+    const report = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".acl-stage", patch, .{});
+    try testing.expectEqual(@as(u32, 0), report.mask & 3);
+    var output = try tmp.dir.openDir(io, "output", .{ .iterate = true });
+    defer output.close(io);
+    const out_len = try output.realPath(io, &buffer);
+    try expectStoredXattr(buffer[0..out_len], "system.posix_acl_default", &acl, raw_xattr_opts);
+    const out_file = try std.fmt.allocPrint(testing.allocator, "{s}/data", .{buffer[0..out_len]});
+    defer testing.allocator.free(out_file);
+    try expectStoredXattr(out_file, "system.posix_acl_access", &acl, raw_xattr_opts);
+    const omitted = try createPatchFromDirs(testing.allocator, io, source, target, .{ .omit = .{ .acl = true } });
+    defer testing.allocator.free(omitted);
+    try setFixtureXattr(path, "system.posix_acl_access", &acl, raw_xattr_opts);
+    _ = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "omitted-acl", ".omit-acl-stage", omitted, .{});
+}
+
+test "foreign ACLs retain canonical native and portable records on readonly files and root" {
+    if (comptime builtin.os.tag != .linux) return error.SkipZigTest;
+    var tmp = testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try requireTransportFs(io, tmp.dir);
+    try tmp.dir.createDir(io, "source", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true });
+    defer source.close(io);
+    const omit: metadata.Omit = .{ .timestamps = true };
+    var original = try snapshotDir(testing.allocator, io, source, .{ .omit = omit });
+    defer original.deinit();
+    const foreign: metadata.Metadata = .{ .native_acl = .{ .origin = .windows, .bytes = "foreign DACL" }, .aces = &.{.{ .tag = .named_user, .name = "foreign-principal", .read = true }} };
+    const entries = [_]directory.Entry{.{ .path = "data", .kind = .file, .mode = 0o400, .data = "same", .meta = foreign }};
+    const patch = try directory_patch.createPatch(testing.allocator, original.entries, &entries, .{ .omit = omit, .source_root = original.root_meta, .target_root = foreign });
+    defer testing.allocator.free(patch);
+    const report = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "out", ".foreign-stage", patch, .{});
+    try testing.expectEqual(@as(u32, 3), report.mask);
+    var output = try tmp.dir.openDir(io, "out", .{ .iterate = true });
+    defer output.close(io);
+    var snapshot = try snapshotDir(testing.allocator, io, output, .{ .omit = omit });
+    defer snapshot.deinit();
+    try testing.expectEqualSlices(u8, &metadata.canonicalHash(foreign), &metadata.canonicalHash(snapshot.entries[0].meta));
+    try testing.expectEqualSlices(u8, &metadata.canonicalHash(foreign), &metadata.canonicalHash(snapshot.root_meta));
+    var path: [std.posix.PATH_MAX]u8 = undefined;
+    const length = try output.realPath(io, &path);
+    const invalid = try metadata.encodeCanonical(testing.allocator, .{ .finder_flags = 1 });
+    defer testing.allocator.free(invalid);
+    try xattr_stream.set(path[0..length], "difz.native-acl", invalid, logical_xattr_opts);
+    try testing.expectError(error.InvalidTransport, snapshotDir(testing.allocator, io, output, .{ .omit = omit }));
+    var ignored = try snapshotDir(testing.allocator, io, output, .{ .omit = .{ .timestamps = true, .acl = true } });
+    defer ignored.deinit();
+    try testing.expect(ignored.root_meta.isEmpty());
+}
+
+test "parent transport can override an inherited symlink ACL with canonical absence" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const inherited: metadata.Metadata = .{ .native_acl = .{ .origin = .windows, .bytes = "inherited" }, .aces = &.{.{ .tag = .everyone, .read = true }} };
+    const record: symlink_transport.Record = .{ .name = "link", .meta = .{}, .acl_override = true };
+    const bytes = try symlink_transport.encode(testing.allocator, &.{record});
+    defer testing.allocator.free(bytes);
+    var decoded = try symlink_transport.decode(testing.allocator, bytes);
+    defer decoded.deinit();
+    const result = try mergeSymlinkMetadata(arena.allocator(), inherited, decoded.records[0], .{});
+    try testing.expect(result.isEmpty());
 }
