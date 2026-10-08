@@ -44,6 +44,30 @@
 					dontFixup = true;
 				};
 
+				# Zig's package omits programs/. Fetch the complete archive from
+				# the library's authoritative URL instead of using nixpkgs zstd.
+				zstdPin = builtins.elemAt (pkgs.lib.splitString ".zstdz = .{"
+					(builtins.readFile ./build.zig.zon)) 1;
+				zstdUrl = builtins.elemAt (pkgs.lib.splitString "\"" zstdPin) 1;
+				zstdBenchmark = pkgs.stdenv.mkDerivation {
+					pname = "zstd";
+					version = "1.6.0-zstdz";
+					src = pkgs.fetchzip {
+						url = zstdUrl;
+						hash = "sha256-+EADC0wwFqkD/QpXYkPOxoZBTTCrRzmIfua8HKZb8s8=";
+					};
+					strictDeps = true;
+					dontConfigure = true;
+					enableParallelBuilding = true;
+					makeFlags = [ "-C" "programs" "zstd" "ZSTD_LEGACY_SUPPORT=0"
+						"HAVE_ZLIB=0" "HAVE_LZMA=0" "HAVE_LZ4=0" ];
+					installPhase = ''
+						runHook preInstall
+						install -Dm755 programs/zstd $out/bin/zstd
+						runHook postInstall
+					'';
+				};
+
 				zigBuild = { optimize ? "ReleaseFast", doCheck ? false }: pkgs.stdenv.mkDerivation {
 					pname = "difz";
 					version = "0.1.0";
@@ -86,6 +110,7 @@
 		in
 			{
 				packages.default = releaseFast;
+				packages.zstd-benchmark = zstdBenchmark;
 
 				checks = {
 					build = releaseFast;
@@ -114,7 +139,7 @@
 					benchmark-contract = pkgs.runCommand "difz-benchmark-contract"
 						{
 							nativeBuildInputs = with pkgs; [
-								bash coreutils file gnugrep gnused gawk time randomPackage
+								bash coreutils file gnugrep gnused gawk time randomPackage zstdBenchmark
 							];
 						} ''
 							cp -r ${./.} work
@@ -134,7 +159,7 @@
 						hyperfine
 						bsdiff
 						xdelta
-						zstd
+						zstdBenchmark
 						time
 						file
 						git

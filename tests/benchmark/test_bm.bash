@@ -359,5 +359,33 @@ else
 	fail "README limits performance claims to the measured corpus"
 fi
 
+# The benchmark CLI must consume difz's opaque frame with the source prefix.
+frame_dir="$TEST_DIR/zstd-prefix"
+mkdir -p "$frame_dir"
+printf 'original payload\000with binary bytes\n' > "$frame_dir/source"
+printf 'original payload\000with changed binary bytes\n' > "$frame_dir/target"
+if "$PINNED_DIFZ" "$frame_dir/source" "$frame_dir/target" -o "$frame_dir/patch" \
+	> "$frame_dir/difz.stdout" 2> "$frame_dir/difz.stderr" &&
+	dd if="$frame_dir/patch" of="$frame_dir/frame" bs=1 skip=85 2> "$frame_dir/dd.stderr" &&
+	zstd -q -d --long=31 --patch-from="$frame_dir/source" "$frame_dir/frame" -o "$frame_dir/rebuilt" \
+	> "$frame_dir/zstd.stdout" 2> "$frame_dir/zstd.stderr" &&
+	cmp -s "$frame_dir/target" "$frame_dir/rebuilt"; then
+	pass "pinned zstd CLI reconstructs the frame embedded by difz"
+else
+	fail "pinned zstd CLI reconstructs the frame embedded by difz"
+fi
+
+for mode in --single-thread -T1; do
+	if zstd -q -9 "$mode" --long=31 --patch-from="$frame_dir/source" "$frame_dir/target" \
+		-o "$frame_dir/$mode.frame" > "$frame_dir/create.stdout" 2> "$frame_dir/create.stderr" &&
+		zstd -q -d --long=31 --patch-from="$frame_dir/source" "$frame_dir/$mode.frame" \
+		-o "$frame_dir/$mode.rebuilt" > "$frame_dir/apply.stdout" 2> "$frame_dir/apply.stderr" &&
+		cmp -s "$frame_dir/target" "$frame_dir/$mode.rebuilt"; then
+		pass "pinned zstd CLI prefix round-trip in $mode mode"
+	else
+		fail "pinned zstd CLI prefix round-trip in $mode mode"
+	fi
+done
+
 printf "\n%d tests, %d failures\n" "$TESTS" "$ERRORS"
 exit "$ERRORS"

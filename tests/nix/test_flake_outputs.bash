@@ -96,6 +96,19 @@ fi
 
 printf 'PASS random input revision: %s\n' "$random_rev"
 
+# Read the library pin independently of the flake's benchmark packaging.
+zstd_url=$(awk '/\.zstdz = / { in_zstd = 1 } in_zstd && /\.url = / { split($0, fields, "\""); print fields[2]; exit }' "$ROOT_DIR/build.zig.zon")
+shell_zstd_url=$(nix eval --raw \
+	--apply 'shell: (builtins.head (builtins.filter (input: (input.pname or "") == "zstd") shell.nativeBuildInputs)).src.url' \
+	"$FLAKE_REF#devShells.${system}.default" 2>/dev/null)
+rc=$?
+if [ "$rc" -ne 0 ] || [ -z "$zstd_url" ] || [ "$shell_zstd_url" != "$zstd_url" ]; then
+	printf 'FAIL benchmark CLI must use the zstdz library source pin\n' >&2
+	printf '     expected: %s\n     actual:   %s\n' "$zstd_url" "$shell_zstd_url" >&2
+	exit 1
+fi
+printf 'PASS benchmark CLI shares the zstdz library source pin\n'
+
 if ! nix eval --raw "$FLAKE_REF#checks.${system}.windows-gnu.name" >/dev/null 2>&1; then
 	printf 'FAIL windows-gnu cross check is missing\n' >&2
 	exit 1
