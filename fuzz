@@ -25,7 +25,7 @@ trap 'rm -rf "$WORKDIR"' EXIT
 
 printf 'AAAA' > "$WORKDIR/a"
 printf 'AAAB' > "$WORKDIR/b"
-if ! "$DIFZ" --no-progress --compress none --seed 0000000000000000000000000000000000000000000000000000000000000000 \
+if ! "$DIFZ" --no-progress \
 	"$WORKDIR/a" "$WORKDIR/b" -o "$WORKDIR/good.difz" 2>"$WORKDIR/create.err"; then
 	printf 'fuzz: could not create a valid patch\n' >&2
 	cat "$WORKDIR/create.err" >&2

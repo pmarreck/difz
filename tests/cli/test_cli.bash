@@ -365,75 +365,48 @@ else
 		"rc=$TREE_ATSTDERR_RC literal=$TREE_ATSTDERR_LITERAL stderr_bytes=$TREE_ATSTDERR_ERR_SIZE filtered=$TREE_ATSTDERR_ERR_FILTERED_SIZE"
 fi
 
-# ── Test: --seed option ───────────────────────────────────────────────
+# ── Test: repeated diffs are byte-identical ───────────────────────────
 
-printf "\n[--seed option]\n"
+printf "\n[Deterministic file diff]\n"
 
-SEED_HEX="0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
-
-DIFF_STDERR=$("$DIFZ" --no-progress --seed "$SEED_HEX" "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/seeded_diff.bin" 2>&1)
+DIFF_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/det_diff.bin" 2>&1)
 DIFF_RC=$?
-if [ $DIFF_RC -eq 0 ]; then
-	pass "--seed produces diff"
+DIFF2_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/det_diff2.bin" 2>&1)
+DIFF2_RC=$?
+if [ $DIFF_RC -eq 0 ] && [ $DIFF2_RC -eq 0 ] && cmp -s "$TEST_DIR/det_diff.bin" "$TEST_DIR/det_diff2.bin"; then
+	pass "repeated file diffs are byte-identical"
 else
-	fail "--seed produces diff" "rc=$DIFF_RC, stderr: $DIFF_STDERR"
+	fail "repeated file diffs are byte-identical" "rc=$DIFF_RC/$DIFF2_RC stderr=$DIFF_STDERR $DIFF2_STDERR"
 fi
 
-# Same seed should produce same output (deterministic)
-DIFF_STDERR=$("$DIFZ" --no-progress --seed "$SEED_HEX" "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/seeded_diff2.bin" 2>&1)
-if cmp -s "$TEST_DIR/seeded_diff.bin" "$TEST_DIR/seeded_diff2.bin"; then
-	pass "same seed produces identical diff"
+PATCH_STDERR=$("$DIFZ" --patch --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/det_diff.bin" -o "$TEST_DIR/det_recon.txt" 2>&1)
+if diff -q "$TEST_DIR/b.txt" "$TEST_DIR/det_recon.txt" >/dev/null 2>&1; then
+	pass "file diff round-trips"
 else
-	fail "same seed produces identical diff" "diffs differ"
+	fail "file diff round-trips" "stderr: $PATCH_STDERR"
 fi
 
-# Round-trip with seeded diff
-PATCH_STDERR=$("$DIFZ" --patch --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/seeded_diff.bin" -o "$TEST_DIR/seeded_recon.txt" 2>&1)
-if diff -q "$TEST_DIR/b.txt" "$TEST_DIR/seeded_recon.txt" >/dev/null 2>&1; then
-	pass "seeded diff round-trips correctly"
-else
-	fail "seeded diff round-trips correctly" "stderr: $PATCH_STDERR"
-fi
+# ── Test: retired CDC and compressor flags ────────────────────────────
 
-# Bad seed (too short)
-BAD_SEED_STDERR=$("$DIFZ" --no-progress --seed "0102" "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" 2>&1)
-BAD_SEED_RC=$?
-if [ $BAD_SEED_RC -ne 0 ]; then
-	pass "bad seed (too short) returns error"
-else
-	fail "bad seed (too short) returns error" "expected non-zero exit"
-fi
+printf "\n[Retired flags]\n"
 
-# Bad seed (non-hex chars)
-BAD_SEED_STDERR=$("$DIFZ" --no-progress --seed "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg" "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" 2>&1)
-BAD_SEED_RC=$?
-if [ $BAD_SEED_RC -ne 0 ]; then
-	pass "bad seed (non-hex) returns error"
-else
-	fail "bad seed (non-hex) returns error" "expected non-zero exit"
-fi
+retired_flag() {
+	local flag="$1"
+	local err rc
+	err=$("$DIFZ" --no-progress "$flag" "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/retired.patch" 2>&1)
+	rc=$?
+	if [ "$rc" -ne 0 ] && echo "$err" | grep -q "unknown option" && [ ! -e "$TEST_DIR/retired.patch" ]; then
+		pass "retired flag $flag is an unknown option"
+	else
+		fail "retired flag $flag is an unknown option" "rc=$rc stderr=$err"
+	fi
+}
 
-# ── Test: --chunk-size option ─────────────────────────────────────────
-
-printf "\n[--chunk-size option]\n"
-
-DIFF_STDERR=$("$DIFZ" --no-progress --chunk-size 512 "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/cs_diff.bin" 2>&1)
-DIFF_RC=$?
-if [ $DIFF_RC -eq 0 ]; then
-	pass "--chunk-size 512 accepted"
-else
-	fail "--chunk-size 512 accepted" "rc=$DIFF_RC, stderr: $DIFF_STDERR"
-fi
-
-HUGE_CHUNK_STDERR=$("$DIFZ" --no-progress --chunk-size 4611686018427387904 \
-	"$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o "$TEST_DIR/huge_chunk.patch" 2>&1)
-HUGE_CHUNK_RC=$?
-HUGE_CHUNK_FILTERED=$(printf '%s\n' "$HUGE_CHUNK_STDERR" | grep -v "^DEBUG BUILD$" | grep -v "^$")
-if [ $HUGE_CHUNK_RC -ne 0 ] && [ -n "$HUGE_CHUNK_FILTERED" ] && [ ! -e "$TEST_DIR/huge_chunk.patch" ]; then
-	pass "overflowing --chunk-size fails closed"
-else
-	fail "overflowing --chunk-size fails closed" "rc=$HUGE_CHUNK_RC, stderr: $HUGE_CHUNK_STDERR"
-fi
+retired_flag --seed
+retired_flag --chunk-size
+retired_flag --compress
+retired_flag --truncate
+retired_flag --hexlike
 
 # ── Test: paths with spaces ───────────────────────────────────────────
 
@@ -624,7 +597,7 @@ printf 'unchanged\n' > "$TEST_DIR/tree target/same.txt"
 ln -s bin "$TEST_DIR/tree target/current"
 chmod 711 "$TEST_DIR/tree target/empty"
 
-TREE_DIFF_STDERR=$("$DIFZ" --no-progress --seed "$SEED_HEX" \
+TREE_DIFF_STDERR=$("$DIFZ" --no-progress \
 	"$TEST_DIR/tree source" "$TEST_DIR/tree target" -o "$TEST_DIR/tree.patch" 2>&1)
 TREE_DIFF_RC=$?
 if [ $TREE_DIFF_RC -eq 0 ] && [ -s "$TEST_DIR/tree.patch" ]; then
@@ -640,7 +613,7 @@ else
 	fail "directory patch uses DIFZTREE magic" "magic: $TREE_MAGIC"
 fi
 
-TREE_DIFF_2_STDERR=$("$DIFZ" --no-progress --seed "$SEED_HEX" \
+TREE_DIFF_2_STDERR=$("$DIFZ" --no-progress \
 	"$TEST_DIR/tree source" "$TEST_DIR/tree target" -o "$TEST_DIR/tree-2.patch" 2>&1)
 TREE_DIFF_2_RC=$?
 if [ $TREE_DIFF_2_RC -eq 0 ] && cmp -s "$TEST_DIR/tree.patch" "$TEST_DIR/tree-2.patch"; then
@@ -784,8 +757,7 @@ dd if=/dev/zero bs=8192 count=1 2>/dev/null | tr '\0' 'A' > "$CEIL_A"
 cp "$CEIL_A" "$CEIL_B"
 printf 'B' | dd of="$CEIL_B" bs=1 seek=8191 conv=notrunc 2>/dev/null
 
-CEIL_OK_ERR=$("$DIFZ" --no-progress --compress none --seed 0000000000000000000000000000000000000000000000000000000000000000 \
-	--max-output-bytes 1000000 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/ceil_ok.difz" 2>&1)
+CEIL_OK_ERR=$("$DIFZ" --no-progress --max-output-bytes 1000000 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/ceil_ok.difz" 2>&1)
 CEIL_OK_RC=$?
 if [ $CEIL_OK_RC -eq 0 ] && [ -s "$TEST_DIR/ceil_ok.difz" ]; then
 	pass "--max-output-bytes 1000000 allows an 8 KiB dissimilar patch"
@@ -793,8 +765,7 @@ else
 	fail "--max-output-bytes 1000000 allows an 8 KiB dissimilar patch" "rc=$CEIL_OK_RC stderr=$CEIL_OK_ERR"
 fi
 
-CEIL_FAIL_ERR=$("$DIFZ" --no-progress --compress none --seed 0000000000000000000000000000000000000000000000000000000000000000 \
-	--max-output-bytes 16 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/ceil_fail.difz" 2>&1)
+CEIL_FAIL_ERR=$("$DIFZ" --no-progress --max-output-bytes 16 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/ceil_fail.difz" 2>&1)
 CEIL_FAIL_RC=$?
 if [ $CEIL_FAIL_RC -ne 0 ] && [ ! -e "$TEST_DIR/ceil_fail.difz" ]; then
 	pass "--max-output-bytes 16 rejects an oversized patch with no output file"
@@ -807,8 +778,7 @@ else
 	fail "--max-output-bytes failure mentions resource limit" "stderr=$CEIL_FAIL_ERR"
 fi
 
-RATIO_FAIL_ERR=$("$DIFZ" --no-progress --compress none --seed 0000000000000000000000000000000000000000000000000000000000000000 \
-	--max-output-ratio 1 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/ratio_fail.difz" 2>&1)
+RATIO_FAIL_ERR=$("$DIFZ" --no-progress --max-output-ratio 1 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/ratio_fail.difz" 2>&1)
 RATIO_FAIL_RC=$?
 if [ $RATIO_FAIL_RC -ne 0 ] && [ ! -e "$TEST_DIR/ratio_fail.difz" ]; then
 	pass "--max-output-ratio 1 rejects a patch larger than 1% of the target"
@@ -816,8 +786,7 @@ else
 	fail "--max-output-ratio 1 rejects a patch larger than 1% of the target" "rc=$RATIO_FAIL_RC stderr=$RATIO_FAIL_ERR"
 fi
 
-RATIO_OK_ERR=$("$DIFZ" --no-progress --compress none --seed 0000000000000000000000000000000000000000000000000000000000000000 \
-	--max-output-ratio 100 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/ratio_ok.difz" 2>&1)
+RATIO_OK_ERR=$("$DIFZ" --no-progress --max-output-ratio 100 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/ratio_ok.difz" 2>&1)
 RATIO_OK_RC=$?
 if [ $RATIO_OK_RC -eq 0 ] && [ -s "$TEST_DIR/ratio_ok.difz" ]; then
 	pass "--max-output-ratio 100 allows a patch at most the target size"
@@ -847,7 +816,7 @@ else
 	fail "--max-output-bytes 1000000 allows reconstructing the 8 KiB target" "no successful patch to apply"
 fi
 
-RSS_ERR=$("$DIFZ" --no-progress --compress none --max-rss-bytes 4096 \
+RSS_ERR=$("$DIFZ" --no-progress --max-rss-bytes 4096 \
 	"$CEIL_A" "$CEIL_B" -o "$TEST_DIR/rss_fail.difz" 2>&1)
 RSS_RC=$?
 if [ $RSS_RC -ne 0 ]; then
@@ -856,7 +825,7 @@ else
 	fail "--max-rss-bytes 4096 fails closed" "rc=$RSS_RC stderr=$RSS_ERR"
 fi
 
-RSS_OK_ERR=$("$DIFZ" --no-progress --compress none --max-rss-bytes 8589934592 \
+RSS_OK_ERR=$("$DIFZ" --no-progress --max-rss-bytes 8589934592 \
 	"$CEIL_A" "$CEIL_B" -o "$TEST_DIR/rss_ok.difz" 2>&1)
 RSS_OK_RC=$?
 if [ $RSS_OK_RC -eq 0 ] && [ -s "$TEST_DIR/rss_ok.difz" ]; then
@@ -865,7 +834,7 @@ else
 	fail "--max-rss-bytes 8GiB allows a tiny create" "rc=$RSS_OK_RC stderr=$RSS_OK_ERR"
 fi
 
-WALL_ERR=$("$DIFZ" --no-progress --compress none --max-wall-ms 1 \
+WALL_ERR=$("$DIFZ" --no-progress --max-wall-ms 1 \
 	"$CEIL_A" "$CEIL_B" -o "$TEST_DIR/wall_tiny.difz" 2>&1)
 WALL_RC=$?
 # 8 KiB may finish under 1ms; a 1ms ceiling must still be accepted as a flag.
@@ -877,7 +846,7 @@ if [ $WALL_BAD_RC -ne 0 ] && echo "$WALL_BAD" | grep -qi 'max-wall'; then
 else
 	fail "--max-wall-ms 0 is rejected" "rc=$WALL_BAD_RC stderr=$WALL_BAD"
 fi
-WALL_OK=$("$DIFZ" --no-progress --compress none --max-wall-ms 60000 \
+WALL_OK=$("$DIFZ" --no-progress --max-wall-ms 60000 \
 	"$CEIL_A" "$CEIL_B" -o "$TEST_DIR/wall_ok.difz" 2>&1)
 WALL_OK_RC=$?
 if [ $WALL_OK_RC -eq 0 ]; then

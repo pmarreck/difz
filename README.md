@@ -4,11 +4,13 @@
 [![Mechatron Prime CI](https://img.shields.io/endpoint?url=https%3A%2F%2Fthelio-nixos.tail66c90.ts.net%2Fbadges%2Fdifz.json&style=for-the-badge)](https://thelio-nixos.tail66c90.ts.net/mechatron-prime/)
 [![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 
-A fast binary differ for files and directory trees. File patches encode Copy and Insert instructions and bind them to BLAKE3 identities for both files. Apply rejects a wrong source before reconstruction and verifies the completed target. Directory patches add a canonical manifest, ordered path filters, and a whole-patch identity. Directory apply writes a new sibling stage and commits it only after an independent filesystem re-snapshot matches the target identity.
+A fast binary differ for files and directory trees. Each file patch is one zstd level 9 prefix frame bound to BLAKE3 identities for both files. Apply rejects a wrong source before reconstruction and verifies the completed target. Directory patches add a canonical manifest, ordered path filters, and a whole-patch identity. Directory apply writes a new sibling stage and commits it only after an independent filesystem re-snapshot matches the target identity.
 
 ## Performance
 
-### Current Linux x86_64 real-binary result
+The tables below are the content-defined chunking engine. This branch's file engine is zstd level 9 `--patch-from`. Those rows have not been remeasured.
+
+### CDC engine, Linux x86_64 real-binary result (2026-08-28)
 
 This 2026-08-28 run used an AMD Ryzen Threadripper 3990X and difz commit `fc72e215fce361e66a4fd5854a6e1c3495f4a7e2`. The inputs are runnable ReleaseFast Nix outputs from consecutive Validate commits [`e3e73738`](https://github.com/pmarreck/validate/commit/e3e73738a11b6401b19f18a023dfa313f77d0482) and [`c9ab2cdb`](https://github.com/pmarreck/validate/commit/c9ab2cdb8823e69312aa90085aecf60d48fb6aa4), sized 89,229,114 and 89,229,178 bytes. Each tool's reconstructed target matched the original byte-for-byte.
 
@@ -66,7 +68,7 @@ On 2026-10-07 the same host compared `--compress none`, `lzma2`, `bzip2`, `zstd`
 
 A 1024 MiB full replace of two uniform streams, one timed run after a warmup on the same host, is large enough for 128 of zstd level 3's 8 MiB jobs. `difz --compress zstd` wrote the same 1,073,742,012 bytes as `--compress none`. Create was 12.1 s wall and 11.9 s CPU with no compression, and 14.2 s wall and 14.5 s CPU with zstd, about one core either way. The zstd 1.5.7 CLI at level 3 took 880 ms wall and 2.47 s CPU with `-T1`, and 946 ms wall and 2.88 s CPU with `-T0` (about 3 cores). Both CLI frames were larger than the patch, 1,073,766,605 bytes. The 16, 64, and 256 MiB rungs of the same ladder also left every difz mode byte-identical to uncompressed, and `-T0` was slower than `-T1` at each rung. lzma2 and bzip2 were not repeated at 1024 MiB. At 256 MiB they had not shrunk the patch, and bzip2's resident set was about 14 GiB.
 
-The same day, one timed run compared the current file engine with `zstd --patch-from` on the official NixOS minimal x86_64 ISOs `26.05.7813` (1,706,262,528 bytes, SHA-256 `d74cb1858a7d8350506bc8889cdc291de6241157c402c9b814a8d817eac8ace9`) and `26.05.9173` (1,709,604,864 bytes, SHA-256 `bc64e5ccb058c7143c3803ad5ded61564d82509b0c13bcf572d012e82ecf3e4e`). `difz` was ReleaseFast at its default `--compress best`, with the CDC seed pinned to 32 bytes of `0x2a`. zstd was 1.5.7. Every listed reconstruction matched the newer ISO.
+The same day, one timed run compared the CDC file engine with `zstd --patch-from` on the official NixOS minimal x86_64 ISOs `26.05.7813` (1,706,262,528 bytes, SHA-256 `d74cb1858a7d8350506bc8889cdc291de6241157c402c9b814a8d817eac8ace9`) and `26.05.9173` (1,709,604,864 bytes, SHA-256 `bc64e5ccb058c7143c3803ad5ded61564d82509b0c13bcf572d012e82ecf3e4e`). `difz` was ReleaseFast at its default `--compress best`, with the CDC seed pinned to 32 bytes of `0x2a`. zstd was 1.5.7. Every listed reconstruction matched the newer ISO.
 
 | Tool | Create wall / CPU / peak RSS | Patch bytes | Apply wall |
 |---|---|---:|---:|
@@ -81,13 +83,15 @@ The same day, one timed run compared the current file engine with `zstd --patch-
 
 ## How it works
 
-Two-stage algorithm:
+Each regular-file patch is one ZDIF v4 container: an 85-byte header, then one zstd frame.
 
-1. **Content-Defined Chunking (CDC)** — Gear hash splits both files into variable-size chunks. BLAKE3 fingerprints identify identical regions between files. This finds large matching blocks in O(n) time regardless of where they moved.
+The header is the magic `ZDIF` plus version byte `0x04`, the source BLAKE3, the target BLAKE3, and the two lengths as little-endian u64 values. The source identity is checked before the reconstruction buffer is allocated. The target identity is checked after decompression.
 
-2. **Elder/Myers O(ND) byte diff** — For gaps between matched chunks, a fine-grained byte-level diff produces compact Copy+Insert instructions. An edit distance cap prevents quadratic blowup on dissimilar regions.
+The frame is zstd level 9 in prefix mode, the C ABI equivalent of `zstd --patch-from`. The window log is `floor(log2(max(source, target))) + 1`, clamped to the closed range 10 through 31. Either input longer than 2 GiB is rejected. Decode allows a 2 GiB window. Compression is single-threaded. Long-distance matching follows the zstd 1.5.7 CLI rule for that window. A v3 content-defined-chunking patch fails the magic check and is not applied.
 
-Output is encoded as source- and target-bound ZDIF v3 in [BLIP](https://github.com/pmarreck/BLIP) format with selectable compression (LZMA2, bzip2, LZ4, or none). The patch stores Gear CDC cut criteria (min, target, max, and bitmask) so inspect/apply can see how chunks were cut. By default (`--compress best`), LZMA2, bzip2, and zstd are each tried on a sample and the smallest one compresses the whole patch. The sample is the entire serialized patch below 384 KiB, and three 128 KiB slices (start, middle, end) above that. LZ4 is available for speed-over-size use cases but is not included in `best` mode. ZDIF v1 patches are rejected because that format has no cryptographic file identities.
+Directory patches stay DIFZTREE v1. Unchanged files are copies. Each changed file body is its own ZDIF v4 frame. The tree format does not choose a compressor.
+
+There is no content-defined chunking and no compressor probe. lz4, bzip2, LZMA2, blar, and BLIP are not linked. The only compression library is the zstdz fork.
 
 ## Usage
 
@@ -109,9 +113,8 @@ difz --allow 'Contents/**' --deny '**/*.tmp' old.app new.app -o update.difz
 difz old_file new_file > patch.difz
 difz --patch old_file patch.difz > new_file
 
-# Inspect a diff file (human-readable op dump)
+# Inspect a diff file
 difz --inspect patch.difz
-difz --inspect --truncate 128 --hexlike patch.difz
 ```
 
 ### Options
@@ -119,12 +122,7 @@ difz --inspect --truncate 128 --hexlike patch.difz
 ```
 -o <file>            Output file (default: stdout)
 --patch              Apply diff mode
---inspect            Pretty-print the ops in a diff file
---compress <algo>    Compression: best, lzma2, bzip2, lz4, none (default: best)
---truncate <n>       Max bytes of INSERT data to display (default: 64)
---hexlike            Use hexlike encoding for binary data display
---seed <hex>         32-byte seed as 64-char hex string
---chunk-size <n>     Target CDC chunk size (default: 4096)
+--inspect            Print sizes, BLAKE3 identities, and the zstd frame size
 --allow <glob>       Include matching directory paths (repeatable, ordered)
 --deny <glob>        Exclude matching directory paths (repeatable, ordered)
 --no-progress        Suppress progress output
@@ -145,16 +143,11 @@ The file algorithm and canonical directory patch logic remain pure in-memory Zig
 ```
 src/
 ├── lib.zig          # Buffer and filesystem C FFI exports
-├── difz.h          # C header for FFI consumers
-├── difz.c          # CLI: file I/O, arg parsing, progress display (uses progrez)
-├── diff.zig         # Two-stage orchestrator: CDC matching + Elder gap refinement
-├── cdc.zig          # Content-Defined Chunking via Gear hash
-├── gear_hash.zig    # Gear rolling hash with BLAKE3-seeded lookup table
-├── chunk_match.zig  # BLAKE3 fingerprint matching between chunk sets
-├── elder_diff.zig   # Myers O(ND) byte-level diff with edit distance cap
-├── encoding.zig     # BLIP serialization + selectable compression (lzma2/bzip2/lz4/best/none)
-├── inspect.zig      # Diff file pretty-printer (decode + human-readable op dump)
-├── patch.zig        # File diff application (decode + reconstruct)
+├── difz.h           # C header for FFI consumers
+├── difz.c           # CLI: file I/O, arg parsing, progress display (uses progrez)
+├── zstd_patch.zig   # ZDIF v4 header plus one zstd level 9 prefix frame
+├── inspect.zig      # Sizes, BLAKE3 identities, and frame length
+├── patch.zig        # File apply, delegated to zstd_patch
 ├── directory.zig    # Canonical paths, entries, validation, and tree identity
 ├── directory_patch.zig # DIFZTREE encoder, bounded parser, and pure applicator
 ├── directory_fs.zig # No-follow snapshots and verified staged reconstruction
@@ -165,18 +158,19 @@ src/
 
 ### Data flow
 
-**Diff:** `(A, B) → CDC chunk both → BLAKE3 match → sort by B-offset → Elder diff gaps → encode ops → compress (best of lzma2/bzip2) → output`
+**Diff:** hash both files with BLAKE3, compress the target with the source as a zstd prefix at level 9, and write the ZDIF v4 header in front of the frame.
 
-**Patch:** `(A, diff) → decompress → decode → verify BLAKE3(A) → apply Copy/Insert → verify BLAKE3(B) → output B`
+**Patch:** check the magic and the lengths, check the source BLAKE3, decompress with the source as the prefix and a 2 GiB window cap, then check the target BLAKE3.
+
+**Directory:** snapshot both trees, emit a file copy or a per-file ZDIF v4 frame, and wrap them in DIFZTREE.
 
 ### Design decisions
 
 - **C FFI is the real API.** Even the CLI written in C calls through FFI rather than importing Zig directly. This guarantees the FFI boundary is always exercised and tested.
-- **CDC handles moved blocks.** Matches are sorted by B-offset, not A-offset, so rearranged sections are correctly detected. Non-monotonic gaps (moved blocks) emit raw Inserts; monotonic gaps get fine-grained Elder diffing.
-- **Edit distance cap.** Myers O(ND) is capped at `sqrt(N+M)*2+16` (max 8192) to prevent quadratic blowup on dissimilar gap regions. When exceeded, the gap falls back to a raw Insert.
-- **Try-best compression.** By default, LZMA2 and bzip2 are both tried (using a distributed sampling heuristic for large diffs) and the smallest result is kept. LZ4 is available via `--compress lz4` for speed-over-size scenarios but is excluded from `best` since it never wins on ratio. Random/incompressible data passes through uncompressed.
-- **Deterministic seeds.** The CDC Gear hash table is seeded via BLAKE3, so the same seed produces the same chunking. Seeds can be specified explicitly for reproducible diffs.
-- **Linear patch decoding.** ZDIF instruction offsets are consumed by a stateful cursor in O(op_count), and decoded INSERT bytes share one contiguous allocation. This avoids quadratic index rescans and per-INSERT page-allocation overhead on patches with hundreds of thousands of small operations.
+- **zstd owns the match search.** Level 9 is fixed. `--seed`, `--chunk-size`, `--compress`, `--truncate`, and `--hexlike` are unknown options.
+- **BLAKE3 stays outside the frame.** A wrong source fails before the output allocation.
+- **ZDIF v3 is rejected.** The version byte is `0x04`. An older content-defined-chunking patch is `InvalidMagic`.
+- **Directory reconstruction is unchanged.** Apply uses a sibling stage, checks the tree identity, and commits with a non-replacing rename.
 
 ## Building
 

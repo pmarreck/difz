@@ -1,6 +1,6 @@
 # Difz - Project Specification
 
-Difz is a fast binary differ for files and directory trees. Given two files, it emits Copy and Insert instructions. Given two directories, it emits a canonical target manifest whose changed regular files use the same file delta core. Directory deletion is implicit because reconstruction starts from an empty stage.
+Difz is a fast binary differ for files and directory trees. Given two files, it emits one zstd level 9 prefix frame. Given two directories, it emits a canonical target manifest whose changed regular files use that same frame. Directory deletion is implicit because reconstruction starts from an empty stage.
 
 ## Architecture
 
@@ -17,44 +17,22 @@ The C CLI calls the Zig library through the C header. File algorithms and canoni
 
 Apply verifies the source identity before creating output. It reconstructs into a uniquely named sibling stage, snapshots that filesystem tree again, compares the target identity, and performs a non-replacing rename. It never edits the source or replaces a live tree. See `docs/directory-format-v1.md` for the byte format and platform limitations.
 
-## The Algorithm
+## The file algorithm
 
-### Stage 1: Content-Defined Chunking (CDC)
+Hash both inputs with BLAKE3. Compress the target with the source as a zstd prefix at level 9, single-threaded. The window log is `floor(log2(max(source, target))) + 1`, clamped to 10 through 31. Either input longer than 2 GiB is rejected. Decode sets the maximum window to 2 GiB before attaching the source prefix.
 
-Uses Gear hash (a rolling hash with a 256-entry u64 lookup table seeded via BLAKE3) to split both files into variable-size chunks. Each chunk is fingerprinted with BLAKE3 (128-bit). A HashMap matches B's chunk hashes to find identical regions between files. Matches are sorted and merged to produce a list of `(offset_a, offset_b, length)` triples.
-
-CDC chunk size is configurable via `--chunk-size` (default: 4096 bytes).
-
-### Stage 2: Elder/Myers O(ND) Byte Diff
-
-For each gap between matched chunks, the Myers O(ND) diff algorithm runs on the raw bytes to produce fine-grained Copy and Insert instructions. Copy offsets are adjusted to be absolute positions in file A.
-
-Reference: https://blog.robertelder.org/diff-algorithm/
-
-## File output format (ZDIF v3)
-
-The diff is encoded as a BLIP container:
+## File output format (ZDIF v4)
 
 ```
-ARRAY (top-level, with xxHash64 integrity)
-+-- [0] DATA: magic "ZDIF" + version byte (0x03)
-+-- [1] DATA: metadata
-|   +-- 32-byte CDC seed
-|   +-- 32-byte BLAKE3 source identity
-|   +-- 32-byte BLAKE3 target identity
-|   +-- BLIP(chunk_size) + BLIP(min_size) + BLIP(max_size) + BLIP(mask)
-|   +-- BLIP(size_a) + BLIP(size_b)
-+-- [2] ARRAY: instructions
-    +-- [i] DATA: opcode + BLIP fields [+ data]
-
-Opcodes:
-  0x00 = Copy(offset_in_A, length)     — BLIP(offset) + BLIP(length)
-  0x01 = Insert(length, data)          — BLIP(length) + raw bytes
+magic "ZDIF" + version byte 0x04          5 bytes
+source BLAKE3                             32 bytes
+target BLAKE3                             32 bytes
+source length, little-endian u64           8 bytes
+target length, little-endian u64           8 bytes
+zstd frame
 ```
 
-BLIP is a variable-length integer encoding + container format. See [pmarreck/BLIP](https://github.com/pmarreck/BLIP).
-
-Apply checks the source length and BLAKE3 identity before allocating the reconstruction output. It checks the target length and BLAKE3 identity before returning bytes to the caller. ZDIF v1 is intentionally incompatible because it stored lengths but no file identities.
+Apply checks the source length and BLAKE3 identity before allocating the reconstruction output. It checks the decompressed length and the target BLAKE3 before returning bytes. `ZDIF\x03` fails the magic check.
 
 ## CLI Interface
 
@@ -69,17 +47,21 @@ difz --about
 
 ## Edge Cases
 
-| Scenario | Diff output |
-|----------|------------|
-| Files identical | Copy(0, sizeof(A)) |
-| Files completely different | Insert(0, all_of_B) |
-| B is empty | (empty instruction list) |
-| A is empty | Insert(0, all_of_B) |
+| Scenario | Result |
+|----------|--------|
+| Files identical | Round-trips through one zstd frame |
+| Target empty | A valid empty frame, reconstructed length 0 |
+| Source empty | Target compressed with no prefix |
+| Wrong source hash | Fails before the reconstruction allocation |
+| `ZDIF\x03` | Rejected as a bad magic |
 
 ## Dependencies
 
 - **Zig 0.16.0** (via Nix flake)
-- **BLIP** (Zig package via pmarreck/BLIP)
+- **zstdz** (the only compressor)
+- **PCRE2** (directory path filters)
+- **progrez** (CLI progress)
+- **xattr_stream** (directory metadata adapter)
 - **std.crypto.hash.Blake3** (Zig stdlib)
 - **hyperfine, bsdiff, xdelta3** (benchmarking, in devShell)
 

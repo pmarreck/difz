@@ -371,20 +371,17 @@ run_benchmark() {
 	local op_count=0
 	if [ "$difz_diff_ms" != "FAIL" ] && [ -f "$difz_diff" ]; then
 		local inspect_file="$TMPDIR_BM/${name}_inspect.txt"
-		if ! "$DIFZ" --inspect --truncate 0 "$difz_diff" > "$inspect_file" 2>/dev/null; then
-			err "$name operation count inspection failed"
+		if ! "$DIFZ" --inspect "$difz_diff" > "$inspect_file" 2>/dev/null; then
+			err "$name patch inspection failed"
 			return 1
 		fi
-		op_count=$(sed -n 's/^difz inspect: \([0-9][0-9]*\) ops,.*/\1/p' "$inspect_file")
-		if ! echo "$op_count" | grep -qE '^[0-9]+$'; then
-			err "$name operation count could not be parsed"
+		if ! grep -q 'zstd level 9 patch-from' "$inspect_file"; then
+			err "$name inspect did not report a zstd level 9 patch-from frame"
 			return 1
 		fi
-		if [ "$op_count" -lt "$min_ops" ]; then
-			err "$name produced $op_count operations; minimum is $min_ops"
-			return 1
-		fi
-		info "  operations: $op_count (minimum $min_ops)"
+		# The CSV still has op_count. This engine has no Copy/Insert list.
+		# Zero skips the per-operation complexity gate (current_ops <= 0).
+		op_count=0
 	fi
 
 	# bsdiff diff

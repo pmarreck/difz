@@ -235,17 +235,17 @@ else
 	"$PINNED_DIFZ" --no-progress "$INTERLEAVED_DIR/stress_a" "$INTERLEAVED_DIR/stress_b" \
 		-o "$TEST_DIR/interleaved.diff" > "$TEST_DIR/interleaved-diff.stdout" 2> "$TEST_DIR/interleaved-diff.stderr"
 	interleaved_diff_rc=$?
-	"$PINNED_DIFZ" --inspect --truncate 0 "$TEST_DIR/interleaved.diff" \
+	"$PINNED_DIFZ" --inspect "$TEST_DIR/interleaved.diff" \
 		> "$TEST_DIR/interleaved.inspect" 2> "$TEST_DIR/interleaved-inspect.stderr"
 	interleaved_inspect_rc=$?
-	interleaved_ops=$(sed -n 's/^difz inspect: \([0-9][0-9]*\) ops,.*/\1/p' "$TEST_DIR/interleaved.inspect")
 	if [ "$interleaved_rc" -eq 0 ] && [ "$interleaved_diff_rc" -eq 0 ] &&
 		[ "$interleaved_inspect_rc" -eq 0 ] && [ "$interleaved_a_size" -eq 1048576 ] &&
-		[ "$interleaved_b_size" -eq 1048576 ] && [ "${interleaved_ops:-0}" -ge 5000 ]; then
-		pass "interleaved 1 MiB corpus yields at least 5,000 operations"
+		[ "$interleaved_b_size" -eq 1048576 ] &&
+		grep -q 'zstd level 9 patch-from' "$TEST_DIR/interleaved.inspect"; then
+		pass "interleaved 1 MiB corpus diffs as a zstd level 9 patch-from frame"
 	else
-		fail "interleaved 1 MiB corpus yields at least 5,000 operations" \
-			"generate_rc=$interleaved_rc, diff_rc=$interleaved_diff_rc, inspect_rc=$interleaved_inspect_rc, A=$interleaved_a_size, B=$interleaved_b_size, ops=${interleaved_ops:-missing}"
+		fail "interleaved 1 MiB corpus diffs as a zstd level 9 patch-from frame" \
+			"generate_rc=$interleaved_rc, diff_rc=$interleaved_diff_rc, inspect_rc=$interleaved_inspect_rc, A=$interleaved_a_size, B=$interleaved_b_size"
 	fi
 
 	REAL_ELF_DIR="$TEST_DIR/real-elf"

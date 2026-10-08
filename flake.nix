@@ -23,7 +23,7 @@
 				# Single hash for the entire Zig dependency tree.
 				# To update: set to "" or pkgs.lib.fakeHash, run `nix build`,
 				# copy the correct hash from the error message.
-				zigDepsHash = "sha256-ff4k0ALUNVRkKt+HQs8NvawWse52nTv2Imn0pLzEIF0=";
+				zigDepsHash = "sha256-hCvMZ21yHfazNLfJnlLRa9nh8VnrRcY0qah6++FAPwM=";
 
 				zigDeps = pkgs.stdenv.mkDerivation {
 					pname = "difz-zig-deps";
@@ -44,14 +44,6 @@
 					dontFixup = true;
 				};
 
-				# Static (musl) zlib for the default Linux build: blar's deflate_emit.zig
-				# needs zlib for PNG/ZIP even with image support off, and our binaries
-				# link statically (static-iff-musl), so a static archive is required.
-				zlibStatic = pkgs.pkgsStatic.zlib;
-				zlibFlags = "-Dzlib-include-path=${zlibStatic.dev}/include -Dzlib-lib-path=${zlibStatic}/lib";
-				mingwZlib = pkgs.pkgsCross.mingwW64.zlib;
-				windowsZlibFlags = "-Dtarget=x86_64-windows-gnu -Dzlib-include-path=${mingwZlib.dev}/include -Dzlib-lib-path=${mingwZlib}/lib";
-
 				zigBuild = { optimize ? "ReleaseFast", doCheck ? false }: pkgs.stdenv.mkDerivation {
 					pname = "difz";
 					version = "0.1.0";
@@ -70,14 +62,14 @@
 						cp -r ${zigDeps}/* $ZIG_GLOBAL_CACHE_DIR/
 						chmod -R u+w $ZIG_GLOBAL_CACHE_DIR
 
-						zig build -Doptimize=${optimize} ${zlibFlags} --prefix $out
+						zig build -Doptimize=${optimize} --prefix $out
 					'';
 
 					doCheck = doCheck;
 					checkPhase = ''
 						export HOME=$TMPDIR
 						errors=0
-						if ! zig build test -Doptimize=${optimize} ${zlibFlags} 2>&1; then
+						if ! zig build test -Doptimize=${optimize} 2>&1; then
 							errors=$((errors + 1))
 						fi
 					if ! DIFZ="$out/bin/difz" DIFZ_PREBUILT=1 bash tests/cli/test_cli.bash; then
@@ -111,7 +103,7 @@
 							mkdir -p $ZIG_GLOBAL_CACHE_DIR
 							cp -r ${zigDeps}/* $ZIG_GLOBAL_CACHE_DIR/
 							chmod -R u+w $ZIG_GLOBAL_CACHE_DIR
-							zig build -Doptimize=ReleaseFast ${windowsZlibFlags} --prefix $out
+							zig build -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix $out
 							test -f $out/bin/difz.exe
 							if ! strings "$out/bin/difz.exe" | grep -q setmode; then
 								echo "FAIL: Windows binary does not reference setmode" >&2

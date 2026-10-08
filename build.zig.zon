@@ -4,14 +4,6 @@
     .version = "0.1.0",
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
-        .blar = .{
-            .url = "https://github.com/pmarreck/blar/archive/14fbf3f5fa1613e58f9dd35cece1d573be71d7f7.tar.gz",
-            .hash = "blar-3.0.0-3Hgr7fRSEQA4jjpVh1e6tB2cKaB03Cq2BKCcRWz-A6yE",
-        },
-        .printable_binary = .{
-            .url = "https://github.com/pmarreck/printable-binary/archive/9f9f34e5d39e2d66a13e523b0937ffba7defe4be.tar.gz",
-            .hash = "printable_binary-1.0.0-SdPiysBfFwCbsO4huFn9vlBrkVq11kzxChHw3chlpCeA",
-        },
         .progrez = .{
             .url = "https://github.com/pmarreck/progrez/archive/7d70ce8.tar.gz",
             .hash = "progrez-0.1.0-0YJXrpMFAgARHkoD6RpFfS8kNgQEiYNu2ZbswsuBm2hf",
@@ -20,25 +12,9 @@
             .url = "https://github.com/pmarreck/pcre2/archive/refs/tags/zig-0.16.0.tar.gz",
             .hash = "pcre2-10.47.0-S7QTbvnVMgDsA1ipkKNj5kVoEda9wcIuZYUpdrTuDaCh",
         },
-        .blip = .{
-            .url = "https://github.com/pmarreck/BLIP/archive/refs/tags/v3.1.0.tar.gz",
-            .hash = "blip-0.1.0-rcNuGOSZBwBX-Q-IYY7LA5enIHtkIUZetkSenD40cRH8",
-        },
-        .lz4 = .{
-            .url = "https://github.com/pmarreck/lz4/archive/19f8f9af.tar.gz",
-            .hash = "lz4-1.10.0-TtaqjWnWBwDyZfaY0wVpYpm0w67tDM0c_gvpvCoQQsvh",
-        },
         .zstdz = .{
             .url = "https://github.com/pmarreck/zstdz/archive/abaedb3e.tar.gz",
             .hash = "zstdz-1.6.0-yDWjzpVcNAC91cSNuyMS83eoCzPDiCyESsrP2LbHvOQg",
-        },
-        .z7z = .{
-            .url = "https://github.com/pmarreck/z7z/archive/468ece8.tar.gz",
-            .hash = "z7z-0.1.0-rkKuF6vKBgBABoiu3SBYBwKgjVARX7AK9OId3azwZAle",
-        },
-        .bzip2z = .{
-            .url = "https://github.com/pmarreck/bzip2z/archive/9b9e28d.tar.gz",
-            .hash = "bzip2z-0.1.0-m5NdlsYYCACrnvOCZyqsVmJYY84BRf1XPFi08RfbnWPW",
         },
         .xattr_stream = .{
             .url = "https://github.com/pmarreck/xattr_stream/archive/880600b3b1113f89e4e00a4a2145dbda4d63a485.tar.gz",

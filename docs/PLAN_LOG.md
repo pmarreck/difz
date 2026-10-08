@@ -94,3 +94,7 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 - [x] [Recently completed (2026-09-29)] **Streaming/mmap patcher for large files** — POSIX CLI mmap-loads regular files and passes borrowed buffers into the FFI. The Zig core still requires the full source/target in memory; GB assets fail closed via RSS/output ceilings rather than OOM-on-hope. A callback/seek FFI remains a later core extension. (2026-09-29 ~3:45pm EDT)
 - [x] [Recently completed (2026-09-29)] **Game update patching (Steam-style use case)** — first public packaged-binary pair is Neovim AppImages (48.58% patch, round-trip OK). KeePassXC consecutive AppImages hit the 70% fallback. `.pak`/`.vpk` pairs still want a streaming core. (2026-09-29 ~3:45pm EDT)
 - [x] [Active] Measure PDFPals 1.8.1 to 1.9.0 on m4max: publisher dmgs patched at 99.70% (ULFO versus UDZO); ditto zips of PDF Pals.app patched at 16.10% and codesign --verify --deep --strict passed with the ticket still stapled. (done 2026-10-01 4:02pm EDT) (context: docs/plan_context/mac-archive-oracle.md)
+
+## Retired 2026-10-08
+
+- [x] [Active] Qualify archive-first Mac deltas on m4max: Nix difz 0.1.0 restored a ditto zip of stapled Beamer.app and codesign --verify --deep --strict passed with the ticket still stapled. (done 2026-10-01 3:55pm EDT) (context: docs/plan_context/mac-archive-oracle.md)

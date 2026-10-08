@@ -2,8 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const directory = @import("directory.zig");
 const metadata = @import("metadata.zig");
-const diff_mod = @import("diff.zig");
-const encoding = @import("encoding.zig");
+const zstd_patch = @import("zstd_patch.zig");
 const file_patch = @import("patch.zig");
 const path_filter = @import("path_filter.zig");
 
@@ -26,9 +25,6 @@ const Operation = enum(u8) {
 
 pub const CreateOptions = struct {
     rules: []const path_filter.Rule = &.{},
-    seed: [32]u8 = [_]u8{0} ** 32,
-    target_chunk_size: usize = 64,
-    compression: encoding.CompressionMode = .none,
     // Canonical metadata for the two snapshot roots. Empty leaves the v1/v2
     // entry hashes and a zero flag unchanged. Only the target root is stored.
     source_root: metadata.Metadata = .{},
@@ -153,12 +149,7 @@ pub fn createPatch(
                             operation = .file_copy;
                         } else {
                             operation = .file_delta;
-                            const result = try diff_mod.computeDiff(allocator, old.data, entry.data, .{
-                                .seed = options.seed,
-                                .target_chunk_size = options.target_chunk_size,
-                            });
-                            defer diff_mod.freeDiffResult(allocator, result);
-                            owned_payload = try encoding.encode(allocator, result, options.compression);
+                            owned_payload = try zstd_patch.encode(allocator, old.data, entry.data);
                             payload = owned_payload.?;
                         }
                     } else {

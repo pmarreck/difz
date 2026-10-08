@@ -1,14 +1,9 @@
-const blar = @import("blar");
-const blip = blar.core;
 const std = @import("std");
-const diff_mod = @import("diff.zig");
-const encoding = @import("encoding.zig");
+const zstd_patch = @import("zstd_patch.zig");
 const patch_mod = @import("patch.zig");
 const inspect_mod = @import("inspect.zig");
 const directory_fs = @import("directory_fs.zig");
-const directory_patch = @import("directory_patch.zig");
 const path_filter = @import("path_filter.zig");
-const cdc = @import("cdc.zig");
 
 pub const version = "0.1.0";
 
@@ -32,8 +27,7 @@ export fn difz_set_progress_callback(
 // C FFI exports
 // ============================================================================
 
-/// Compute a binary diff between buffers A and B.
-/// If seed is null, a random seed is generated.
+/// Compute a zstd level-9 prefix patch from buffer A to buffer B.
 /// On success: sets out_ptr/out_len and returns 0.
 /// On error: returns -1, or -4 when max_output_bytes is exceeded.
 export fn difz_diff(
@@ -41,24 +35,10 @@ export fn difz_diff(
     a_len: usize,
     b_ptr: [*]const u8,
     b_len: usize,
-    seed: ?*const [32]u8,
-    target_chunk_size: usize,
-    compression: u8,
     out_ptr: *[*]u8,
     out_len: *usize,
 ) callconv(.c) i32 {
-    return difz_diff_limited(
-        a_ptr,
-        a_len,
-        b_ptr,
-        b_len,
-        seed,
-        target_chunk_size,
-        compression,
-        0,
-        out_ptr,
-        out_len,
-    );
+    return difz_diff_limited(a_ptr, a_len, b_ptr, b_len, 0, out_ptr, out_len);
 }
 
 export fn difz_diff_limited(
@@ -66,40 +46,18 @@ export fn difz_diff_limited(
     a_len: usize,
     b_ptr: [*]const u8,
     b_len: usize,
-    seed: ?*const [32]u8,
-    target_chunk_size: usize,
-    compression: u8,
     max_output_bytes: usize,
     out_ptr: *[*]u8,
     out_len: *usize,
 ) callconv(.c) i32 {
     const allocator = std.heap.page_allocator;
-
-    var seed_buf: [32]u8 = undefined;
-    if (seed) |s| {
-        seed_buf = s.*;
-    } else {
-        const io = std.Io.Threaded.global_single_threaded.io();
-        io.randomSecure(&seed_buf) catch io.random(&seed_buf);
-    }
-
     const a = a_ptr[0..a_len];
     const b = b_ptr[0..b_len];
 
-    const options = diff_mod.DiffOptions{
-        .seed = seed_buf,
-        .target_chunk_size = if (target_chunk_size == 0) cdc.default_target_size else target_chunk_size,
-    };
-
-    const comp_mode = std.enums.fromInt(encoding.CompressionMode, compression) orelse encoding.CompressionMode.best;
-
     emitProgress("diff", 0, 2);
-    const result = diff_mod.computeDiff(allocator, a, b, options) catch return -1;
-    defer diff_mod.freeDiffResult(allocator, result);
-
     emitProgress("encode", 1, 2);
-    const encoded = encoding.encode(allocator, result, comp_mode) catch return -1;
-    if (encoding.exceedsOutputLimit(encoded.len, max_output_bytes)) {
+    const encoded = zstd_patch.encode(allocator, a, b) catch return -1;
+    if (max_output_bytes != 0 and encoded.len > max_output_bytes) {
         allocator.free(encoded);
         return -4;
     }
@@ -159,9 +117,6 @@ export fn difz_directory_diff(
     target_path_z: [*:0]const u8,
     rules_ptr: ?[*]const DifzPathRule,
     rule_count: usize,
-    seed: ?*const [32]u8,
-    target_chunk_size: usize,
-    compression: u8,
     out_ptr: *[*]u8,
     out_len: *usize,
 ) callconv(.c) i32 {
@@ -189,12 +144,8 @@ export fn difz_directory_diff(
             rule.* = .{ .action = action, .pattern = std.mem.span(source_rule.pattern) };
         }
     }
-    const comp_mode = std.enums.fromInt(encoding.CompressionMode, compression) orelse return -1;
     const patch_bytes = directory_fs.createPatchFromDirs(allocator, io, source, target, .{
         .rules = rules,
-        .seed = if (seed) |value| value.* else [_]u8{0} ** 32,
-        .target_chunk_size = if (target_chunk_size == 0) cdc.default_target_size else target_chunk_size,
-        .compression = comp_mode,
     }) catch return -1;
     out_ptr.* = patch_bytes.ptr;
     out_len.* = patch_bytes.len;
@@ -297,25 +248,17 @@ fn writeNewFileAtomic(io: std.Io, output_path: []const u8, data: []const u8) !vo
     owns_stage = false;
 }
 
-/// Inspect a diff blob and produce a human-readable text description.
-/// max_data_bytes: truncate INSERT data display to this many bytes (0 = no limit).
-/// hexlike: if non-zero, use hexlike encoding instead of standard printable-binary.
-/// On success: sets out_ptr/out_len and returns 0.
+/// Describe a ZDIF v4 patch. On success: sets out_ptr/out_len and returns 0.
 /// On error: returns -1.
 export fn difz_inspect(
     diff_ptr: [*]const u8,
     diff_len: usize,
-    max_data_bytes: usize,
-    hexlike: c_int,
     out_ptr: *[*]u8,
     out_len: *usize,
 ) callconv(.c) i32 {
     const allocator = std.heap.page_allocator;
-
     const diff_blob = diff_ptr[0..diff_len];
-    const effective_max = if (max_data_bytes == 0) std.math.maxInt(usize) else max_data_bytes;
-
-    const result = inspect_mod.inspect(allocator, diff_blob, effective_max, hexlike != 0) catch return -1;
+    const result = inspect_mod.inspect(allocator, diff_blob) catch return -1;
 
     out_ptr.* = result.ptr;
     out_len.* = result.len;
@@ -335,35 +278,14 @@ test "difz_free ignores null pointers" {
     difz_free(null, 32);
 }
 
-test "difz_diff returns -1 for overflowing chunk size instead of aborting" {
-    const a = "hello";
-    const b = "world";
-    var out_ptr: [*]u8 = undefined;
-    var out_len: usize = 0;
-    const rc = difz_diff(a.ptr, a.len, b.ptr, b.len, null, std.math.maxInt(usize), 255, &out_ptr, &out_len);
-    try std.testing.expectEqual(@as(i32, -1), rc);
-}
-
-test "blip dependency works" {
-    var buf: [16]u8 = undefined;
-    const n = try blip.encode(42, &buf);
-    const result = try blip.decode(buf[0..n]);
-    try std.testing.expectEqual(@as(u64, 42), result.value);
-}
-
 test {
-    _ = @import("gear_hash.zig");
-    _ = @import("cdc.zig");
-    _ = @import("chunk_match.zig");
-    _ = @import("elder_diff.zig");
-    _ = @import("diff.zig");
-    _ = @import("encoding.zig");
     _ = @import("patch.zig");
     _ = @import("inspect.zig");
     _ = @import("directory.zig");
     _ = @import("path_filter.zig");
     _ = @import("directory_patch.zig");
     _ = @import("directory_fs.zig");
+    _ = @import("zstd_patch.zig");
 }
 
 test "C FFI: difz_diff and difz_patch round-trip" {
@@ -371,7 +293,7 @@ test "C FFI: difz_diff and difz_patch round-trip" {
     const b = "the quick red fox " ** 50;
     var diff_out: [*]u8 = undefined;
     var diff_len: usize = undefined;
-    const rc = difz_diff(a.ptr, a.len, b.ptr, b.len, null, 64, 0, &diff_out, &diff_len);
+    const rc = difz_diff(a.ptr, a.len, b.ptr, b.len, &diff_out, &diff_len);
     try std.testing.expectEqual(@as(i32, 0), rc);
     defer difz_free(diff_out, diff_len);
 
@@ -384,23 +306,18 @@ test "C FFI: difz_diff and difz_patch round-trip" {
     try std.testing.expectEqualStrings(b, patch_out[0..patch_len]);
 }
 
-test "C FFI: difz_diff with explicit seed" {
+test "C FFI: repeated diffs are byte-identical" {
     const a = "hello world test data " ** 30;
     const b = "hello earth test data " ** 30;
-    const seed = [_]u8{42} ** 32;
-    var diff_out: [*]u8 = undefined;
-    var diff_len: usize = undefined;
-    const rc = difz_diff(a.ptr, a.len, b.ptr, b.len, &seed, 128, 0, &diff_out, &diff_len);
-    try std.testing.expectEqual(@as(i32, 0), rc);
-    defer difz_free(diff_out, diff_len);
-
-    var patch_out: [*]u8 = undefined;
-    var patch_len: usize = undefined;
-    const rc2 = difz_patch(a.ptr, a.len, diff_out, diff_len, &patch_out, &patch_len);
-    try std.testing.expectEqual(@as(i32, 0), rc2);
-    defer difz_free(patch_out, patch_len);
-
-    try std.testing.expectEqualStrings(b, patch_out[0..patch_len]);
+    var first: [*]u8 = undefined;
+    var first_len: usize = undefined;
+    var second: [*]u8 = undefined;
+    var second_len: usize = undefined;
+    try std.testing.expectEqual(@as(i32, 0), difz_diff(a.ptr, a.len, b.ptr, b.len, &first, &first_len));
+    defer difz_free(first, first_len);
+    try std.testing.expectEqual(@as(i32, 0), difz_diff(a.ptr, a.len, b.ptr, b.len, &second, &second_len));
+    defer difz_free(second, second_len);
+    try std.testing.expectEqualSlices(u8, first[0..first_len], second[0..second_len]);
 }
 
 test "C FFI: difz_patch with invalid diff returns error" {
@@ -418,40 +335,38 @@ test "C FFI: difz_inspect produces readable output" {
     const b = "the quick red fox " ** 50;
     var diff_out: [*]u8 = undefined;
     var diff_len: usize = undefined;
-    const rc = difz_diff(a.ptr, a.len, b.ptr, b.len, null, 64, 0, &diff_out, &diff_len);
+    const rc = difz_diff(a.ptr, a.len, b.ptr, b.len, &diff_out, &diff_len);
     try std.testing.expectEqual(@as(i32, 0), rc);
     defer difz_free(diff_out, diff_len);
 
     // Now inspect it
     var inspect_out: [*]u8 = undefined;
     var inspect_len: usize = undefined;
-    const rc2 = difz_inspect(diff_out, diff_len, 64, 0, &inspect_out, &inspect_len);
+    const rc2 = difz_inspect(diff_out, diff_len, &inspect_out, &inspect_len);
     try std.testing.expectEqual(@as(i32, 0), rc2);
     defer difz_free(inspect_out, inspect_len);
 
     const output = inspect_out[0..inspect_len];
     try std.testing.expect(std.mem.indexOf(u8, output, "difz inspect:") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "COPY") != null or
-        std.mem.indexOf(u8, output, "INSERT") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "zstd level 9 patch-from") != null);
 }
 
 test "C FFI: difz_inspect with invalid diff returns error" {
     const bad_diff = "not a valid diff";
     var inspect_out: [*]u8 = undefined;
     var inspect_len: usize = undefined;
-    const rc = difz_inspect(bad_diff.ptr, bad_diff.len, 64, 0, &inspect_out, &inspect_len);
+    const rc = difz_inspect(bad_diff.ptr, bad_diff.len, &inspect_out, &inspect_len);
     try std.testing.expectEqual(@as(i32, -1), rc);
 }
 
 test "C FFI: difz_diff_limited returns -4 when the encoded patch exceeds the ceiling" {
     const a = "AAAAAAAA";
     const b = "BBBBBBBB";
-    const seed = [_]u8{0} ** 32;
     var out_ptr: [*]u8 = undefined;
     var out_len: usize = undefined;
-    const rc = difz_diff_limited(a.ptr, a.len, b.ptr, b.len, &seed, 64, 255, 8, &out_ptr, &out_len);
+    const rc = difz_diff_limited(a.ptr, a.len, b.ptr, b.len, 8, &out_ptr, &out_len);
     try std.testing.expectEqual(@as(i32, -4), rc);
-    const ok = difz_diff_limited(a.ptr, a.len, b.ptr, b.len, &seed, 64, 255, 0, &out_ptr, &out_len);
+    const ok = difz_diff_limited(a.ptr, a.len, b.ptr, b.len, 0, &out_ptr, &out_len);
     try std.testing.expectEqual(@as(i32, 0), ok);
     defer difz_free(out_ptr, out_len);
     try std.testing.expect(out_len > 8);
@@ -473,10 +388,9 @@ test "C FFI: progress callback fires for diff stages" {
     defer difz_set_progress_callback(null, null);
     const a = "hello hello";
     const b = "hello world";
-    const seed = [_]u8{0} ** 32;
     var out_ptr: [*]u8 = undefined;
     var out_len: usize = undefined;
-    const rc = difz_diff(a.ptr, a.len, b.ptr, b.len, &seed, 64, 255, &out_ptr, &out_len);
+    const rc = difz_diff(a.ptr, a.len, b.ptr, b.len, &out_ptr, &out_len);
     try std.testing.expectEqual(@as(i32, 0), rc);
     defer difz_free(out_ptr, out_len);
     try std.testing.expect(n >= 2);

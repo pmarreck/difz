@@ -1,10 +1,10 @@
 /* difz CLI — dogfoods the difz C FFI.
- * Computes binary diffs (CDC + Elder/Myers O(ND)) and applies patches.
+ * File patches are zstd level 9 prefix frames. Directory patches are DIFZTREE.
  *
  * Build: linked against libdifz.a via build.zig
  * Usage: difz <file_a> <file_b> [-o output]
  *        difz --patch <file_a> <diff_file> [-o output]
- *        difz --inspect [--truncate N] [--hexlike] <diff_file>
+ *        difz --inspect <diff_file>
  */
 
 #include <errno.h>
@@ -67,19 +67,14 @@ static void print_usage(FILE *out) {
 		"Modes:\n"
 		"  (default)     Compute a binary diff between file_a and file_b\n"
 		"  --patch       Apply a diff to file_a to reconstruct file_b\n"
-		"  --inspect     Pretty-print the ops in a diff file\n"
+		"  --inspect     Describe sizes, hashes, and the zstd frame\n"
 		"\n"
 		"Options:\n"
 		"  -h, --help         Show this help message\n"
 		"  --about            Show version, platform, architecture\n"
 		"  -o <file>          Output file (default: stdout)\n"
-		"  --seed <hex>       32-byte seed as 64-char hex string\n"
-		"  --chunk-size <n>   Target CDC chunk size (default: 4096)\n"
-		"  --compress <algo>  Compression: best, lzma2, bzip2, lz4, zstd, none (default: best)\n"
 		"  --allow <glob>      Include matching directory paths (repeatable, ordered)\n"
 		"  --deny <glob>       Exclude matching directory paths (repeatable, ordered)\n"
-		"  --truncate <n>     Max bytes of INSERT data to display (default: 64)\n"
-		"  --hexlike          Use hexlike encoding for binary data display\n"
 		"  --no-progress      Suppress progress/stats output\n"
 		"  --no-ansi, --no-color  Suppress ANSI escape codes\n"
 		"  --simple           Suppress both ANSI and emoji\n"
@@ -122,29 +117,8 @@ static enum path_kind classify_path(const char *path) {
 }
 
 static void print_about(void) {
-	fprintf(stdout, "difz %s -- fast binary differ (CDC + Elder/Myers O(ND)) -- %s %s\n",
+	fprintf(stdout, "difz %s -- fast binary differ (zstd level 9 patch-from) -- %s %s\n",
 		DIFZ_VERSION, DIFZ_PLATFORM, DIFZ_ARCH);
-}
-
-/* Parse a single hex character to its value (0-15), or -1 on error. */
-static int hex_digit(char c) {
-	if (c >= '0' && c <= '9') return c - '0';
-	if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
-	if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
-	return -1;
-}
-
-/* Parse a 64-char hex string into a 32-byte seed buffer.
- * Returns 0 on success, -1 on error. */
-static int parse_hex_seed(const char *hex, uint8_t seed[32]) {
-	if (strlen(hex) != 64) return -1;
-	for (int i = 0; i < 32; i++) {
-		int hi = hex_digit(hex[i * 2]);
-		int lo = hex_digit(hex[i * 2 + 1]);
-		if (hi < 0 || lo < 0) return -1;
-		seed[i] = (uint8_t)((hi << 4) | lo);
-	}
-	return 0;
 }
 
 static int parse_positive_size(const char *s, size_t *out) {
@@ -457,16 +431,12 @@ static int run_directory_diff(
 	const char *target_path,
 	const char *output_path,
 	const difz_path_rule *rules,
-	size_t rule_count,
-	const uint8_t *seed,
-	size_t chunk_size,
-	uint8_t compression
+	size_t rule_count
 ) {
 	uint8_t *patch = NULL;
 	size_t patch_len = 0;
 	int rc = difz_directory_diff(
-		source_path, target_path, rules, rule_count, seed,
-		chunk_size, compression, &patch, &patch_len);
+		source_path, target_path, rules, rule_count, &patch, &patch_len);
 	if (rc != 0) {
 		fprintf(stderr, "difz: directory diff failed\n");
 		return 1;
@@ -537,11 +507,6 @@ int main(int argc, char *argv[]) {
 	int patch_mode = 0;
 	int inspect_mode = 0;
 	const char *output_path = NULL;  /* NULL = stdout */
-	const char *seed_hex = NULL;
-	size_t chunk_size = 4096;
-	uint8_t compression = 0;  /* 0=best, 1=lzma2, 2=bzip2, 3=lz4, 4=zstd, 255=none */
-	size_t truncate_bytes = 64;
-	int hexlike = 0;
 	size_t max_output_bytes = 0;
 	size_t max_output_ratio = 0;
 	size_t max_rss_bytes = 0;
@@ -580,70 +545,12 @@ int main(int argc, char *argv[]) {
 			inspect_mode = 1;
 			continue;
 		}
-		if (strcmp(argv[i], "--truncate") == 0) {
-			if (i + 1 >= argc) {
-				fprintf(stderr, "difz: --truncate requires a numeric argument\n");
-				return 1;
-			}
-			char *endptr;
-			long val = strtol(argv[++i], &endptr, 10);
-			if (*endptr != '\0' || val < 0) {
-				fprintf(stderr, "difz: invalid truncate value: '%s'\n", argv[i]);
-				return 1;
-			}
-			truncate_bytes = (size_t)val;
-			continue;
-		}
-		if (strcmp(argv[i], "--hexlike") == 0) {
-			hexlike = 1;
-			continue;
-		}
 		if (strcmp(argv[i], "-o") == 0) {
 			if (i + 1 >= argc) {
 				fprintf(stderr, "difz: -o requires an argument\n");
 				return 1;
 			}
 			output_path = argv[++i];
-			continue;
-		}
-		if (strcmp(argv[i], "--seed") == 0) {
-			if (i + 1 >= argc) {
-				fprintf(stderr, "difz: --seed requires a 64-character hex argument\n");
-				return 1;
-			}
-			seed_hex = argv[++i];
-			continue;
-		}
-		if (strcmp(argv[i], "--chunk-size") == 0) {
-			if (i + 1 >= argc) {
-				fprintf(stderr, "difz: --chunk-size requires a numeric argument\n");
-				return 1;
-			}
-			char *endptr;
-			long val = strtol(argv[++i], &endptr, 10);
-			if (*endptr != '\0' || val <= 0) {
-				fprintf(stderr, "difz: invalid chunk-size: '%s'\n", argv[i]);
-				return 1;
-			}
-			chunk_size = (size_t)val;
-			continue;
-		}
-		if (strcmp(argv[i], "--compress") == 0) {
-			if (i + 1 >= argc) {
-				fprintf(stderr, "difz: --compress requires an argument (best, lzma2, bzip2, lz4, zstd, none)\n");
-				return 1;
-			}
-			const char *algo = argv[++i];
-			if (strcmp(algo, "best") == 0) compression = 0;
-			else if (strcmp(algo, "lzma2") == 0) compression = 1;
-			else if (strcmp(algo, "bzip2") == 0) compression = 2;
-			else if (strcmp(algo, "lz4") == 0) compression = 3;
-			else if (strcmp(algo, "zstd") == 0) compression = 4;
-			else if (strcmp(algo, "none") == 0) compression = 255;
-			else {
-				fprintf(stderr, "difz: unknown compression algorithm '%s' (use best, lzma2, bzip2, lz4, zstd, none)\n", algo);
-				return 1;
-			}
 			continue;
 		}
 		if (strcmp(argv[i], "--allow") == 0 || strcmp(argv[i], "--deny") == 0) {
@@ -743,17 +650,6 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	/* Parse seed if provided */
-	uint8_t seed_buf[32];
-	uint8_t *seed_ptr = NULL;
-	if (seed_hex) {
-		if (parse_hex_seed(seed_hex, seed_buf) != 0) {
-			fprintf(stderr, "difz: invalid seed: must be exactly 64 hex characters\n");
-			return 1;
-		}
-		seed_ptr = seed_buf;
-	}
-
 	if (apply_rss_ceiling(max_rss_bytes) != 0) return 1;
 	if (apply_wall_ceiling(max_wall_ms) != 0) return 1;
 
@@ -788,7 +684,7 @@ int main(int argc, char *argv[]) {
 				}
 				return run_directory_diff(
 					positional[0], positional[1], output_path,
-					rules, rule_count, seed_ptr, chunk_size, compression);
+					rules, rule_count);
 			}
 			if (first_kind == PATH_KIND_SPECIAL || second_kind == PATH_KIND_SPECIAL) {
 				fprintf(stderr, "difz: unsupported special input file\n");
@@ -813,9 +709,7 @@ int main(int argc, char *argv[]) {
 		uint8_t *result_ptr = NULL;
 		size_t result_len = 0;
 
-		int rc = difz_inspect(diff_data, diff_file_len,
-		                       truncate_bytes, hexlike,
-		                       &result_ptr, &result_len);
+		int rc = difz_inspect(diff_data, diff_file_len, &result_ptr, &result_len);
 		if (rc != 0) {
 			fprintf(stderr, "difz: inspect failed (invalid diff file?)\n");
 			exit_code = 1;
@@ -896,8 +790,8 @@ int main(int argc, char *argv[]) {
 			size_t diff_len = 0;
 
 			int rc = difz_diff_limited(
-				a_buf.data, a_buf.len, b_buf.data, b_buf.len, seed_ptr, chunk_size,
-				compression, create_limit, &diff_ptr, &diff_len);
+				a_buf.data, a_buf.len, b_buf.data, b_buf.len,
+				create_limit, &diff_ptr, &diff_len);
 
 			difz_set_progress_callback(NULL, NULL);
 			if (pctx) { progrez_finish(pctx); progrez_destroy(pctx); }

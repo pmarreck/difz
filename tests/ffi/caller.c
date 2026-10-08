@@ -4,10 +4,9 @@
 int main(void) {
 	const unsigned char a[] = "abcdef";
 	const unsigned char b[] = "abcXYZ";
-	const unsigned char seed[32] = {0};
 	unsigned char *patch = NULL;
 	size_t patch_len = 0;
-	if (difz_diff(a, sizeof a, b, sizeof b, seed, 1024, 255, &patch, &patch_len) != 0) {
+	if (difz_diff(a, sizeof a, b, sizeof b, &patch, &patch_len) != 0) {
 		return 1;
 	}
 	unsigned char *out = NULL;

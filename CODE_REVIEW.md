@@ -1,5 +1,7 @@
 # difz upgrade-readiness review
 
+Status note, 2026-10-08: the findings below describe the content-defined chunking engine and its BLIP, lz4, and z7z link surface. The file engine on this branch is a ZDIF v4 zstd level 9 prefix frame. The installed archive links pcre2 and zstd. The CDC, compressor-probe, and chunk-size findings do not apply to that engine. The review text is kept as the record of what was found.
+
 Reviewed commit: `433ae3e5a600` (`yolo`, 2026-09-04).
 Reviewers: Codex/Astra deep-code-review agents (blocked mid-report by OpenAI's cybersecurity filter) plus independent recovery and re-checks in this Grok session.
 
