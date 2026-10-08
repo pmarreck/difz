@@ -19,6 +19,27 @@ pub const Omit = struct {
     finder: bool = false,
     sparse: bool = false,
     hardlink: bool = false,
+
+    pub fn bits(self: Omit) u32 {
+        return @as(u32, @intFromBool(self.xattr)) |
+            (@as(u32, @intFromBool(self.acl)) << 1) |
+            (@as(u32, @intFromBool(self.timestamps)) << 2) |
+            (@as(u32, @intFromBool(self.finder)) << 3) |
+            (@as(u32, @intFromBool(self.sparse)) << 4) |
+            (@as(u32, @intFromBool(self.hardlink)) << 5);
+    }
+
+    pub fn fromBits(value: u32) MetaError!Omit {
+        if (value & ~@as(u32, 0x3f) != 0) return error.InvalidOmitMask;
+        return .{
+            .xattr = value & 1 != 0,
+            .acl = value & 2 != 0,
+            .timestamps = value & 4 != 0,
+            .finder = value & 8 != 0,
+            .sparse = value & 16 != 0,
+            .hardlink = value & 32 != 0,
+        };
+    }
 };
 
 pub const XattrClass = enum(u8) { logical = 1, raw = 2 };
@@ -162,6 +183,7 @@ pub const MetaError = error{
     DuplicateFamily,
     EmptyFamily,
     PlanImpossible,
+    InvalidOmitMask,
 };
 
 /// Sidecar attribute names. Snapshot must not treat these as user xattrs.
@@ -1133,6 +1155,26 @@ test "compromise text names the foreign ACL and the sidecar" {
         text,
     );
 }
+test "metadata omission masks exhaust all family subsets and fixed bit assignments" {
+    const single = [_]Omit{
+        .{ .xattr = true },  .{ .acl = true },    .{ .timestamps = true },
+        .{ .finder = true }, .{ .sparse = true }, .{ .hardlink = true },
+    };
+    for (single, 0..) |omit, index| {
+        const bits = @as(u32, 1) << @intCast(index);
+        try testing.expectEqual(bits, omit.bits());
+        try testing.expectEqualDeep(omit, try Omit.fromBits(bits));
+    }
+    for (0..64) |bits| {
+        const omit = try Omit.fromBits(@intCast(bits));
+        try testing.expectEqual(@as(u32, @intCast(bits)), omit.bits());
+        try testing.expectEqualDeep(omit, try Omit.fromBits(omit.bits()));
+    }
+    for (6..32) |index| {
+        try testing.expectError(error.InvalidOmitMask, Omit.fromBits(@as(u32, 1) << @intCast(index)));
+    }
+}
+
 test "metadata collection counts are bounded by the available bytes before allocation" {
     const huge_xattrs = [_]u8{0xff} ** 4;
     const huge_aces = [_]u8{0} ** 4 ++ [_]u8{0xff} ** 4;
@@ -1157,12 +1199,12 @@ test "metadata decoding rejects invalid and noncanonical records" {
             .{ .class = .logical, .name = "a", .value = "two" },
         } }, .err = error.BadMetadata },
         .{ .meta = .{ .aces = &.{.{ .tag = .owner, .name = "unexpected" }} }, .err = error.InvalidAceName },
-        .{ .meta = .{ .aces = &.{.{ .tag = .owner }, .{ .tag = .owner, .read = true }} }, .err = error.DuplicateAce },
-        .{ .meta = .{ .aces = &.{.{ .tag = .group }, .{ .tag = .owner }} }, .err = error.BadMetadata },
+        .{ .meta = .{ .aces = &.{ .{ .tag = .owner }, .{ .tag = .owner, .read = true } } }, .err = error.DuplicateAce },
+        .{ .meta = .{ .aces = &.{ .{ .tag = .group }, .{ .tag = .owner } } }, .err = error.BadMetadata },
         .{ .meta = .{ .native_acl = .{ .origin = .linux, .bytes = "" } }, .err = error.EmptyNativeAcl },
         .{ .meta = .{ .holes = &.{.{ .offset = 0, .length = 0 }} }, .err = error.ZeroLengthHole },
         .{ .meta = .{ .holes = &.{.{ .offset = std.math.maxInt(u64), .length = 1 }} }, .err = error.HoleOverflow },
-        .{ .meta = .{ .holes = &.{.{ .offset = 0, .length = 8 }, .{ .offset = 8, .length = 8 }} }, .err = error.BadMetadata },
+        .{ .meta = .{ .holes = &.{ .{ .offset = 0, .length = 8 }, .{ .offset = 8, .length = 8 } } }, .err = error.BadMetadata },
         .{ .meta = .{ .hardlink_to = "../a" }, .err = error.InvalidHardlink },
     };
     for (cases) |case| {

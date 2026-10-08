@@ -597,6 +597,70 @@ else
 	fail "empty directory patch declares format and reader v2" "rc=$EMPTY_TREE_RC, version=$EMPTY_TREE_VERSION, stderr=$EMPTY_TREE_ERR"
 fi
 
+OMIT_FAMILIES=(xattr acl timestamps finder sparse hardlink)
+OMIT_OK=1
+for OMIT_INDEX in "${!OMIT_FAMILIES[@]}"; do
+	OMIT_ERR=$("$DIFZ" --no-progress --omit-metadata "${OMIT_FAMILIES[$OMIT_INDEX]}" \
+		"$TEST_DIR/empty source" "$TEST_DIR/empty target" -o "$TEST_DIR/omit-$OMIT_INDEX.patch" 2>&1)
+	OMIT_RC=$?
+	OMIT_FLAGS=$(od -An -v -tu1 -j12 -N1 "$TEST_DIR/omit-$OMIT_INDEX.patch" 2>/dev/null | tr -d '[:space:]')
+	if [ "$OMIT_RC" -ne 0 ] || [ "$(( ${OMIT_FLAGS:-0} & 126 ))" != "$((1 << (OMIT_INDEX + 1)))" ]; then OMIT_OK=0; fi
+done
+if [ "$OMIT_OK" = 1 ]; then
+	pass "all six omission families map to the specified header bits"
+else
+	fail "all six omission families map to the specified header bits" "$OMIT_ERR"
+fi
+OMIT_BAD_OK=1
+for OMIT_BAD in '' unknown acl,acl acl, ,xattr; do
+	OMIT_ERR=$("$DIFZ" --omit-metadata "$OMIT_BAD" "$TEST_DIR/empty source" "$TEST_DIR/empty target" 2>&1 >/dev/null)
+	if [ "$?" = 0 ]; then OMIT_BAD_OK=0; fi
+done
+if [ "$OMIT_BAD_OK" = 1 ]; then
+	pass "omission lists reject every empty, unknown, and duplicate case"
+else
+	fail "omission lists reject every empty, unknown, and duplicate case"
+fi
+
+OMIT_ERR=$("$DIFZ" --no-progress --omit-metadata acl,xattr --omit-metadata timestamps \
+	"$TEST_DIR/empty source" "$TEST_DIR/empty target" -o "$TEST_DIR/omit-combined.patch" 2>&1)
+OMIT_RC=$?
+OMIT_FLAGS=$(od -An -v -tu1 -j12 -N1 "$TEST_DIR/omit-combined.patch" 2>/dev/null | tr -d '[:space:]')
+if [ "$OMIT_RC" = 0 ] && [ "$(( ${OMIT_FLAGS:-0} & 126 ))" = 14 ]; then
+	pass "comma-separated and repeated omission options combine"
+else
+	fail "comma-separated and repeated omission options combine" "$OMIT_ERR"
+fi
+OMIT_MODE_OK=1
+for OMIT_MODE in file patch inspect duplicate; do
+	case "$OMIT_MODE" in
+		file) OMIT_ARGS=("$TEST_DIR/a.txt" "$TEST_DIR/b.txt");;
+		patch) OMIT_ARGS=(--patch "$TEST_DIR/empty source" "$TEST_DIR/empty-tree.patch");;
+		inspect) OMIT_ARGS=(--inspect "$TEST_DIR/empty-tree.patch");;
+		duplicate) OMIT_ARGS=(--omit-metadata acl "$TEST_DIR/empty source" "$TEST_DIR/empty target");;
+	esac
+	OMIT_ERR=$("$DIFZ" --omit-metadata acl "${OMIT_ARGS[@]}" 2>&1 >/dev/null)
+	if [ "$?" = 0 ]; then OMIT_MODE_OK=0; fi
+done
+if [ "$OMIT_MODE_OK" = 1 ]; then
+	pass "omissions reject file, apply, inspect, and repeated-family misuse"
+else
+	fail "omissions reject file, apply, inspect, and repeated-family misuse"
+fi
+mkdir -p "$TEST_DIR/omit source" "$TEST_DIR/omit target"
+printf old > "$TEST_DIR/omit source/data"
+printf new > "$TEST_DIR/omit target/data"
+OMIT_ERR=$("$DIFZ" --no-progress --omit-metadata timestamps "$TEST_DIR/omit source" "$TEST_DIR/omit target" -o "$TEST_DIR/omit-times.patch" 2>&1)
+OMIT_CREATE_RC=$?
+touch -t 200101010101.01 "$TEST_DIR/omit source/data"
+OMIT_ERR=$("$DIFZ" --patch --no-progress "$TEST_DIR/omit source" "$TEST_DIR/omit-times.patch" -o "$TEST_DIR/omit output" 2>&1)
+OMIT_APPLY_RC=$?
+if [ "$OMIT_CREATE_RC" = 0 ] && [ "$OMIT_APPLY_RC" = 0 ] && cmp -s "$TEST_DIR/omit target/data" "$TEST_DIR/omit output/data"; then
+	pass "apply recovers the stored omission after source timestamp changes"
+else
+	fail "apply recovers the stored omission after source timestamp changes" "$OMIT_ERR"
+fi
+
 # A valid empty-tree v1 patch captured from the writer at b2144d1.
 printf '%b' \
 	'\x44\x49\x46\x5a\x54\x52\x45\x45\x01\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xbe\x92\x5e\x35\x99\xb9\x13\x8c' \

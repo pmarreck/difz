@@ -116,3 +116,4 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 - [x] [Active] Isolate the CLI thread-mode effect on the same zstdz pin; the prior CLI wall-time advantage was not reproduced, so keep difz compression single-threaded. (done 2026-10-08 09:49 EDT; context: docs/plan_context/engine-comparison.md)
 - [x] [Active] Commit the verified comparison on this branch; preserve the CDC branch and do not push. (done 2026-10-08 09:49 EDT)
 - [x] [Active] Branch a per-file zstd --patch-from engine that keeps BLAKE3 checks and DIFZTREE outside and drops CDC plus compression selection. (done 2026-10-08 12:31am EDT)
+- [x] [Active] Remeasure the branch on the same ISO pair. Keep the CDC engine reachable from the pre-change commit if the branch wins. (done 2026-10-08 12:36am EDT)

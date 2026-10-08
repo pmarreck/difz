@@ -48,12 +48,29 @@ int difz_patch_limited(
     size_t max_output_bytes,
     uint8_t **out, size_t *out_len);
 
+enum difz_metadata_family {
+	DIFZ_METADATA_XATTR = 1,
+	DIFZ_METADATA_ACL = 2,
+	DIFZ_METADATA_TIMESTAMPS = 4,
+	DIFZ_METADATA_FINDER = 8,
+	DIFZ_METADATA_SPARSE = 16,
+	DIFZ_METADATA_HARDLINK = 32
+};
+
+/* Parse a comma-separated omission list into the bits above. Empty text means
+ * no omissions. Returns -1 for unknown, empty, or duplicate list elements,
+ * leaving *out_mask unchanged. */
+int difz_parse_metadata_omit(const char *text, uint32_t *out_mask);
+
 /* Compute a deterministic DIFZTREE patch from two directory paths.
  * Rules are applied in order; later matching rules win.
+ * omit_metadata is a bitwise OR of difz_metadata_family values. It is stored
+ * in the patch and applied before capture and hashing, including during apply.
  * Returns 0 on success, -1 on error. */
 int difz_directory_diff(
 	const char *source_path, const char *target_path,
 	const difz_path_rule *rules, size_t rule_count,
+	uint32_t omit_metadata,
 	uint8_t **out, size_t *out_len);
 
 /* Apply a DIFZTREE patch into a new output directory through a verified,

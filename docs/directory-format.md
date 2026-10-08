@@ -35,7 +35,9 @@ Symlink targets must be nonempty UTF-8 relative paths using `/`. Absolute, drive
 
 On Linux and macOS, the mode stores the low nine POSIX permission bits. Symlinks use canonical mode `0777`; difz does not follow or chmod them. On Windows, snapshots assign `0755` to directories, `0644` to regular files, and `0777` to symlinks. Windows reconstruction rejects a patch whose modes cannot map to those values and otherwise ignores chmod. It marks a symlink as directory-valued when its normalized target names a directory in the target snapshot; a dangling Windows directory symlink cannot be distinguished and is unsupported. Platform artifacts should therefore be patched on their target platform.
 
-Canonical metadata can carry extended attributes, ACLs, timestamps, Finder information and flags, sparse extents, and hardlink identity. The filesystem adapter currently captures and restores xattrs and child mtime. Other native operations, omission masks, and transport fallbacks remain in [the metadata plan](plan_context/metadata-v2.md). Owner/group IDs and ctime are outside the declared scope. A format's ability to carry a field does not establish native filesystem fidelity.
+Canonical metadata can carry extended attributes, ACLs, timestamps, Finder information and flags, sparse extents, and hardlink identity. The filesystem adapter currently captures and restores xattrs and child mtime. Other native operations and transport fallbacks remain in [the metadata plan](plan_context/metadata-v2.md). Owner/group IDs and ctime are outside the declared scope. A format's ability to carry a field does not establish native filesystem fidelity.
+
+`--omit-metadata xattr,acl,timestamps,finder,sparse,hardlink` omits the listed families before capture and hashing. The patch stores the mask so apply uses the same scope for source and staged verification. Omitted families have no payload and produce no fidelity warning. Repeated options combine disjoint lists; unknown, empty, and duplicate families are errors. This option applies only to directory patch creation.
 
 ## Filters
 
@@ -83,7 +85,7 @@ All integers are little-endian. Header:
 magic                       8 bytes: "DIFZTREE"
 format_version              u16: 2
 minimum_reader_version      u16: 2
-flags                       u32: bit 0 indicates target-root metadata; others reserved
+flags                       u32: bit 0 target-root metadata; bits 1..6 omission; others reserved
 rule_count                  u32
 entry_count                 u32
 source_tree_blake3          32 bytes
@@ -118,6 +120,8 @@ metadata                    metadata_length canonical bytes
 ```
 
 When header bit 0 is set, the entries are followed by `u32 root_metadata_length` and a nonempty canonical target-root metadata record. The source root is hashed but not stored; apply obtains it from the source snapshot.
+
+Header bits 1 through 6 omit xattrs, ACLs, timestamps, Finder fields, sparse extents, and hardlinks, respectively. Bits 7 through 31 are reserved. A payload containing an omitted family is invalid, including in the root record.
 
 Canonical metadata serializes xattrs, portable ACL entries, an optional origin-tagged native ACL, optional timestamps, Finder flags and information, sparse holes, and an optional hardlink path, in that order. Collection counts and byte lengths are u32; sparse offsets and lengths are u64; timestamps use signed i64 seconds and u32 nanoseconds. An empty canonical record is 20 zero bytes. See `src/metadata.zig` for the field layout and [metadata scope](plan_context/metadata-v2.md) for capture and restore decisions.
 

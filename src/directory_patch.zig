@@ -13,8 +13,9 @@ const header_length: usize = 120;
 const min_rule_length: usize = 9; // Fixed rule fields and one pattern byte.
 const min_entry_length: usize = 41; // Fixed fields, one path byte, and an empty metadata record.
 // Bit 0: a canonical metadata record for the snapshot root follows the entries.
-// Set only when that record is non-empty. Other bits stay reserved.
+// Bits 1..6 store the metadata omission mask; bits 7..31 stay reserved.
 const flag_root_metadata: u32 = 1;
+const known_flags: u32 = 0x7f;
 
 const Operation = enum(u8) {
     directory = 1,
@@ -26,6 +27,7 @@ const Operation = enum(u8) {
 
 pub const CreateOptions = struct {
     rules: []const path_filter.Rule = &.{},
+    omit: metadata.Omit = .{},
     // Canonical metadata for the two snapshot roots. Only the target root is
     // stored; an empty target root leaves the root flag unset.
     source_root: metadata.Metadata = .{},
@@ -54,21 +56,22 @@ pub const OwnedSnapshot = struct {
     }
 };
 
-pub const OwnedRules = struct {
+pub const OwnedOptions = struct {
     arena: std.heap.ArenaAllocator,
     rules: []path_filter.Rule,
+    omit: metadata.Omit = .{},
 
-    pub fn deinit(self: *OwnedRules) void {
+    pub fn deinit(self: *OwnedOptions) void {
         self.arena.deinit();
         self.* = undefined;
     }
 };
 
-pub fn readRules(
+pub fn readOptions(
     allocator: std.mem.Allocator,
     patch_bytes: []const u8,
     limits: Limits,
-) !OwnedRules {
+) !OwnedOptions {
     var decoded = try decodePatch(allocator, patch_bytes, limits);
     defer decoded.deinit();
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -81,18 +84,24 @@ pub fn readRules(
             .pattern = try arena_allocator.dupe(u8, source.pattern),
         };
     }
-    return .{ .arena = arena, .rules = rules };
+    return .{ .arena = arena, .rules = rules, .omit = decoded.omit };
 }
 
 pub fn createPatch(
     allocator: std.mem.Allocator,
-    source: []const directory.Entry,
-    target: []const directory.Entry,
+    source_entries: []const directory.Entry,
+    target_entries: []const directory.Entry,
     options: CreateOptions,
 ) ![]u8 {
     const limits = Limits{};
-    try directory.validateSnapshot(source);
-    try directory.validateSnapshot(target);
+    try directory.validateSnapshot(source_entries);
+    try directory.validateSnapshot(target_entries);
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const source = try maskedSnapshot(arena.allocator(), source_entries, options.omit);
+    const target = try maskedSnapshot(arena.allocator(), target_entries, options.omit);
+    const source_root = try metadata.canonicalize(arena.allocator(), options.source_root, options.omit);
+    const target_root = try metadata.canonicalize(arena.allocator(), options.target_root, options.omit);
     if (options.rules.len > limits.max_rules) return error.LimitExceeded;
     if (target.len > limits.max_entries) return error.LimitExceeded;
     if (options.rules.len > 0) {
@@ -100,10 +109,10 @@ pub fn createPatch(
         filter.deinit();
     }
 
-    const has_target_root = !options.target_root.isEmpty();
-    const header_flags: u32 = if (has_target_root) flag_root_metadata else 0;
-    const source_hash = try directory.treeHashWithRoot(source, options.source_root);
-    const target_hash = try directory.treeHashWithRoot(target, options.target_root);
+    const has_target_root = !target_root.isEmpty();
+    const header_flags: u32 = (options.omit.bits() << 1) | @as(u32, @intFromBool(has_target_root));
+    const source_hash = try directory.treeHashWithRoot(source, source_root);
+    const target_hash = try directory.treeHashWithRoot(target, target_root);
     var output: std.ArrayListUnmanaged(u8) = .empty;
     errdefer output.deinit(allocator);
 
@@ -176,7 +185,7 @@ pub fn createPatch(
         try appendBytes(allocator, &output, encoded_meta, limits.max_patch_bytes);
     }
     if (has_target_root) {
-        const encoded_root = try metadata.encodeCanonical(allocator, options.target_root);
+        const encoded_root = try metadata.encodeCanonical(allocator, target_root);
         defer allocator.free(encoded_root);
         if (encoded_root.len > limits.max_payload_bytes) return error.LimitExceeded;
         try appendInt(allocator, &output, u32, @intCast(encoded_root.len), limits.max_patch_bytes);
@@ -214,12 +223,13 @@ pub fn applyPatchRoot(
 ) !OwnedSnapshot {
     var decoded = try decodePatch(allocator, patch_bytes, limits);
     defer decoded.deinit();
-    const actual_source_hash = try directory.treeHashWithRoot(source, source_root);
-    if (!std.mem.eql(u8, &actual_source_hash, &decoded.source_hash)) return error.SourceHashMismatch;
-
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
     const arena_allocator = arena.allocator();
+    const masked_source = try maskedSnapshot(arena_allocator, source, decoded.omit);
+    const masked_root = try metadata.canonicalize(arena_allocator, source_root, decoded.omit);
+    const actual_source_hash = try directory.treeHashWithRoot(masked_source, masked_root);
+    if (!std.mem.eql(u8, &actual_source_hash, &decoded.source_hash)) return error.SourceHashMismatch;
     const entries = try arena_allocator.alloc(directory.Entry, decoded.entries.len);
     var output_bytes: usize = 0;
     for (decoded.entries, 0..) |encoded, index| {
@@ -288,6 +298,7 @@ const DecodedPatch = struct {
     source_hash: [32]u8,
     target_hash: [32]u8,
     target_root: metadata.Metadata = .{},
+    omit: metadata.Omit,
 
     fn deinit(self: *DecodedPatch) void {
         self.arena.deinit();
@@ -317,7 +328,8 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
     const needed_reader = try reader.readInt(u16);
     if (needed_reader > format_version) return error.ReaderTooOld;
     const header_flags = try reader.readInt(u32);
-    if (header_flags & ~flag_root_metadata != 0) return error.UnsupportedFlags;
+    if (header_flags & ~known_flags != 0) return error.UnsupportedFlags;
+    const omit = try metadata.Omit.fromBits(header_flags >> 1);
     const rule_count = try countToUsize(try reader.readInt(u32), limits.max_rules);
     const entry_count = try countToUsize(try reader.readInt(u32), limits.max_entries);
     var source_hash: [32]u8 = undefined;
@@ -365,6 +377,7 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
         const meta_length = try countToUsize(try reader.readInt(u32), limits.max_payload_bytes);
         const meta_bytes = try reader.take(meta_length);
         const meta = try metadata.decodeCanonical(arena_allocator, meta_bytes);
+        if (hasOmittedMetadata(meta, omit)) return error.OmittedMetadataPresent;
 
         const kind: directory.EntryKind = switch (operation) {
             .directory => blk: {
@@ -389,6 +402,7 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
         const meta_length = try countToUsize(try reader.readInt(u32), limits.max_payload_bytes);
         const meta_bytes = try reader.take(meta_length);
         target_root = try metadata.decodeCanonical(arena_allocator, meta_bytes);
+        if (hasOmittedMetadata(target_root, omit)) return error.OmittedMetadataPresent;
         if (target_root.isEmpty()) return error.BadMetadata;
     }
     if (reader.position != bytes.len) return error.TrailingData;
@@ -401,6 +415,7 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
         .source_hash = source_hash,
         .target_hash = target_hash,
         .target_root = target_root,
+        .omit = omit,
     };
 }
 
@@ -458,6 +473,21 @@ const Reader = struct {
         return std.mem.readInt(T, &raw, .little);
     }
 };
+
+fn maskedSnapshot(allocator: std.mem.Allocator, entries: []const directory.Entry, omit: metadata.Omit) ![]directory.Entry {
+    const masked = try allocator.dupe(directory.Entry, entries);
+    for (masked) |*entry| entry.meta = try metadata.canonicalize(allocator, entry.meta, omit);
+    return masked;
+}
+
+fn hasOmittedMetadata(meta: metadata.Metadata, omit: metadata.Omit) bool {
+    return (omit.xattr and meta.xattrs.len != 0) or
+        (omit.acl and (meta.aces.len != 0 or meta.native_acl != null)) or
+        (omit.timestamps and (meta.times.mtime != null or meta.times.atime != null or meta.times.btime != null)) or
+        (omit.finder and (meta.finder_flags != 0 or meta.finder_info != null)) or
+        (omit.sparse and meta.holes.len != 0) or
+        (omit.hardlink and meta.hardlink_to != null);
+}
 
 fn appendInt(
     allocator: std.mem.Allocator,
@@ -783,7 +813,7 @@ test "version and parser limits reject before output allocation" {
 
     const unknown_flags = try testing.allocator.dupe(u8, original);
     defer testing.allocator.free(unknown_flags);
-    unknown_flags[12] = 2;
+    unknown_flags[12] = 128;
     recomputeChecksum(unknown_flags);
     try testing.expectError(error.UnsupportedFlags, applyPatch(testing.allocator, &empty, unknown_flags, .{}));
 
@@ -880,5 +910,90 @@ test "directory collection counts are bounded by body bytes before allocation" {
         recomputeChecksum(bytes);
         try testing.expectError(error.UnexpectedEndOfInput, applyPatch(testing.failing_allocator, &empty, bytes, .{}));
         std.mem.writeInt(u32, bytes[offset..][0..4], 0, .little);
+    }
+}
+
+test "all metadata omission subsets persist and classify source differences" {
+    const families = [_]metadata.Omit{
+        .{ .xattr = true },  .{ .acl = true },    .{ .timestamps = true },
+        .{ .finder = true }, .{ .sparse = true }, .{ .hardlink = true },
+    };
+    const rich: metadata.Metadata = .{
+        .xattrs = &.{.{ .class = .logical, .name = "comment", .value = "hi" }},
+        .aces = &.{.{ .tag = .owner, .read = true }},
+        .native_acl = .{ .origin = .windows, .bytes = "DACL" },
+        .times = .{ .mtime = .{ .sec = 42 }, .btime = .{ .sec = 1 } },
+        .finder_flags = 0x8000,
+        .finder_info = [_]u8{0x11} ** 32,
+        .holes = &.{.{ .offset = 0, .length = 1 }},
+    };
+    var base = [_]directory.Entry{
+        .{ .path = "a", .kind = .file, .mode = 0o644, .data = "\x00X", .meta = rich },
+        .{ .path = "b", .kind = .file, .mode = 0o644, .data = "\x00X", .meta = rich },
+    };
+    base[1].meta.hardlink_to = "a";
+    const root: metadata.Metadata = .{ .xattrs = rich.xattrs };
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    for (0..64) |mask| {
+        const omit = try metadata.Omit.fromBits(@intCast(mask));
+        const bytes = try createPatch(testing.allocator, &base, &base, .{
+            .source_root = root,
+            .target_root = root,
+            .omit = omit,
+        });
+        defer testing.allocator.free(bytes);
+        const flags: u32 = (@as(u32, @intCast(mask)) << 1) | @as(u32, @intFromBool(!omit.xattr));
+        try testing.expectEqual(flags, std.mem.readInt(u32, bytes[12..16], .little));
+        var scope = try readOptions(testing.allocator, bytes, .{});
+        defer scope.deinit();
+        try testing.expectEqualDeep(omit, scope.omit);
+        var restored = try applyPatchRoot(testing.allocator, &base, bytes, .{}, root);
+        defer restored.deinit();
+        for (base, restored.entries) |expected, actual| {
+            const masked = try metadata.canonicalize(allocator, expected.meta, omit);
+            try testing.expectEqualSlices(u8, &metadata.canonicalHash(masked), &metadata.canonicalHash(actual.meta));
+        }
+        const masked_root = try metadata.canonicalize(allocator, root, omit);
+        try testing.expectEqualSlices(u8, &metadata.canonicalHash(masked_root), &metadata.canonicalHash(restored.root_meta));
+        for (families, 0..) |family, index| {
+            var changed = base;
+            for (&changed) |*entry| entry.meta = try metadata.canonicalize(allocator, entry.meta, family);
+            const changed_root = try metadata.canonicalize(allocator, root, family);
+            if (mask & (@as(usize, 1) << @intCast(index)) != 0) {
+                var accepted = try applyPatchRoot(testing.allocator, &changed, bytes, .{}, changed_root);
+                accepted.deinit();
+            } else {
+                try testing.expectError(error.SourceHashMismatch, applyPatchRoot(testing.allocator, &changed, bytes, .{}, changed_root));
+            }
+        }
+    }
+}
+
+test "omission flags reject contradictory entry and root payloads" {
+    const empty = [_]directory.Entry{};
+    const rich: metadata.Metadata = .{
+        .xattrs = &.{.{ .class = .logical, .name = "comment", .value = "hi" }},
+        .aces = &.{.{ .tag = .owner, .read = true }},
+        .times = .{ .mtime = .{ .sec = 1 } },
+        .finder_flags = 1,
+        .holes = &.{.{ .offset = 0, .length = 1 }},
+        .hardlink_to = "a",
+    };
+    const target = [_]directory.Entry{
+        .{ .path = "a", .kind = .file, .mode = 0o644, .data = "\x00" },
+        .{ .path = "b", .kind = .file, .mode = 0o644, .data = "\x00", .meta = rich },
+    };
+    for ([_]bool{ false, true }) |on_root| {
+        const bytes = try createPatch(testing.allocator, &empty, if (on_root) &empty else &target, .{
+            .target_root = if (on_root) rich else .{},
+        });
+        defer testing.allocator.free(bytes);
+        for (0..6) |index| {
+            std.mem.writeInt(u32, bytes[12..16], @as(u32, @intFromBool(on_root)) | (@as(u32, 2) << @intCast(index)), .little);
+            recomputeChecksum(bytes);
+            try testing.expectError(error.OmittedMetadataPresent, applyPatch(testing.allocator, &empty, bytes, .{}));
+        }
     }
 }

@@ -4,6 +4,7 @@ const patch_mod = @import("patch.zig");
 const inspect_mod = @import("inspect.zig");
 const directory_fs = @import("directory_fs.zig");
 const path_filter = @import("path_filter.zig");
+const metadata = @import("metadata.zig");
 
 pub const version = "0.1.0";
 
@@ -112,14 +113,22 @@ const DifzPathRule = extern struct {
     pattern: [*:0]const u8,
 };
 
+export fn difz_parse_metadata_omit(text: [*:0]const u8, out_mask: *u32) callconv(.c) i32 {
+    const omit = metadata.parseOmit(std.mem.span(text)) catch return -1;
+    out_mask.* = omit.bits();
+    return 0;
+}
+
 export fn difz_directory_diff(
     source_path_z: [*:0]const u8,
     target_path_z: [*:0]const u8,
     rules_ptr: ?[*]const DifzPathRule,
     rule_count: usize,
+    omit_metadata: u32,
     out_ptr: *[*]u8,
     out_len: *usize,
 ) callconv(.c) i32 {
+    const omit = metadata.Omit.fromBits(omit_metadata) catch return -1;
     const allocator = std.heap.page_allocator;
     const io = std.Io.Threaded.global_single_threaded.io();
     const source_path = std.mem.span(source_path_z);
@@ -146,6 +155,7 @@ export fn difz_directory_diff(
     }
     const patch_bytes = directory_fs.createPatchFromDirs(allocator, io, source, target, .{
         .rules = rules,
+        .omit = omit,
     }) catch return -1;
     out_ptr.* = patch_bytes.ptr;
     out_len.* = patch_bytes.len;

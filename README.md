@@ -135,6 +135,7 @@ difz --inspect patch.difz
 --inspect            Print sizes, BLAKE3 identities, and the zstd frame size
 --allow <glob>       Include matching directory paths (repeatable, ordered)
 --deny <glob>        Exclude matching directory paths (repeatable, ordered)
+--omit-metadata <list>  Omit xattr,acl,timestamps,finder,sparse,hardlink when creating a directory patch
 --no-progress        Suppress progress output
 --about              Show version, platform, architecture
 ```

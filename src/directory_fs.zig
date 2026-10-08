@@ -23,11 +23,16 @@ pub const OwnedSnapshot = struct {
     }
 };
 
+pub const SnapshotOptions = struct {
+    rules: []const path_filter.Rule = &.{},
+    omit: metadata.Omit = .{},
+};
+
 pub fn snapshotDir(
     allocator: std.mem.Allocator,
     io: std.Io,
     root: std.Io.Dir,
-    rules: []const path_filter.Rule,
+    options: SnapshotOptions,
 ) !OwnedSnapshot {
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
@@ -36,16 +41,16 @@ pub fn snapshotDir(
     var raw: std.ArrayListUnmanaged(directory.Entry) = .empty;
     var root_buf: [std.posix.PATH_MAX]u8 = undefined;
     const root_len = try root.realPath(io, &root_buf);
-    try walk(arena_allocator, io, root, "", root_buf[0..root_len], &raw);
+    try walk(arena_allocator, io, root, "", root_buf[0..root_len], options.omit, &raw);
     std.mem.sort(directory.Entry, raw.items, {}, entryLessThan);
     try directory.validateSnapshot(raw.items);
 
-    const entries = if (rules.len == 0)
+    const entries = if (options.rules.len == 0)
         try raw.toOwnedSlice(arena_allocator)
     else
-        try selectEntries(arena_allocator, raw.items, rules);
+        try selectEntries(arena_allocator, raw.items, options.rules);
     try directory.validateSnapshot(entries);
-    const root_xattrs = try readXattrs(arena_allocator, root_buf[0..root_len]);
+    const root_xattrs = if (options.omit.xattr) &.{} else try readXattrs(arena_allocator, root_buf[0..root_len]);
     const root_meta: metadata.Metadata = if (root_xattrs.len == 0)
         .{}
     else
@@ -60,9 +65,9 @@ pub fn createPatchFromDirs(
     target: std.Io.Dir,
     options: directory_patch.CreateOptions,
 ) ![]u8 {
-    var source_snapshot = try snapshotDir(allocator, io, source, options.rules);
+    var source_snapshot = try snapshotDir(allocator, io, source, .{ .rules = options.rules, .omit = options.omit });
     defer source_snapshot.deinit();
-    var target_snapshot = try snapshotDir(allocator, io, target, options.rules);
+    var target_snapshot = try snapshotDir(allocator, io, target, .{ .rules = options.rules, .omit = options.omit });
     defer target_snapshot.deinit();
     var patch_options = options;
     patch_options.source_root = source_snapshot.root_meta;
@@ -95,9 +100,9 @@ pub fn applyPatchToNewDir(
         else => return err,
     }
 
-    var owned_rules = try directory_patch.readRules(allocator, patch_bytes, limits);
+    var owned_rules = try directory_patch.readOptions(allocator, patch_bytes, limits);
     defer owned_rules.deinit();
-    var source_snapshot = try snapshotDir(allocator, io, source, owned_rules.rules);
+    var source_snapshot = try snapshotDir(allocator, io, source, .{ .rules = owned_rules.rules, .omit = owned_rules.omit });
     defer source_snapshot.deinit();
     var reconstructed = try directory_patch.applyPatchRoot(
         allocator,
@@ -118,7 +123,7 @@ pub fn applyPatchToNewDir(
     defer stage.close(io);
     try writeSnapshot(allocator, io, stage, reconstructed.entries, reconstructed.root_meta);
 
-    var staged_snapshot = try snapshotDir(allocator, io, stage, &.{});
+    var staged_snapshot = try snapshotDir(allocator, io, stage, .{ .omit = owned_rules.omit });
     defer staged_snapshot.deinit();
     const expected_hash = try directory.treeHashWithRoot(reconstructed.entries, reconstructed.root_meta);
     const staged_hash = try directory.treeHashWithRoot(staged_snapshot.entries, staged_snapshot.root_meta);
@@ -345,6 +350,7 @@ fn walk(
     current: std.Io.Dir,
     prefix: []const u8,
     abs_dir: []const u8,
+    omit: metadata.Omit,
     entries: *std.ArrayListUnmanaged(directory.Entry),
 ) !void {
     var iterator = current.iterate();
@@ -357,7 +363,7 @@ fn walk(
         var abs_buf: [std.posix.PATH_MAX]u8 = undefined;
         const abs_path = std.fmt.bufPrint(&abs_buf, "{s}/{s}", .{ abs_dir, item.name }) catch return error.NameTooLong;
         const stat = try current.statFile(io, item.name, .{ .follow_symlinks = false });
-        const meta = try metadataFor(allocator, stat.mtime, abs_path);
+        const meta = try metadataFor(allocator, stat.mtime, abs_path, omit);
 
         switch (stat.kind) {
             .directory => {
@@ -372,7 +378,7 @@ fn walk(
                     .follow_symlinks = false,
                 });
                 defer child.close(io);
-                try walk(allocator, io, child, path, abs_path, entries);
+                try walk(allocator, io, child, path, abs_path, omit, entries);
             },
             .file => {
                 var file = try current.openFile(io, item.name, .{
@@ -388,7 +394,7 @@ fn walk(
                 const file_meta = if (opened_stat.mtime.nanoseconds == stat.mtime.nanoseconds)
                     meta
                 else
-                    try metadataFor(allocator, opened_stat.mtime, abs_path);
+                    try metadataFor(allocator, opened_stat.mtime, abs_path, omit);
                 try entries.append(allocator, .{
                     .path = path,
                     .kind = .file,
@@ -467,9 +473,9 @@ fn readXattrs(allocator: std.mem.Allocator, abs_path: []const u8) ![]const metad
     return xattrs.toOwnedSlice(allocator);
 }
 
-fn metadataFor(allocator: std.mem.Allocator, timestamp: std.Io.Timestamp, abs_path: []const u8) !metadata.Metadata {
-    var meta = modificationMetadata(timestamp);
-    meta.xattrs = try readXattrs(allocator, abs_path);
+fn metadataFor(allocator: std.mem.Allocator, timestamp: std.Io.Timestamp, abs_path: []const u8, omit: metadata.Omit) !metadata.Metadata {
+    var meta: metadata.Metadata = if (omit.timestamps) .{} else modificationMetadata(timestamp);
+    meta.xattrs = if (omit.xattr) &.{} else try readXattrs(allocator, abs_path);
     if (meta.xattrs.len == 0) return meta;
     return metadata.canonicalize(allocator, meta, .{});
 }
@@ -619,7 +625,7 @@ test "filesystem snapshot is sorted binary-safe and does not follow symlinks" {
         else => return err,
     };
 
-    var snapshot = try snapshotDir(testing.allocator, io, tmp.dir, &.{});
+    var snapshot = try snapshotDir(testing.allocator, io, tmp.dir, .{});
     defer snapshot.deinit();
     try directory.validateSnapshot(snapshot.entries);
 
@@ -641,7 +647,7 @@ test "filesystem snapshot is sorted binary-safe and does not follow symlinks" {
         try testing.expectEqual(@as(u16, 0o640), snapshot.entries[4].mode);
     }
 
-    var repeated = try snapshotDir(testing.allocator, io, tmp.dir, &.{});
+    var repeated = try snapshotDir(testing.allocator, io, tmp.dir, .{});
     defer repeated.deinit();
     try testing.expectEqualSlices(
         u8,
@@ -665,7 +671,7 @@ test "filters classify the full set while retaining structural ancestors" {
         .{ .action = .include, .pattern = "excluded/deep/keep.txt" },
         .{ .action = .exclude, .pattern = "**/*.tmp" },
     };
-    var snapshot = try snapshotDir(testing.allocator, io, tmp.dir, &rules);
+    var snapshot = try snapshotDir(testing.allocator, io, tmp.dir, .{ .rules = &rules });
     defer snapshot.deinit();
 
     try testing.expectEqual(@as(usize, 3), snapshot.entries.len);
@@ -694,7 +700,7 @@ test "snapshot releases every injected allocation failure" {
             dir: std.Io.Dir,
             test_rules: []const path_filter.Rule,
         ) !void {
-            var snapshot = try snapshotDir(allocator, test_io, dir, test_rules);
+            var snapshot = try snapshotDir(allocator, test_io, dir, .{ .rules = test_rules });
             defer snapshot.deinit();
         }
     }.run, .{ io, tmp.dir, &rules });
@@ -757,9 +763,9 @@ test "filesystem directory patch round-trip is deterministic and staged" {
     );
     var output = try tmp.dir.openDir(io, "output", .{ .iterate = true, .follow_symlinks = false });
     defer output.close(io);
-    var expected = try snapshotDir(testing.allocator, io, target, &.{});
+    var expected = try snapshotDir(testing.allocator, io, target, .{});
     defer expected.deinit();
-    var actual = try snapshotDir(testing.allocator, io, output, &.{});
+    var actual = try snapshotDir(testing.allocator, io, output, .{});
     defer actual.deinit();
     try testing.expectEqualSlices(
         u8,
@@ -986,6 +992,30 @@ test "staged filesystem apply cleans up every injected allocation failure" {
     try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, ".output.difz-stage-allocation-test", .{}));
 }
 
+test "filesystem apply reuses stored omission for source and staged capture" {
+    var tmp = testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try tmp.dir.createDir(io, "source", .default_dir);
+    try tmp.dir.createDir(io, "target", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true });
+    defer source.close(io);
+    var target = try tmp.dir.openDir(io, "target", .{ .iterate = true });
+    defer target.close(io);
+    try source.writeFile(io, .{ .sub_path = "data", .data = "old" });
+    try target.writeFile(io, .{ .sub_path = "data", .data = "new" });
+    const patch = try createPatchFromDirs(testing.allocator, io, source, target, .{
+        .omit = .{ .timestamps = true, .xattr = true },
+    });
+    defer testing.allocator.free(patch);
+    try source.setTimestamps(io, "data", .{ .modify_timestamp = .{ .new = .{ .nanoseconds = 42 } }, .follow_symlinks = false });
+    try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".omit-stage", patch, .{});
+    var output = try tmp.dir.openDir(io, "output", .{ .iterate = true });
+    defer output.close(io);
+    var buffer: [16]u8 = undefined;
+    try testing.expectEqualStrings("new", try readFileIntoBuffer(io, output, "data", &buffer));
+}
+
 test "filesystem snapshot and apply round-trip logical and raw extended attributes" {
     if (comptime builtin.os.tag == .windows) return;
     var tmp = testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
@@ -1013,7 +1043,7 @@ test "filesystem snapshot and apply round-trip logical and raw extended attribut
     const raw_value = "03c1;difz";
     try xattr_stream.set(file_path, raw_name, raw_value, raw);
 
-    var snapshot = try snapshotDir(testing.allocator, io, target, &.{});
+    var snapshot = try snapshotDir(testing.allocator, io, target, .{});
     defer snapshot.deinit();
     const note = entryByPath(snapshot.entries, "note.txt") orelse return error.FileNotFound;
     try expectXattr(note.meta, .logical, "comment", "kept");
@@ -1062,7 +1092,7 @@ test "filesystem snapshot keeps an extended attribute on the snapshot root" {
         try xattr_stream.set(target_buf[0..target_len], "com.apple.macl", "probe", raw);
     }
 
-    var snapshot = try snapshotDir(testing.allocator, io, target, &.{});
+    var snapshot = try snapshotDir(testing.allocator, io, target, .{});
     defer snapshot.deinit();
     try expectXattr(snapshot.root_meta, .logical, "comment", "bundle");
     try expectXattr(snapshot.root_meta, .raw, quarantine_name, quarantine_value);

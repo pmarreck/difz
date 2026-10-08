@@ -2,6 +2,12 @@
 #include <string.h>
 
 int main(void) {
+	uint32_t mask = 99;
+	if (difz_parse_metadata_omit("acl,xattr", &mask) != 0 || mask != 3) return 1;
+	const char *invalid[] = {"unknown", "acl,acl", "acl,", ",xattr"};
+	for (size_t i = 0; i < sizeof invalid / sizeof invalid[0]; i++) {
+		if (difz_parse_metadata_omit(invalid[i], &mask) == 0 || mask != 3) return 1;
+	}
 	const unsigned char a[] = "abcdef";
 	const unsigned char b[] = "abcXYZ";
 	unsigned char *patch = NULL;

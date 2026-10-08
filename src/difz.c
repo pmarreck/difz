@@ -58,6 +58,21 @@
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
 
+/* English catalog entries; other locales use the prepare-phase fallback. */
+static const struct {
+	const char *omit_help;
+	const char *omit_missing;
+	const char *omit_invalid;
+	const char *omit_create_only;
+	const char *omit_directories_only;
+} metadata_messages = {
+	"  --omit-metadata <list>  Omit xattr,acl,timestamps,finder,sparse,hardlink\n",
+	"difz: --omit-metadata requires a nonempty comma-separated list\n",
+	"difz: --omit-metadata contains an unknown, empty, or duplicate family\n",
+	"difz: --omit-metadata is stored when a directory patch is created\n",
+	"difz: --omit-metadata requires directory inputs\n"
+};
+
 static void print_usage(FILE *out) {
 	fprintf(out,
 		"Usage: difz [options] <file_or_dir_a> <file_or_dir_b>\n"
@@ -75,6 +90,7 @@ static void print_usage(FILE *out) {
 		"  -o <file>          Output file (default: stdout)\n"
 		"  --allow <glob>      Include matching directory paths (repeatable, ordered)\n"
 		"  --deny <glob>       Exclude matching directory paths (repeatable, ordered)\n"
+		"%s"
 		"  --no-progress      Suppress progress/stats output\n"
 		"  --no-ansi, --no-color  Suppress ANSI escape codes\n"
 		"  --simple           Suppress both ANSI and emoji\n"
@@ -88,7 +104,8 @@ static void print_usage(FILE *out) {
 		"Special paths:\n"
 		"  -  or @stdin   Read from stdin\n"
 		"  -  or @stdout  Write to stdout\n"
-		"  @stderr        Write to stderr\n"
+		"  @stderr        Write to stderr\n",
+		metadata_messages.omit_help
 	);
 }
 
@@ -431,12 +448,13 @@ static int run_directory_diff(
 	const char *target_path,
 	const char *output_path,
 	const difz_path_rule *rules,
-	size_t rule_count
+	size_t rule_count,
+	uint32_t omit_metadata
 ) {
 	uint8_t *patch = NULL;
 	size_t patch_len = 0;
 	int rc = difz_directory_diff(
-		source_path, target_path, rules, rule_count, &patch, &patch_len);
+		source_path, target_path, rules, rule_count, omit_metadata, &patch, &patch_len);
 	if (rc != 0) {
 		fprintf(stderr, "difz: directory diff failed\n");
 		return 1;
@@ -513,6 +531,8 @@ int main(int argc, char *argv[]) {
 	size_t max_wall_ms = 0;
 	difz_path_rule rules[4096];
 	size_t rule_count = 0;
+	uint32_t omit_metadata = 0;
+	int omit_seen = 0;
 
 	/* Positional args collector */
 	const char *positional[2] = {NULL, NULL};
@@ -551,6 +571,21 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 			output_path = argv[++i];
+			continue;
+		}
+		if (strcmp(argv[i], "--omit-metadata") == 0) {
+			if (i + 1 >= argc || argv[i + 1][0] == '\0') {
+				fputs(metadata_messages.omit_missing, stderr);
+				return 1;
+			}
+			uint32_t parsed = 0;
+			if (difz_parse_metadata_omit(argv[++i], &parsed) != 0 || parsed == 0 ||
+				(parsed & omit_metadata) != 0) {
+				fputs(metadata_messages.omit_invalid, stderr);
+				return 1;
+			}
+			omit_metadata |= parsed;
+			omit_seen = 1;
 			continue;
 		}
 		if (strcmp(argv[i], "--allow") == 0 || strcmp(argv[i], "--deny") == 0) {
@@ -632,6 +667,10 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* Validate positional args */
+	if (omit_seen && (patch_mode || inspect_mode)) {
+		fputs(metadata_messages.omit_create_only, stderr);
+		return 1;
+	}
 	if (inspect_mode) {
 		if (pos_count < 1) {
 			fprintf(stderr, "difz: --inspect requires a diff file argument\n");
@@ -684,7 +723,7 @@ int main(int argc, char *argv[]) {
 				}
 				return run_directory_diff(
 					positional[0], positional[1], output_path,
-					rules, rule_count);
+					rules, rule_count, omit_metadata);
 			}
 			if (first_kind == PATH_KIND_SPECIAL || second_kind == PATH_KIND_SPECIAL) {
 				fprintf(stderr, "difz: unsupported special input file\n");
@@ -696,6 +735,10 @@ int main(int argc, char *argv[]) {
 		}
 		if (rule_count != 0) {
 			fprintf(stderr, "difz: --allow and --deny require directory inputs\n");
+			return 1;
+		}
+		if (omit_seen) {
+			fputs(metadata_messages.omit_directories_only, stderr);
 			return 1;
 		}
 	}

@@ -35,9 +35,9 @@ When the volume's tick is coarser than the stored nanoseconds (NTFS 100 ns, exFA
 
 ## Omit
 
-`--omit-metadata` strips families before the hash. That flag is not wired to the CLI yet, and the header does not store an omit mask. An omitted family is absent from the patch and the identity and produces no warning. Apply of a patch that was built with a mask has to re-snapshot with the same mask; that re-snapshot is still ahead.
+`--omit-metadata` strips families before capture and hashing. The CLI accepts comma-separated lists of `xattr`, `acl`, `timestamps`, `finder`, `sparse`, and `hardlink`. The C boundary accepts the corresponding bit mask. An omitted family is absent from the patch and the identity and produces no warning. Apply reads the stored mask and uses it for both source capture and staged verification. All 64 subsets are tested against every family of source changes.
 
-Header flag bit 0 (`0x1`) is unrelated. It is set only when the target snapshot root has metadata. The body then ends with a `u32` length and one canonical metadata record for that root. Flags `0` keep today's body, with no trailer. Any other flag bit is rejected. The source root is part of the source hash and is not stored: apply re-reads it from the source directory.
+Header flag bit 0 (`0x1`) is unrelated. It is set only when the target snapshot root has metadata. The body then ends with a `u32` length and one canonical metadata record for that root. Bits 1 through 6 hold the omission mask in the family order above. Bits 7 through 31 are rejected, as are metadata payloads that contradict the mask. The source root is part of the source hash and is not stored: apply re-reads it from the source directory.
 
 The snapshot root cannot be an entry. `validatePath` rejects an empty path. Gatekeeper looks at the directory the user opens (`Beamer.app`), so its attributes have to ride this trailer. `treeHashWithRoot` with an empty root equals `treeHash`. A non-empty root appends the domain `DIFZTREE-ROOT\x01` and the BLAKE3 of that canonical record.
 
