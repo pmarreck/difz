@@ -12,4 +12,4 @@ The linked compressor is the zstdz fork. lz4, bzip2, LZMA2, blar, and BLIP are n
 
 A Nix flake build copies git-tracked files. A new source file stays invisible to `./test` until it is staged.
 
-The content-defined chunking engine remains at the pre-change commit. The ISO pair has not been remeasured on this engine.
+The content-defined chunking engine remains at the pre-change commit on `yolo`. One 2026-10-08 ReleaseFast run of the same NixOS minimal ISO pair wrote 557,171,921 bytes in 11.77 s wall and applied in 3.74 s. The reconstruction SHA-256 matched the newer ISO.

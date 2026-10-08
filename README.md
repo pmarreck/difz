@@ -8,7 +8,7 @@ A fast binary differ for files and directory trees. Each file patch is one zstd 
 
 ## Performance
 
-The tables below are the content-defined chunking engine. This branch's file engine is zstd level 9 `--patch-from`. Those rows have not been remeasured.
+The tables below are the content-defined chunking engine. This branch's file engine is zstd level 9 `--patch-from`. The paragraph after the ISO table is the one remeasure of that engine. The other rows are still the older engine.
 
 ### CDC engine, Linux x86_64 real-binary result (2026-08-28)
 
@@ -80,6 +80,8 @@ The same day, one timed run compared the CDC file engine with `zstd --patch-from
 | bsdiff | 5,126 s / 5,084 s / 14.3 GiB | 649,963,439 | 40.3 s |
 
 `zstd -d --patch-from` without a larger window exited 36. The frame window is the target size, 1,709,604,864 bytes, and the decoder's default maximum was the reference size, 1,706,262,528. `zstd -d --long=31 --patch-from` reconstructed the target for levels 3, 9, and 19. Level 19 saved 7,227,459 bytes against level 3 and used about 21 times the wall time.
+
+On 2026-10-08, one ReleaseFast run of this engine at `44dfd0f` used the same two ISOs. Create took 11.77 s wall, 7.25 s user, 4.20 s system, and peaked at 4,149,492 KiB. The patch is 557,171,921 bytes, 32.59% of the newer ISO. That is 105,693,739 bytes smaller than the CDC patch above and 641,580 bytes smaller than the zstd 1.5.7 level 9 CLI frame, counting the 85-byte ZDIF header. It is 2,072,316 bytes larger than the level 19 CLI frame. Apply took 3.74 s wall, 1.28 s user, 2.25 s system, and peaked at 3,877,944 KiB. The reconstruction SHA-256 matched `bc64e5ccb058c7143c3803ad5ded61564d82509b0c13bcf572d012e82ecf3e4e`. A 16 GiB address-space ceiling was set and the measured peaks stayed under it. This is one sample. The shared-prefix, Neovim, and Validate rows above were not rerun.
 
 ## How it works
 

@@ -98,3 +98,4 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 ## Retired 2026-10-08
 
 - [x] [Active] Qualify archive-first Mac deltas on m4max: Nix difz 0.1.0 restored a ditto zip of stapled Beamer.app and codesign --verify --deep --strict passed with the ticket still stapled. (done 2026-10-01 3:55pm EDT) (context: docs/plan_context/mac-archive-oracle.md)
+- [x] [Active] Apply a DIFZTREE of live Beamer.app on m4max. codesign --verify --deep --strict, xcrun stapler validate, and spctl --assess passed; quarantine, provenance, and macl were not copied. (done 2026-10-04 10:09am EDT) (context: docs/plan_context/mac-archive-oracle.md)
