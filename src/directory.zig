@@ -33,6 +33,8 @@ pub const SnapshotError = error{
     SymlinkEscapesRoot,
     TooManyEntries,
     PathTooLong,
+    InvalidHardlinkRelation,
+    InvalidSparseExtent,
 };
 
 pub const max_entries: usize = 1_000_000;
@@ -117,6 +119,7 @@ pub fn treeHash(entries: []const Entry) SnapshotError![32]u8 {
 /// the user opens. An empty root adds no bytes, so existing v2 digests stay put.
 pub fn treeHashWithRoot(entries: []const Entry, root: metadata.Metadata) SnapshotError![32]u8 {
     try validateSnapshot(entries);
+    try validateMetadataRelations(entries);
     var hasher = std.crypto.hash.Blake3.init(.{});
     hasher.update("DIFZTREE-ID\x02");
     hashInt(&hasher, u32, @intCast(entries.len));
@@ -155,10 +158,83 @@ fn findPath(entries: []const Entry, path: []const u8) ?usize {
     return null;
 }
 
+/// Requires expanded file bytes. Encoded deltas cannot satisfy this boundary.
+pub fn validateMetadataRelations(entries: []const Entry) SnapshotError!void {
+    for (entries, 0..) |entry, index| {
+        for (entry.meta.holes) |hole| {
+            if (entry.kind != .file or hole.length == 0 or hole.offset > entry.data.len or
+                hole.length > entry.data.len - hole.offset) return error.InvalidSparseExtent;
+            const begin: usize = @intCast(hole.offset);
+            const end: usize = begin + @as(usize, @intCast(hole.length));
+            for (entry.data[begin..end]) |byte| if (byte != 0) return error.InvalidSparseExtent;
+        }
+        if (entry.meta.hardlink_to) |path| {
+            if (entry.kind != .file) return error.InvalidHardlinkRelation;
+            const target_index = findPath(entries[0..index], path) orelse return error.InvalidHardlinkRelation;
+            const target = entries[target_index];
+            if (target.kind != .file or target.meta.hardlink_to != null or target.mode != entry.mode or
+                !std.mem.eql(u8, target.data, entry.data)) return error.InvalidHardlinkRelation;
+            var shared_meta = entry.meta;
+            shared_meta.hardlink_to = null;
+            if (!std.mem.eql(u8, &metadata.canonicalHash(shared_meta), &metadata.canonicalHash(target.meta)))
+                return error.InvalidHardlinkRelation;
+        }
+    }
+}
+
 fn hashInt(hasher: *std.crypto.hash.Blake3, comptime T: type, value: T) void {
     var bytes: [@sizeOf(T)]u8 = undefined;
     std.mem.writeInt(T, &bytes, value, .little);
     hasher.update(&bytes);
+}
+
+test "hardlink references classify complete snapshot relations" {
+    const base = [_]Entry{
+        .{ .path = "a", .kind = .file, .mode = 0o644, .data = "same" },
+        .{ .path = "b", .kind = .file, .mode = 0o644, .data = "same", .meta = .{ .hardlink_to = "a" } },
+    };
+    _ = try treeHash(&base);
+    for (0..8) |case| {
+        var changed = base;
+        switch (case) {
+            0 => changed[1].meta.hardlink_to = "missing",
+            1 => changed[0].meta.hardlink_to = "b",
+            2 => changed[1].meta.hardlink_to = "b",
+            3 => changed[0].kind = .directory,
+            4 => changed[1].data = "diff",
+            5 => changed[1].mode = 0o600,
+            6 => changed[1].meta.times.mtime = .{ .sec = 1 },
+            7 => changed[1].kind = .symlink,
+            else => unreachable,
+        }
+        // Keep the general entry contract valid so this tests the relation.
+        if (case == 3) changed[0].data = "";
+        if (case == 7) changed[1].mode = 0o777;
+        try testing.expectError(error.InvalidHardlinkRelation, treeHash(&changed));
+    }
+    const chain = base ++ [_]Entry{.{ .path = "c", .kind = .file, .mode = 0o644, .data = "same", .meta = .{ .hardlink_to = "b" } }};
+    try testing.expectError(error.InvalidHardlinkRelation, treeHash(&chain));
+}
+
+test "sparse extents classify object kind bounds and logical zero bytes" {
+    const base = Entry{ .path = "a", .kind = .file, .mode = 0o644, .data = "\x00X", .meta = .{ .holes = &.{.{ .offset = 0, .length = 1 }} } };
+    _ = try treeHash(&.{base});
+    const bad = [_]metadata.Hole{
+        .{ .offset = 1, .length = 1 },
+        .{ .offset = 2, .length = 1 },
+        .{ .offset = 0, .length = 3 },
+        .{ .offset = std.math.maxInt(u64), .length = 2 },
+        .{ .offset = 0, .length = 0 },
+    };
+    for (bad) |hole| {
+        var changed = base;
+        changed.meta.holes = &.{hole};
+        try testing.expectError(error.InvalidSparseExtent, treeHash(&.{changed}));
+    }
+    var directory_entry = base;
+    directory_entry.kind = .directory;
+    directory_entry.data = "";
+    try testing.expectError(error.InvalidSparseExtent, treeHash(&.{directory_entry}));
 }
 
 test "canonical paths classify a representative set" {

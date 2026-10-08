@@ -35,7 +35,9 @@ Symlink targets must be nonempty UTF-8 relative paths using `/`. Absolute, drive
 
 On Linux and macOS, the mode stores the low nine POSIX permission bits. Symlinks use canonical mode `0777`; difz does not follow or chmod them. On Windows, snapshots assign `0755` to directories, `0644` to regular files, and `0777` to symlinks. Windows reconstruction rejects a patch whose modes cannot map to those values and otherwise ignores chmod. It marks a symlink as directory-valued when its normalized target names a directory in the target snapshot; a dangling Windows directory symlink cannot be distinguished and is unsupported. Platform artifacts should therefore be patched on their target platform.
 
-Canonical metadata can carry extended attributes, ACLs, timestamps, Finder information and flags, sparse extents, and hardlink identity. The filesystem adapter currently captures and restores xattrs and child mtime. Other native operations and transport fallbacks remain in [the metadata plan](plan_context/metadata-v2.md). Owner/group IDs and ctime are outside the declared scope. A format's ability to carry a field does not establish native filesystem fidelity.
+Canonical metadata can carry extended attributes, ACLs, timestamps, Finder information and flags, sparse extents, and hardlink identity. The filesystem adapter currently captures and restores xattrs, child mtime, and native hardlinks. Other native operations and transport fallbacks remain in [the metadata plan](plan_context/metadata-v2.md). Owner/group IDs and ctime are outside the declared scope. A format's ability to carry a field does not establish native filesystem fidelity.
+
+Sparse extents must have positive lengths, stay within a regular file, and describe only logical zero bytes. A hardlink names an earlier regular file without its own hardlink reference. Its logical bytes, mode, and metadata excluding the reference must match that canonical file. Self references, chains, forward references, and inconsistent shared metadata are rejected. Capture groups files by filesystem identity and inode after filtering, so excluded names cannot become references. Apply creates native hardlinks and verifies their identity through the staged snapshot.
 
 `--omit-metadata xattr,acl,timestamps,finder,sparse,hardlink` omits the listed families before capture and hashing. The patch stores the mask so apply uses the same scope for source and staged verification. Omitted families have no payload and produce no fidelity warning. Repeated options combine disjoint lists; unknown, empty, and duplicate families are errors. This option applies only to directory patch creation.
 
@@ -131,7 +133,8 @@ Operations are:
 - `2 symlink`, with the target bytes as payload;
 - `3 file-copy`, with no payload and bytes copied from the same source path;
 - `4 file-raw`, with complete target bytes as payload;
-- `5 file-delta`, with a current file-level difz patch as payload and the same-path source file as its base.
+- `5 file-delta`, with a current file-level difz patch as payload and the same-path source file as its base;
+- `6 file-hardlink`, with the earlier canonical path as payload, equal to the metadata hardlink reference.
 
 Unchanged same-path files use `file-copy`; mode changes are carried by the entry mode. Changed same-path regular files use `file-delta`. Additions and source-kind changes use `file-raw`. A source entry absent from the target manifest is deleted by omission because staging starts empty. Identical-content rename detection is deferred.
 

@@ -13,7 +13,7 @@ Canonical, sorted records:
 - mtime and birth time as signed seconds plus nanoseconds
 - Finder info (32 bytes) and BSD flags
 - sparse hole list (offset, length) while the file payload remains the logical bytes, holes included as zeros
-- hardlink entries whose payload is the canonical path of the first file with those bytes
+- hardlink entries whose payload names the first included path with the same filesystem identity and inode; equal bytes alone do not establish a link
 
 ctime is not recorded. Userspace cannot set it, so after apply it means the apply time. atime is not captured: a second read under relatime would make two snapshots of one tree hash differently. Owner and group ids stay out of this slice.
 

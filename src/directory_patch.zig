@@ -23,6 +23,7 @@ const Operation = enum(u8) {
     file_copy = 3,
     file_raw = 4,
     file_delta = 5,
+    file_hardlink = 6,
 };
 
 pub const CreateOptions = struct {
@@ -150,7 +151,10 @@ pub fn createPatch(
                 if (payload.len > limits.max_symlink_bytes) return error.LimitExceeded;
             },
             .file => {
-                if (findEntry(source, entry.path)) |old| {
+                if (entry.meta.hardlink_to) |canonical_path| {
+                    operation = .file_hardlink;
+                    payload = canonical_path;
+                } else if (findEntry(source, entry.path)) |old| {
                     if (old.kind == .file) {
                         if (std.mem.eql(u8, old.data, entry.data)) {
                             operation = .file_copy;
@@ -257,6 +261,12 @@ pub fn applyPatchRoot(
                 const old = findEntry(source, encoded.path) orelse return error.MissingSourceEntry;
                 if (old.kind != .file) return error.SourceKindMismatch;
                 data = try file_patch.patch(arena_allocator, old.data, encoded.payload);
+            },
+            .file_hardlink => {
+                kind = .file;
+                const canonical = findEntry(entries[0..index], encoded.payload) orelse return error.InvalidHardlinkRelation;
+                if (canonical.kind != .file or canonical.meta.hardlink_to != null) return error.InvalidHardlinkRelation;
+                data = canonical.data;
             },
         }
         if (data.len > limits.max_output_bytes -| output_bytes) return error.LimitExceeded;
@@ -392,8 +402,14 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
                 if (payload.len != 0) return error.InvalidPayload;
                 break :blk .file;
             },
+            .file_hardlink => blk: {
+                const canonical_path = meta.hardlink_to orelse return error.InvalidHardlinkRelation;
+                if (!std.mem.eql(u8, payload, canonical_path)) return error.InvalidHardlinkRelation;
+                break :blk .file;
+            },
             .file_raw, .file_delta => .file,
         };
+        if (meta.hardlink_to != null and operation != .file_hardlink) return error.InvalidHardlinkRelation;
         entry.* = .{ .operation = operation, .mode = mode, .path = path, .payload = payload, .meta = meta };
         view.* = .{ .path = path, .kind = kind, .mode = mode, .data = if (kind == .directory) "" else payload, .meta = meta };
     }
@@ -609,12 +625,12 @@ test "v2 patch round-trips every metadata family" {
     const source = [_]directory.Entry{
         .{ .path = "a.txt", .kind = .file, .mode = 0o644, .data = "same" },
     };
-    const target = [_]directory.Entry{
+    var target = [_]directory.Entry{
         .{
             .path = "a.txt",
             .kind = .file,
             .mode = 0o644,
-            .data = "same",
+            .data = "\x00\x00same",
             .meta = .{
                 .xattrs = &[_]meta.Xattr{
                     .{ .class = .logical, .name = "comment", .value = "hi" },
@@ -632,10 +648,12 @@ test "v2 patch round-trips every metadata family" {
             .path = "b.txt",
             .kind = .file,
             .mode = 0o644,
-            .data = "",
+            .data = "\x00\x00same",
             .meta = .{ .hardlink_to = "a.txt" },
         },
     };
+    target[1].meta = target[0].meta;
+    target[1].meta.hardlink_to = "a.txt";
     const patch_bytes = try createPatch(testing.allocator, &source, &target, .{});
     defer testing.allocator.free(patch_bytes);
     try testing.expectEqual(@as(u16, 2), std.mem.readInt(u16, patch_bytes[8..10], .little));
@@ -981,10 +999,12 @@ test "omission flags reject contradictory entry and root payloads" {
         .holes = &.{.{ .offset = 0, .length = 1 }},
         .hardlink_to = "a",
     };
-    const target = [_]directory.Entry{
+    var target = [_]directory.Entry{
         .{ .path = "a", .kind = .file, .mode = 0o644, .data = "\x00" },
         .{ .path = "b", .kind = .file, .mode = 0o644, .data = "\x00", .meta = rich },
     };
+    target[0].meta = rich;
+    target[0].meta.hardlink_to = null;
     for ([_]bool{ false, true }) |on_root| {
         const bytes = try createPatch(testing.allocator, &empty, if (on_root) &empty else &target, .{
             .target_root = if (on_root) rich else .{},
@@ -996,4 +1016,32 @@ test "omission flags reject contradictory entry and root payloads" {
             try testing.expectError(error.OmittedMetadataPresent, applyPatch(testing.allocator, &empty, bytes, .{}));
         }
     }
+}
+
+test "hardlink operation stores a canonical path and expands by aliasing" {
+    const empty = [_]directory.Entry{};
+    const target = [_]directory.Entry{
+        .{ .path = "a", .kind = .file, .mode = 0o644, .data = "same" },
+        .{ .path = "b", .kind = .file, .mode = 0o644, .data = "same", .meta = .{ .hardlink_to = "a" } },
+    };
+    const bytes = try createPatch(testing.allocator, &empty, &target, .{});
+    defer testing.allocator.free(bytes);
+    var encoded = try decodePatch(testing.allocator, bytes, .{});
+    defer encoded.deinit();
+    try testing.expectEqual(@as(u8, 6), @intFromEnum(encoded.entries[1].operation));
+    try testing.expectEqualStrings("a", encoded.entries[1].payload);
+    var restored = try applyPatch(testing.allocator, &empty, bytes, .{});
+    defer restored.deinit();
+    try testing.expectEqualStrings("same", restored.entries[1].data);
+    try testing.expectEqual(restored.entries[0].data.ptr, restored.entries[1].data.ptr);
+    const payload_offset = @intFromPtr(encoded.entries[1].payload.ptr) - @intFromPtr(bytes.ptr);
+    bytes[payload_offset] = 'b';
+    recomputeChecksum(bytes);
+    try testing.expectError(error.InvalidHardlinkRelation, applyPatch(testing.allocator, &empty, bytes, .{}));
+
+    const omitted = try createPatch(testing.allocator, &empty, &target, .{ .omit = .{ .hardlink = true } });
+    defer testing.allocator.free(omitted);
+    var without_links = try decodePatch(testing.allocator, omitted, .{});
+    defer without_links.deinit();
+    try testing.expectEqual(@as(u8, 4), @intFromEnum(without_links.entries[1].operation));
 }

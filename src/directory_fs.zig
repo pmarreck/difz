@@ -50,6 +50,8 @@ pub fn snapshotDir(
     else
         try selectEntries(arena_allocator, raw.items, options.rules);
     try directory.validateSnapshot(entries);
+    if (!options.omit.hardlink) try assignHardlinks(arena_allocator, io, root, entries);
+    try directory.validateMetadataRelations(entries);
     const root_xattrs = if (options.omit.xattr) &.{} else try readXattrs(arena_allocator, root_buf[0..root_len]);
     const root_meta: metadata.Metadata = if (root_xattrs.len == 0)
         .{}
@@ -226,10 +228,15 @@ fn writeSnapshot(
     root_meta: metadata.Metadata,
 ) !void {
     try directory.validateSnapshot(entries);
+    try directory.validateMetadataRelations(entries);
     for (entries) |entry| {
         switch (entry.kind) {
             .directory => try root.createDir(io, entry.path, writableDirectoryPermissions()),
             .file => {
+                if (entry.meta.hardlink_to) |canonical_path| {
+                    try root.hardLink(canonical_path, root, entry.path, io, .{ .follow_symlinks = false });
+                    continue;
+                }
                 var file = try root.createFile(io, entry.path, .{
                     .exclusive = true,
                     .permissions = writableFilePermissions(),
@@ -569,6 +576,65 @@ fn findEntry(entries: []const directory.Entry, path: []const u8) ?usize {
         }
     }
     return null;
+}
+
+const FileIdentity = struct { device: u64, inode: u64 };
+
+fn assignHardlinks(allocator: std.mem.Allocator, io: std.Io, root: std.Io.Dir, entries: []directory.Entry) !void {
+    var canonical: std.AutoHashMapUnmanaged(FileIdentity, []const u8) = .empty;
+    defer canonical.deinit(allocator);
+    for (entries) |*entry| {
+        if (entry.kind != .file) continue;
+        const stat = try root.statFile(io, entry.path, .{ .follow_symlinks = false });
+        if (stat.kind != .file) return error.FileChangedDuringSnapshot;
+        if (stat.nlink < 2) continue;
+        const identity = try fileIdentity(io, root, entry.path);
+        const slot = try canonical.getOrPut(allocator, identity);
+        if (slot.found_existing) {
+            entry.meta.hardlink_to = slot.value_ptr.*;
+        } else slot.value_ptr.* = entry.path;
+    }
+}
+
+/// Inode numbers alone collide across filesystems mounted within a tree.
+fn fileIdentity(io: std.Io, root: std.Io.Dir, path: []const u8) !FileIdentity {
+    if (comptime builtin.os.tag == .windows) {
+        const windows = std.os.windows;
+        const WinInfo = extern struct {
+            attributes: u32,
+            creation: windows.FILETIME,
+            access: windows.FILETIME,
+            write: windows.FILETIME,
+            volume: u32,
+            size_high: u32,
+            size_low: u32,
+            links: u32,
+            index_high: u32,
+            index_low: u32,
+        };
+        const kernel = struct {
+            extern "kernel32" fn GetFileInformationByHandle(windows.HANDLE, *WinInfo) callconv(.winapi) windows.BOOL;
+        };
+        var file = try root.openFile(io, path, .{ .follow_symlinks = false, .allow_directory = false });
+        defer file.close(io);
+        var info: WinInfo = undefined;
+        if (kernel.GetFileInformationByHandle(file.handle, &info) == .FALSE) return error.FileIdentityUnavailable;
+        return .{ .device = info.volume, .inode = (@as(u64, info.index_high) << 32) | info.index_low };
+    } else {
+        var path_buf: [std.posix.PATH_MAX]u8 = undefined;
+        const path_z = try terminatedBasename(&path_buf, path);
+        if (comptime builtin.os.tag == .linux) {
+            const linux = std.os.linux;
+            var stat = std.mem.zeroes(linux.Statx);
+            if (linux.errno(linux.statx(root.handle, path_z, linux.AT.SYMLINK_NOFOLLOW, .{ .INO = true }, &stat)) != .SUCCESS or
+                !stat.mask.INO) return error.FileIdentityUnavailable;
+            return .{ .device = (@as(u64, stat.dev_major) << 32) | stat.dev_minor, .inode = stat.ino };
+        } else {
+            var stat: std.c.Stat = undefined;
+            if (std.c.fstatat(root.handle, path_z, &stat, std.posix.AT.SYMLINK_NOFOLLOW) != 0) return error.FileIdentityUnavailable;
+            return .{ .device = @as(u32, @bitCast(stat.dev)), .inode = stat.ino };
+        }
+    }
 }
 
 fn entryLessThan(_: void, left: directory.Entry, right: directory.Entry) bool {
@@ -1014,6 +1080,47 @@ test "filesystem apply reuses stored omission for source and staged capture" {
     defer output.close(io);
     var buffer: [16]u8 = undefined;
     try testing.expectEqualStrings("new", try readFileIntoBuffer(io, output, "data", &buffer));
+}
+
+test "filesystem hardlinks use the first included path and restore one inode" {
+    var tmp = testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try tmp.dir.createDir(io, "source", .default_dir);
+    try tmp.dir.createDir(io, "target", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true });
+    defer source.close(io);
+    var target = try tmp.dir.openDir(io, "target", .{ .iterate = true });
+    defer target.close(io);
+    try target.writeFile(io, .{ .sub_path = "a", .data = "shared" });
+    try target.hardLink("a", target, "b", io, .{});
+    try target.hardLink("a", target, "c", io, .{});
+    try target.writeFile(io, .{ .sub_path = "d", .data = "shared" });
+    const rules = [_]path_filter.Rule{.{ .action = .exclude, .pattern = "a" }};
+    var snapshot = try snapshotDir(testing.allocator, io, target, .{ .rules = &rules });
+    defer snapshot.deinit();
+    try testing.expectEqual(@as(usize, 3), snapshot.entries.len);
+    try testing.expect(snapshot.entries[0].meta.hardlink_to == null);
+    try testing.expectEqualStrings("b", snapshot.entries[1].meta.hardlink_to.?);
+    try testing.expect(snapshot.entries[2].meta.hardlink_to == null);
+    const patch = try createPatchFromDirs(testing.allocator, io, source, target, .{ .rules = &rules });
+    defer testing.allocator.free(patch);
+    try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".hardlink-stage", patch, .{});
+    var output = try tmp.dir.openDir(io, "output", .{ .iterate = true });
+    defer output.close(io);
+    const b = try output.statFile(io, "b", .{});
+    const c = try output.statFile(io, "c", .{});
+    const d = try output.statFile(io, "d", .{});
+    try testing.expectEqual(b.inode, c.inode);
+    try testing.expectEqual(@as(std.Io.File.NLink, 2), b.nlink);
+    try testing.expect(b.inode != d.inode);
+
+    const omitted = try createPatchFromDirs(testing.allocator, io, source, target, .{ .omit = .{ .hardlink = true } });
+    defer testing.allocator.free(omitted);
+    try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "copies", ".copy-stage", omitted, .{});
+    var copies = try tmp.dir.openDir(io, "copies", .{ .iterate = true });
+    defer copies.close(io);
+    try testing.expect((try copies.statFile(io, "a", .{})).inode != (try copies.statFile(io, "b", .{})).inode);
 }
 
 test "filesystem snapshot and apply round-trip logical and raw extended attributes" {
