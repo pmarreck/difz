@@ -66,6 +66,19 @@ On 2026-10-07 the same host compared `--compress none`, `lzma2`, `bzip2`, `zstd`
 
 A 1024 MiB full replace of two uniform streams, one timed run after a warmup on the same host, is large enough for 128 of zstd level 3's 8 MiB jobs. `difz --compress zstd` wrote the same 1,073,742,012 bytes as `--compress none`. Create was 12.1 s wall and 11.9 s CPU with no compression, and 14.2 s wall and 14.5 s CPU with zstd, about one core either way. The zstd 1.5.7 CLI at level 3 took 880 ms wall and 2.47 s CPU with `-T1`, and 946 ms wall and 2.88 s CPU with `-T0` (about 3 cores). Both CLI frames were larger than the patch, 1,073,766,605 bytes. The 16, 64, and 256 MiB rungs of the same ladder also left every difz mode byte-identical to uncompressed, and `-T0` was slower than `-T1` at each rung. lzma2 and bzip2 were not repeated at 1024 MiB. At 256 MiB they had not shrunk the patch, and bzip2's resident set was about 14 GiB.
 
+The same day, one timed run compared the current file engine with `zstd --patch-from` on the official NixOS minimal x86_64 ISOs `26.05.7813` (1,706,262,528 bytes, SHA-256 `d74cb1858a7d8350506bc8889cdc291de6241157c402c9b814a8d817eac8ace9`) and `26.05.9173` (1,709,604,864 bytes, SHA-256 `bc64e5ccb058c7143c3803ad5ded61564d82509b0c13bcf572d012e82ecf3e4e`). `difz` was ReleaseFast at its default `--compress best`, with the CDC seed pinned to 32 bytes of `0x2a`. zstd was 1.5.7. Every listed reconstruction matched the newer ISO.
+
+| Tool | Create wall / CPU / peak RSS | Patch bytes | Apply wall |
+|---|---|---:|---:|
+| difz `--compress best` | 925.5 s / 1,199 s / 35.1 GiB | 662,865,660 | 9.34 s |
+| `zstd --patch-from -3` | 5.19 s / 8.89 s / 3.32 GiB | 562,327,064 | see below |
+| `zstd --patch-from -9` | 6.90 s / 11.9 s / 3.51 GiB | 557,813,501 | see below |
+| `zstd --patch-from -19` | 110 s / 332 s / 4.79 GiB | 555,099,605 | see below |
+| xdelta3 | 604 s / 599 s / 227 MiB | 1,675,137,751 | 2.84 s |
+| bsdiff | 5,126 s / 5,084 s / 14.3 GiB | 649,963,439 | 40.3 s |
+
+`zstd -d --patch-from` without a larger window exited 36. The frame window is the target size, 1,709,604,864 bytes, and the decoder's default maximum was the reference size, 1,706,262,528. `zstd -d --long=31 --patch-from` reconstructed the target for levels 3, 9, and 19. Level 19 saved 7,227,459 bytes against level 3 and used about 21 times the wall time.
+
 ## How it works
 
 Two-stage algorithm:
