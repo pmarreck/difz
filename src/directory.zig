@@ -106,38 +106,16 @@ fn validateSymlinkTarget(link_path: []const u8, target: []const u8) SnapshotErro
     }
 }
 
+/// DIFZTREE identity includes every entry's canonical metadata, even when
+/// empty. Metadata must already be canonical; this function does not sort it.
 pub fn treeHash(entries: []const Entry) SnapshotError![32]u8 {
-    try validateSnapshot(entries);
-
-    var hasher = std.crypto.hash.Blake3.init(.{});
-    hasher.update("DIFZTREE-ID\x01");
-    hashInt(&hasher, u32, @intCast(entries.len));
-    for (entries) |entry| {
-        const kind = [_]u8{@intFromEnum(entry.kind)};
-        hasher.update(&kind);
-        hashInt(&hasher, u16, entry.mode);
-        hashInt(&hasher, u32, @intCast(entry.path.len));
-        hasher.update(entry.path);
-        hashInt(&hasher, u64, @intCast(entry.data.len));
-        hasher.update(entry.data);
-    }
-
-    var digest: [32]u8 = undefined;
-    hasher.final(&digest);
-    return digest;
+    return treeHashWithRoot(entries, .{});
 }
 
-/// DIFZTREE v2 identity. Same path, kind, mode, and payload as v1, plus the
-/// BLAKE3 of each entry's canonical metadata. Metadata must already be
-/// canonical; this function does not sort it.
-pub fn treeHashV2(entries: []const Entry) SnapshotError![32]u8 {
-    return treeHashV2WithRoot(entries, .{});
-}
-
-/// v2 identity plus the snapshot root. The root is not an entry: an empty
+/// Identity plus the snapshot root. The root is not an entry: an empty
 /// path is illegal, and a bundle's quarantine attribute lives on the directory
 /// the user opens. An empty root adds no bytes, so existing v2 digests stay put.
-pub fn treeHashV2WithRoot(entries: []const Entry, root: metadata.Metadata) SnapshotError![32]u8 {
+pub fn treeHashWithRoot(entries: []const Entry, root: metadata.Metadata) SnapshotError![32]u8 {
     try validateSnapshot(entries);
     var hasher = std.crypto.hash.Blake3.init(.{});
     hasher.update("DIFZTREE-ID\x02");
@@ -161,11 +139,6 @@ pub fn treeHashV2WithRoot(entries: []const Entry, root: metadata.Metadata) Snaps
     var digest: [32]u8 = undefined;
     hasher.final(&digest);
     return digest;
-}
-
-pub fn usesMetadata(entries: []const Entry) bool {
-    for (entries) |entry| if (!entry.meta.isEmpty()) return true;
-    return false;
 }
 
 fn findPath(entries: []const Entry, path: []const u8) ?usize {
@@ -300,10 +273,10 @@ test "tree identity changes with path kind mode and content" {
         .{ .path = "a", .kind = .symlink, .mode = 0o777, .data = "same-size" },
     };
     const external_b3sum = [_]u8{
-        0x32, 0x42, 0x80, 0x3f, 0x7d, 0x5d, 0x8a, 0xf6,
-        0x41, 0xed, 0xb4, 0x69, 0x0e, 0x65, 0x57, 0xd7,
-        0x30, 0xb5, 0x24, 0x6f, 0xb2, 0x70, 0x6a, 0xbd,
-        0x68, 0xc8, 0xe8, 0x55, 0x79, 0x5d, 0xa6, 0x19,
+        0x93, 0x98, 0x56, 0xf8, 0x23, 0xc6, 0xe8, 0x00,
+        0x34, 0x5b, 0x98, 0x97, 0xd2, 0x05, 0xef, 0x2c,
+        0x99, 0x37, 0x82, 0x33, 0x3d, 0xb6, 0xb9, 0x0d,
+        0xc1, 0xc4, 0x9f, 0x96, 0x67, 0x8f, 0x9c, 0xa8,
     };
 
     const base_hash = try treeHash(&base);
@@ -315,7 +288,7 @@ test "tree identity changes with path kind mode and content" {
     try testing.expect(!std.mem.eql(u8, &base_hash, &(try treeHash(&changed_kind))));
 }
 
-test "v2 tree identity tracks metadata while v1 ignores it" {
+test "tree identity always includes canonical metadata" {
     const plain = [_]Entry{
         .{ .path = "a", .kind = .file, .mode = 0o644, .data = "same-size" },
     };
@@ -328,8 +301,5 @@ test "v2 tree identity tracks metadata while v1 ignores it" {
             .meta = .{ .xattrs = &[_]metadata.Xattr{.{ .class = .logical, .name = "comment", .value = "hi" }} },
         },
     };
-    try testing.expectEqualSlices(u8, &(try treeHash(&plain)), &(try treeHash(&commented)));
-    const plain_v2 = try treeHashV2(&plain);
-    try testing.expect(!std.mem.eql(u8, &plain_v2, &(try treeHashV2(&commented))));
-    try testing.expect(!std.mem.eql(u8, &(try treeHash(&plain)), &plain_v2));
+    try testing.expect(!std.mem.eql(u8, &(try treeHash(&plain)), &(try treeHash(&commented))));
 }

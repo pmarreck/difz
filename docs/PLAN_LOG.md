@@ -112,3 +112,5 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 - [x] [Active] Measure a 1024 MiB uniform full-replace: zstd level 3 did not shrink it and -T0 did not beat -T1. (done 2026-10-07 4:59pm EDT)
 - [x] [Active] Remeasure the shared-prefix rows and the Neovim AppImage pair with the `./bm` method. The August Validate ELFs were not available and were not rebuilt. (done 2026-10-07 9:40am EDT)
 - [x] [Active] Split create time between the matcher and the `--compress best` probe. On a pinned seed, `best` matched LZMA2 or uncompressed, and the probe was the extra cost. (done 2026-10-07 10:08am EDT)
+- [x] [Active] Remeasure the cached ISO pair warm with difz and the pinned CLI in single-thread and T1 modes; verify every reconstruction and record all three samples. (done 2026-10-08 09:49 EDT; context: docs/plan_context/engine-comparison.md)
+- [x] [Active] Isolate the CLI thread-mode effect on the same zstdz pin; the prior CLI wall-time advantage was not reproduced, so keep difz compression single-threaded. (done 2026-10-08 09:49 EDT; context: docs/plan_context/engine-comparison.md)

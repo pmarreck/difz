@@ -1,10 +1,10 @@
-# DIFZTREE v1 Directory Patch Contract
+# DIFZTREE v2 Directory Patch Contract
 
-Status: implementation contract for the first directory-capable difz release.
+Status: the sole supported directory format. There is no v1 compatibility path.
 
 ## Scope
 
-File-to-file patches use source- and target-bound `ZDIF\x04` (one zstd level 9 prefix frame). Directory-to-directory patches use `DIFZTREE` v1 and embed that same file frame for each changed regular file. `ZDIF\x03` is rejected. Inputs must have matching kinds. A file and a directory cannot be diffed, and sockets, devices, FIFOs, and other special files are rejected.
+File-to-file patches use source- and target-bound `ZDIF\x04` (one zstd level 9 prefix frame). Directory-to-directory patches always use `DIFZTREE` v2 and embed that same file frame for each changed regular file. DIFZTREE v1 and `ZDIF\x03` are rejected. Inputs must have matching kinds. A file and a directory cannot be diffed, and sockets, devices, FIFOs, and other special files are rejected.
 
 A directory patch reconstructs a new target under a staging root. It never changes the source tree. After reconstruction, difz snapshots and hashes the staging tree again. Success requires the new hash to match the target identity stored in the patch. The caller decides whether and how to replace a live application tree.
 
@@ -15,7 +15,10 @@ The snapshot excludes the root itself. Each entry has:
 - a relative path;
 - a kind: directory, regular file, or symbolic link;
 - a portable mode;
-- regular-file bytes or portable symlink-target bytes.
+- regular-file bytes or portable symlink-target bytes;
+- canonical metadata, including an empty record when no family is present.
+
+The snapshot root has a separate optional metadata record; it is not an entry with an empty path.
 
 Paths use these rules:
 
@@ -30,9 +33,9 @@ These rules reject path aliases before a patch can create anything. The same val
 
 Symlink targets must be nonempty UTF-8 relative paths using `/`. Absolute, drive-prefixed, backslash-separated, NUL-containing, and lexically root-escaping targets are rejected. `.` and contained `..` components remain valid, so bundle-internal links such as `Versions/Current` and `../Frameworks` can round-trip without allowing a staged link to escape the reconstructed root.
 
-On Linux and macOS, v1 stores the low nine POSIX permission bits. Symlinks use canonical mode `0777`; difz does not follow or chmod them. On Windows, snapshots assign `0755` to directories, `0644` to regular files, and `0777` to symlinks. Windows reconstruction rejects a patch whose modes cannot map to those values and otherwise ignores chmod. It marks a symlink as directory-valued when its normalized target names a directory in the target snapshot; a dangling Windows directory symlink cannot be distinguished and is unsupported in v1. Platform artifacts should therefore be patched on their target platform.
+On Linux and macOS, the mode stores the low nine POSIX permission bits. Symlinks use canonical mode `0777`; difz does not follow or chmod them. On Windows, snapshots assign `0755` to directories, `0644` to regular files, and `0777` to symlinks. Windows reconstruction rejects a patch whose modes cannot map to those values and otherwise ignores chmod. It marks a symlink as directory-valued when its normalized target names a directory in the target snapshot; a dangling Windows directory symlink cannot be distinguished and is unsupported. Platform artifacts should therefore be patched on their target platform.
 
-Owner, group, timestamps, ACLs, extended attributes, Finder flags, sparse extents, and hardlink identity are outside v1. Hardlinks snapshot as independent regular files.
+Canonical metadata can carry extended attributes, ACLs, timestamps, Finder information and flags, sparse extents, and hardlink identity. The filesystem adapter currently captures and restores xattrs and child mtime. Other native operations, omission masks, and transport fallbacks remain in [the metadata plan](plan_context/metadata-v2.md). Owner/group IDs and ctime are outside the declared scope. A format's ability to carry a field does not establish native filesystem fidelity.
 
 ## Filters
 
@@ -55,7 +58,7 @@ Traversal does not stop at an excluded directory because a later rule may re-inc
 Both source and target identities are 32-byte BLAKE3 hashes over this canonical stream:
 
 ```text
-"DIFZTREE-ID\x01"
+"DIFZTREE-ID\x02"
 entry_count                 u32 little-endian
 for each entry:
     kind                    u8
@@ -64,6 +67,10 @@ for each entry:
     path                    path_length bytes
     content_length          u64 little-endian
     content                 file bytes, symlink target, or empty for a directory
+    metadata_blake3         BLAKE3("DIFZMETA\x01" + canonical metadata bytes)
+if root metadata is nonempty:
+    "DIFZTREE-ROOT\x01"
+    root_metadata_blake3    BLAKE3("DIFZMETA\x01" + canonical root metadata bytes)
 ```
 
 The source identity is checked before reconstruction. This catches a wrong same-sized source tree. The independently re-snapshotted staging tree must match the target identity before success.
@@ -74,9 +81,9 @@ All integers are little-endian. Header:
 
 ```text
 magic                       8 bytes: "DIFZTREE"
-format_version              u16: 1
-minimum_reader_version      u16: 1
-flags                       u32: 0 for v1. v2 may set bit 0; see docs/plan_context/metadata-v2.md
+format_version              u16: 2
+minimum_reader_version      u16: 2
+flags                       u32: bit 0 indicates target-root metadata; others reserved
 rule_count                  u32
 entry_count                 u32
 source_tree_blake3          32 bytes
@@ -84,7 +91,7 @@ target_tree_blake3          32 bytes
 patch_blake3                32 bytes
 ```
 
-`patch_blake3` is BLAKE3 over domain `DIFZTREE-PATCH\x01`, the preceding 88 header bytes, and the complete body. It binds every encoded byte, including file-delta metadata that does not affect reconstruction.
+`patch_blake3` is BLAKE3 over domain `DIFZTREE-PATCH\x02`, the preceding 88 header bytes, and the complete body. It binds every encoded byte, including file-delta metadata that does not affect reconstruction. The decoder rejects every format version except 2 before allocation.
 
 Each ordered filter rule follows:
 
@@ -106,7 +113,13 @@ path_length                 u32
 payload_length              u64
 path                        path_length bytes
 payload                     payload_length bytes
+metadata_length             u32
+metadata                    metadata_length canonical bytes
 ```
+
+When header bit 0 is set, the entries are followed by `u32 root_metadata_length` and a nonempty canonical target-root metadata record. The source root is hashed but not stored; apply obtains it from the source snapshot.
+
+Canonical metadata serializes xattrs, portable ACL entries, an optional origin-tagged native ACL, optional timestamps, Finder flags and information, sparse holes, and an optional hardlink path, in that order. Collection counts and byte lengths are u32; sparse offsets and lengths are u64; timestamps use signed i64 seconds and u32 nanoseconds. An empty canonical record is 20 zero bytes. See `src/metadata.zig` for the field layout and [metadata scope](plan_context/metadata-v2.md) for capture and restore decisions.
 
 Operations are:
 
@@ -126,4 +139,4 @@ Default parser limits are 1,000,000 entries, 4,096 rules, 4,096 bytes per path o
 
 Create writes a temporary patch beside the requested output and renames it only after encoding succeeds. Apply requires a nonexistent output path, creates a uniquely named sibling staging directory, validates the complete patch and source identity, writes entries without following symlinks, and re-snapshots the stage. Any failure closes handles and removes only that owned staging path. A verified stage is renamed to the requested output path. The source remains unchanged, and replacing a live tree remains a separate caller action.
 
-The logical bundle contents, relative paths, symlink targets, and portable modes can round-trip exactly. V1 cannot claim byte-for-byte filesystem equivalence for a notarized macOS `.app` when correctness depends on metadata outside that set.
+The logical bundle contents, relative paths, symlink targets, portable modes, and currently supported metadata can round-trip exactly. Remaining native metadata work and updater qualification must pass before claiming filesystem equivalence for a notarized macOS `.app`.

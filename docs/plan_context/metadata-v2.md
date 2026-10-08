@@ -1,8 +1,8 @@
 # DIFZTREE v2 metadata
 
-Peter, 2026-09-29: difz must cover xattrs, ACLs, timestamps, Finder flags, sparse extents, and hardlink identity in a platform-agnostic way. Restore of a foreign OS is best-effort. Applying a Windows ACL on Linux or macOS warns rather than pretending the native form landed. Create can omit families (`--omit-metadata acl,xattr`) so a patch never carries data the destination cannot represent.
+Accepted scope, 2026-09-29: difz must cover xattrs, ACLs, timestamps, Finder flags, sparse extents, and hardlink identity in a platform-agnostic way. Restore of a foreign OS is best-effort. Applying a Windows ACL on Linux or macOS warns rather than pretending the native form landed. Create can omit families (`--omit-metadata acl,xattr`) so a patch never carries data the destination cannot represent.
 
-v1 stays valid. v1 identity (`DIFZTREE-ID\x01`) ignores metadata. A snapshot that carries any of these families, or a hardlink entry, is v2 (`DIFZTREE-ID\x02`).
+Decision, 2026-10-08: the project remains in break mode. DIFZTREE v2 is the only writer and reader path, including metadata-free snapshots; v1 is rejected. Every tree identity uses `DIFZTREE-ID\x02` and includes canonical metadata. No compatibility API or separate v1 identity remains.
 
 ## What is in the identity
 
@@ -17,7 +17,7 @@ Canonical, sorted records:
 
 ctime is not recorded. Userspace cannot set it, so after apply it means the apply time. atime is not captured: a second read under relatime would make two snapshots of one tree hash differently. Owner and group ids stay out of this slice.
 
-`xattr_stream` owns logical-name transfer. Logical names are the cross-OS xattr path and restore with no compromise warning (Peter, 2026-09-29). `com.apple.*` is not a logical name; it is raw or, for Finder info, the typed field. Raw names the target cannot store are preserved in `difz.raw-xattrs` with one warning. Names `difz.mtime`, `difz.btime`, `difz.finder-info`, `difz.bsd-flags`, `difz.native-acl`, `difz.portable-acl`, `difz.sparse-holes`, `difz.hardlink-to`, and `difz.raw-xattrs` are transport sidecars, not user attributes.
+`xattr_stream` owns logical-name transfer. Logical names are the cross-OS xattr path and restore with no compromise warning (decision, 2026-09-29). `com.apple.*` is not a logical name; it is raw or, for Finder info, the typed field. Raw names the target cannot store are preserved in `difz.raw-xattrs` with one warning. Names `difz.mtime`, `difz.btime`, `difz.finder-info`, `difz.bsd-flags`, `difz.native-acl`, `difz.portable-acl`, `difz.sparse-holes`, `difz.hardlink-to`, and `difz.raw-xattrs` are transport sidecars, not user attributes.
 
 ## Last-modification time
 
@@ -37,9 +37,9 @@ When the volume's tick is coarser than the stored nanoseconds (NTFS 100 ns, exFA
 
 `--omit-metadata` strips families before the hash. That flag is not wired to the CLI yet, and the header does not store an omit mask. An omitted family is absent from the patch and the identity and produces no warning. Apply of a patch that was built with a mask has to re-snapshot with the same mask; that re-snapshot is still ahead.
 
-Header flag bit 0 (`0x1`) is unrelated. It is set only on a v2 patch, and only when the target snapshot root has metadata. The body then ends with a `u32` length and one canonical metadata record for that root. Flags `0` keep today's body, with no trailer. Any other flag bit is rejected. A v1 patch with bit 0 set is rejected. The source root is part of the source hash and is not stored: apply re-reads it from the source directory.
+Header flag bit 0 (`0x1`) is unrelated. It is set only when the target snapshot root has metadata. The body then ends with a `u32` length and one canonical metadata record for that root. Flags `0` keep today's body, with no trailer. Any other flag bit is rejected. The source root is part of the source hash and is not stored: apply re-reads it from the source directory.
 
-The snapshot root cannot be an entry. `validatePath` rejects an empty path. Gatekeeper looks at the directory the user opens (`Beamer.app`), so its attributes have to ride this trailer. `treeHashV2` with an empty root is unchanged. A non-empty root appends the domain `DIFZTREE-ROOT\x01` and the BLAKE3 of that canonical record.
+The snapshot root cannot be an entry. `validatePath` rejects an empty path. Gatekeeper looks at the directory the user opens (`Beamer.app`), so its attributes have to ride this trailer. `treeHashWithRoot` with an empty root equals `treeHash`. A non-empty root appends the domain `DIFZTREE-ROOT\x01` and the BLAKE3 of that canonical record.
 
 ## Extended attributes on disk
 
@@ -51,10 +51,12 @@ The filesystem root record is xattrs only. Root mtime, mode, and the other famil
 
 The 2026-10-04 host tests cover a logical `comment` and a raw quarantine name on a file, and the same pair on the snapshot root, through create and apply. On macOS the root also carries `com.apple.provenance` and `com.apple.macl`. The quarantine name is `com.apple.quarantine` there and `user.com.apple.quarantine` on Linux. Writing a quarantine attribute that was not on the source is not part of this path.
 
-`./test` builds inside Nix's sandbox. On this machine that store is `nixpool/nix` and `setxattr` returns EOPNOTSUPP there, including on the sandbox tmpfs, so those two filesystem tests return before asserting. `nix develop -c zig build test` uses the host tmpfs, which accepts `user.*`, and that is the run that executes them. The pure patch tests, including the root trailer and the source-root hash, still run in the sandbox.
+`./test` builds inside Nix's sandbox. On the measured Linux filesystem, `setxattr` returns EOPNOTSUPP there, including on the sandbox tmpfs, so those two filesystem tests return before asserting. `nix develop -c zig build test` uses the host temporary filesystem, which accepts `user.*`, and that is the run that executes them. The pure patch tests, including the root trailer and the source-root hash, still run in the sandbox.
 
 ## Best-effort restore
 
 Try the native operation. On success, do not leave a sidecar. On failure, write the sidecar and warn on stderr. The staged-tree check still requires the canonical record, which a later snapshot rebuilds from the native API or from the sidecar. If the sidecar cannot be written either, apply fails. That keeps "warning" from meaning "identity silently changed."
 
-The 2026-10-01 m4max measurement covers a ditto zip of an already-signed app, not this metadata layer. A reconstructed `.app` tree is still not a Gatekeeper pass.
+Decision, 2026-10-08: when a symlink cannot store metadata natively, preserve the unsupported fields in a transport attribute on its parent directory. Readback must recover the original canonical symlink metadata, and apply must report a compromise warning. A transport failure fails apply; omitted families stay absent and produce no warning. Implementation of this transport remains in PLAN.md.
+
+The 2026-10-01 archive measurement covers a ditto zip of an already-signed app, not this metadata layer. A reconstructed `.app` tree is still not a Gatekeeper pass.

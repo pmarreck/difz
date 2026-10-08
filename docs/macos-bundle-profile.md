@@ -46,7 +46,7 @@ is not expected until the attribute is copied. This run is not a v1
 updater acceptance.
 
 Canonical sources: `EXECUTION_CONTEXT_TRUST.md`, Sparkle BinaryDelta,
-`docs/directory-format-v1.md`.
+`docs/directory-format.md`.
 
 ## v1 representation
 

@@ -7,12 +7,11 @@ const file_patch = @import("patch.zig");
 const path_filter = @import("path_filter.zig");
 
 const magic = "DIFZTREE";
-const format_version: u16 = 1;
-const reader_version: u16 = 1;
+const format_version: u16 = 2;
 const checksum_offset: usize = 88;
 const header_length: usize = 120;
 // Bit 0: a canonical metadata record for the snapshot root follows the entries.
-// Set only for v2 and only when that record is non-empty. Other bits stay reserved.
+// Set only when that record is non-empty. Other bits stay reserved.
 const flag_root_metadata: u32 = 1;
 
 const Operation = enum(u8) {
@@ -25,8 +24,8 @@ const Operation = enum(u8) {
 
 pub const CreateOptions = struct {
     rules: []const path_filter.Rule = &.{},
-    // Canonical metadata for the two snapshot roots. Empty leaves the v1/v2
-    // entry hashes and a zero flag unchanged. Only the target root is stored.
+    // Canonical metadata for the two snapshot roots. Only the target root is
+    // stored; an empty target root leaves the root flag unset.
     source_root: metadata.Metadata = .{},
     target_root: metadata.Metadata = .{},
 };
@@ -99,19 +98,16 @@ pub fn createPatch(
         filter.deinit();
     }
 
-    const has_source_root = !options.source_root.isEmpty();
     const has_target_root = !options.target_root.isEmpty();
-    const v2 = directory.usesMetadata(source) or directory.usesMetadata(target) or has_source_root or has_target_root;
-    const patch_version: u16 = if (v2) 2 else format_version;
     const header_flags: u32 = if (has_target_root) flag_root_metadata else 0;
-    const source_hash = if (v2) try directory.treeHashV2WithRoot(source, options.source_root) else try directory.treeHash(source);
-    const target_hash = if (v2) try directory.treeHashV2WithRoot(target, options.target_root) else try directory.treeHash(target);
+    const source_hash = try directory.treeHashWithRoot(source, options.source_root);
+    const target_hash = try directory.treeHashWithRoot(target, options.target_root);
     var output: std.ArrayListUnmanaged(u8) = .empty;
     errdefer output.deinit(allocator);
 
     try appendBytes(allocator, &output, magic, limits.max_patch_bytes);
-    try appendInt(allocator, &output, u16, patch_version, limits.max_patch_bytes);
-    try appendInt(allocator, &output, u16, patch_version, limits.max_patch_bytes);
+    try appendInt(allocator, &output, u16, format_version, limits.max_patch_bytes);
+    try appendInt(allocator, &output, u16, format_version, limits.max_patch_bytes);
     try appendInt(allocator, &output, u32, header_flags, limits.max_patch_bytes);
     try appendInt(allocator, &output, u32, @intCast(options.rules.len), limits.max_patch_bytes);
     try appendInt(allocator, &output, u32, @intCast(target.len), limits.max_patch_bytes);
@@ -171,13 +167,11 @@ pub fn createPatch(
         try appendInt(allocator, &output, u64, @intCast(payload.len), limits.max_patch_bytes);
         try appendBytes(allocator, &output, entry.path, limits.max_patch_bytes);
         try appendBytes(allocator, &output, payload, limits.max_patch_bytes);
-        if (v2) {
-            const encoded_meta = try metadata.encodeCanonical(allocator, entry.meta);
-            defer allocator.free(encoded_meta);
-            if (encoded_meta.len > limits.max_payload_bytes) return error.LimitExceeded;
-            try appendInt(allocator, &output, u32, @intCast(encoded_meta.len), limits.max_patch_bytes);
-            try appendBytes(allocator, &output, encoded_meta, limits.max_patch_bytes);
-        }
+        const encoded_meta = try metadata.encodeCanonical(allocator, entry.meta);
+        defer allocator.free(encoded_meta);
+        if (encoded_meta.len > limits.max_payload_bytes) return error.LimitExceeded;
+        try appendInt(allocator, &output, u32, @intCast(encoded_meta.len), limits.max_patch_bytes);
+        try appendBytes(allocator, &output, encoded_meta, limits.max_patch_bytes);
     }
     if (has_target_root) {
         const encoded_root = try metadata.encodeCanonical(allocator, options.target_root);
@@ -188,7 +182,7 @@ pub fn createPatch(
     }
 
     var hasher = std.crypto.hash.Blake3.init(.{});
-    hasher.update(if (v2) "DIFZTREE-PATCH\x02" else "DIFZTREE-PATCH\x01");
+    hasher.update("DIFZTREE-PATCH\x02");
     hasher.update(output.items[0..checksum_offset]);
     hasher.update(output.items[header_length..]);
     var checksum: [32]u8 = undefined;
@@ -218,10 +212,7 @@ pub fn applyPatchRoot(
 ) !OwnedSnapshot {
     var decoded = try decodePatch(allocator, patch_bytes, limits);
     defer decoded.deinit();
-    const actual_source_hash = if (decoded.version == 2)
-        try directory.treeHashV2WithRoot(source, source_root)
-    else
-        try directory.treeHash(source);
+    const actual_source_hash = try directory.treeHashWithRoot(source, source_root);
     if (!std.mem.eql(u8, &actual_source_hash, &decoded.source_hash)) return error.SourceHashMismatch;
 
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -268,10 +259,7 @@ pub fn applyPatchRoot(
     }
 
     try directory.validateSnapshot(entries);
-    const actual_target_hash = if (decoded.version == 2)
-        try directory.treeHashV2WithRoot(entries, decoded.target_root)
-    else
-        try directory.treeHash(entries);
+    const actual_target_hash = try directory.treeHashWithRoot(entries, decoded.target_root);
     if (!std.mem.eql(u8, &actual_target_hash, &decoded.target_hash)) return error.TargetHashMismatch;
     // Finish every arena allocation before copying `arena`. A later alloc can
     // take a chunk that the copied state does not own, and that chunk leaks.
@@ -293,7 +281,6 @@ const EncodedEntry = struct {
 
 const DecodedPatch = struct {
     allocator: std.mem.Allocator,
-    version: u16,
     rules: []path_filter.Rule,
     entries: []EncodedEntry,
     source_hash: [32]u8,
@@ -301,12 +288,10 @@ const DecodedPatch = struct {
     target_root: metadata.Metadata = .{},
 
     fn deinit(self: *DecodedPatch) void {
-        if (self.version == 2) {
-            for (self.entries) |entry| {
-                self.allocator.free(entry.meta.xattrs);
-                self.allocator.free(entry.meta.aces);
-                self.allocator.free(entry.meta.holes);
-            }
+        for (self.entries) |entry| {
+            self.allocator.free(entry.meta.xattrs);
+            self.allocator.free(entry.meta.aces);
+            self.allocator.free(entry.meta.holes);
         }
         self.allocator.free(self.target_root.xattrs);
         self.allocator.free(self.target_root.aces);
@@ -323,11 +308,11 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
     if (!std.mem.eql(u8, bytes[0..8], magic)) return error.InvalidMagic;
 
     const patch_version = std.mem.readInt(u16, bytes[8..10], .little);
-    if (patch_version != 1 and patch_version != 2) return error.UnsupportedVersion;
+    if (patch_version != format_version) return error.UnsupportedVersion;
     var expected_checksum: [32]u8 = undefined;
     @memcpy(&expected_checksum, bytes[checksum_offset..header_length]);
     var hasher = std.crypto.hash.Blake3.init(.{});
-    hasher.update(if (patch_version == 2) "DIFZTREE-PATCH\x02" else "DIFZTREE-PATCH\x01");
+    hasher.update("DIFZTREE-PATCH\x02");
     hasher.update(bytes[0..checksum_offset]);
     hasher.update(bytes[header_length..]);
     var actual_checksum: [32]u8 = undefined;
@@ -337,11 +322,9 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
     var reader = Reader{ .bytes = bytes, .position = 8 };
     if (try reader.readInt(u16) != patch_version) return error.UnsupportedVersion;
     const needed_reader = try reader.readInt(u16);
-    const supported_reader: u16 = if (patch_version == 2) 2 else reader_version;
-    if (needed_reader > supported_reader) return error.ReaderTooOld;
+    if (needed_reader > format_version) return error.ReaderTooOld;
     const header_flags = try reader.readInt(u32);
     if (header_flags & ~flag_root_metadata != 0) return error.UnsupportedFlags;
-    if (header_flags & flag_root_metadata != 0 and patch_version != 2) return error.UnsupportedFlags;
     const rule_count = try countToUsize(try reader.readInt(u32), limits.max_rules);
     const entry_count = try countToUsize(try reader.readInt(u32), limits.max_entries);
     var source_hash: [32]u8 = undefined;
@@ -381,11 +364,9 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
         const payload_length = std.math.cast(usize, payload_length_u64) orelse return error.LimitExceeded;
         const path = try reader.take(path_length);
         const payload = try reader.take(payload_length);
-        const meta = if (patch_version == 2) blk: {
-            const meta_length = try countToUsize(try reader.readInt(u32), limits.max_payload_bytes);
-            const meta_bytes = try reader.take(meta_length);
-            break :blk try metadata.decodeCanonical(allocator, meta_bytes);
-        } else metadata.Metadata{};
+        const meta_length = try countToUsize(try reader.readInt(u32), limits.max_payload_bytes);
+        const meta_bytes = try reader.take(meta_length);
+        const meta = try metadata.decodeCanonical(allocator, meta_bytes);
 
         const kind: directory.EntryKind = switch (operation) {
             .directory => blk: {
@@ -422,7 +403,6 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
 
     return .{
         .allocator = allocator,
-        .version = patch_version,
         .rules = rules,
         .entries = entries,
         .source_hash = source_hash,
@@ -530,7 +510,7 @@ fn findEntry(entries: []const directory.Entry, path: []const u8) ?directory.Entr
 
 fn recomputeChecksum(bytes: []u8) void {
     var hasher = std.crypto.hash.Blake3.init(.{});
-    hasher.update("DIFZTREE-PATCH\x01");
+    hasher.update("DIFZTREE-PATCH\x02");
     hasher.update(bytes[0..checksum_offset]);
     hasher.update(bytes[header_length..]);
     var checksum: [32]u8 = undefined;
@@ -572,6 +552,33 @@ const target_fixture = [_]directory.Entry{
     .{ .path = "new.txt", .kind = .file, .mode = 0o600, .data = "new file" },
     .{ .path = "same.txt", .kind = .file, .mode = 0o755, .data = "same bytes" },
 };
+
+test "every directory patch uses v2 including empty and metadata-free trees" {
+    const empty = [_]directory.Entry{};
+    const plain = [_]directory.Entry{
+        .{ .path = "a", .kind = .file, .mode = 0o644, .data = "data" },
+    };
+    for ([_][]const directory.Entry{ &empty, &plain }) |target| {
+        const bytes = try createPatch(testing.allocator, &empty, target, .{});
+        defer testing.allocator.free(bytes);
+        try testing.expectEqual(@as(u16, 2), std.mem.readInt(u16, bytes[8..10], .little));
+        try testing.expectEqual(@as(u16, 2), std.mem.readInt(u16, bytes[10..12], .little));
+        var actual = try applyPatch(testing.allocator, &empty, bytes, .{});
+        defer actual.deinit();
+        try expectSnapshotsEqual(target, actual.entries);
+    }
+}
+
+test "directory patch rejects every format version except v2 before allocation" {
+    const empty = [_]directory.Entry{};
+    const bytes = try createPatch(testing.allocator, &empty, &empty, .{});
+    defer testing.allocator.free(bytes);
+    for (0..65_536) |version| {
+        if (version == 2) continue;
+        std.mem.writeInt(u16, bytes[8..10], @intCast(version), .little);
+        try testing.expectError(error.UnsupportedVersion, applyPatch(testing.failing_allocator, &empty, bytes, .{}));
+    }
+}
 
 test "v2 patch round-trips every metadata family" {
     const meta = @import("metadata.zig");
@@ -626,8 +633,8 @@ test "v2 patch round-trips every metadata family" {
     try testing.expectEqualStrings("DACL", got.native_acl.?.bytes);
     try testing.expect(got.aces[0].read and got.aces[0].write);
     try testing.expectEqualStrings("a.txt", reconstructed.entries[1].meta.hardlink_to.?);
-    const again = try directory.treeHashV2(reconstructed.entries);
-    try testing.expectEqualSlices(u8, &(try directory.treeHashV2(&target)), &again);
+    const again = try directory.treeHash(reconstructed.entries);
+    try testing.expectEqualSlices(u8, &(try directory.treeHash(&target)), &again);
 }
 
 test "v2 patch carries snapshot-root metadata behind a header flag" {
@@ -657,9 +664,9 @@ test "v2 patch carries snapshot-root metadata behind a header flag" {
     try testing.expectEqual(meta.XattrClass.logical, reconstructed.root_meta.xattrs[0].class);
     try testing.expectEqualStrings("comment", reconstructed.root_meta.xattrs[0].name);
     try testing.expectEqualStrings("bundle", reconstructed.root_meta.xattrs[0].value);
-    const again = try directory.treeHashV2WithRoot(reconstructed.entries, reconstructed.root_meta);
-    try testing.expectEqualSlices(u8, &(try directory.treeHashV2WithRoot(&entries, root)), &again);
-    try testing.expectEqualSlices(u8, &(try directory.treeHashV2(&entries)), &(try directory.treeHashV2WithRoot(&entries, .{})));
+    const again = try directory.treeHashWithRoot(reconstructed.entries, reconstructed.root_meta);
+    try testing.expectEqualSlices(u8, &(try directory.treeHashWithRoot(&entries, root)), &again);
+    try testing.expectEqualSlices(u8, &(try directory.treeHash(&entries)), &(try directory.treeHashWithRoot(&entries, .{})));
 }
 
 test "v2 source-root metadata is part of the source hash and is not a trailer" {
@@ -777,7 +784,7 @@ test "version and parser limits reject before output allocation" {
 
     const future_reader = try testing.allocator.dupe(u8, original);
     defer testing.allocator.free(future_reader);
-    future_reader[10] = 2;
+    future_reader[10] = 3;
     recomputeChecksum(future_reader);
     try testing.expectError(error.ReaderTooOld, applyPatch(testing.allocator, &empty, future_reader, .{}));
 
@@ -787,11 +794,11 @@ test "version and parser limits reject before output allocation" {
     recomputeChecksum(unknown_flags);
     try testing.expectError(error.UnsupportedFlags, applyPatch(testing.allocator, &empty, unknown_flags, .{}));
 
-    const v1_root_flag = try testing.allocator.dupe(u8, original);
-    defer testing.allocator.free(v1_root_flag);
-    v1_root_flag[12] = 1;
-    recomputeChecksum(v1_root_flag);
-    try testing.expectError(error.UnsupportedFlags, applyPatch(testing.allocator, &empty, v1_root_flag, .{}));
+    const missing_root = try testing.allocator.dupe(u8, original);
+    defer testing.allocator.free(missing_root);
+    missing_root[12] = 1;
+    recomputeChecksum(missing_root);
+    try testing.expectError(error.UnexpectedEndOfInput, applyPatch(testing.allocator, &empty, missing_root, .{}));
 
     try testing.expectError(
         error.LimitExceeded,

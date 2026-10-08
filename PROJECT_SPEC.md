@@ -13,9 +13,9 @@ The C CLI calls the Zig library through the C header. File algorithms and canoni
 
 ## Directory patches
 
-`DIFZTREE` v1 stores sorted relative UTF-8 paths, directories, regular files, contained relative symlinks, portable modes, ordered filter rules, and BLAKE3 identities for the source tree, target tree, and complete patch bytes. The parser rejects traversal, duplicates, unsupported special files, truncation, mutation, incompatible versions, and declared sizes beyond its limits.
+`DIFZTREE` v2 stores sorted relative UTF-8 paths, directories, regular files, contained relative symlinks, portable modes, canonical metadata, ordered filter rules, and BLAKE3 identities for the source tree, target tree, and complete patch bytes. Every entry has a metadata record, including when empty. The parser rejects v1, traversal, duplicates, unsupported special files, truncation, mutation, incompatible versions, and declared sizes beyond its limits.
 
-Apply verifies the source identity before creating output. It reconstructs into a uniquely named sibling stage, snapshots that filesystem tree again, compares the target identity, and performs a non-replacing rename. It never edits the source or replaces a live tree. See `docs/directory-format-v1.md` for the byte format and platform limitations.
+Apply verifies the source identity before creating output. It reconstructs into a uniquely named sibling stage, snapshots that filesystem tree again, compares the target identity, and performs a non-replacing rename. It never edits the source or replaces a live tree. See `docs/directory-format.md` for the byte format and platform limitations.
 
 ## The file algorithm
 
@@ -67,4 +67,4 @@ difz --about
 
 ## Status
 
-v0.1.0 — file and directory diff/patch paths are functional. The project has 94 Zig tests and 61 CLI integration checks. Filesystem metadata outside portable mode bits, including xattrs, ACLs, timestamps, hardlink identity, sparse layout, Finder flags, and external notarization state, remains outside DIFZTREE v1.
+v0.1.0: file and directory diff/patch paths are functional. DIFZTREE v2 is the sole directory codec, with canonical records for every metadata family. The filesystem adapter currently restores xattrs and mtime; remaining native metadata and transport work is tracked in `PLAN.md` and `docs/plan_context/metadata-v2.md`. macOS updater qualification remains a separate requirement.

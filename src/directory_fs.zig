@@ -120,15 +120,8 @@ pub fn applyPatchToNewDir(
 
     var staged_snapshot = try snapshotDir(allocator, io, stage, &.{});
     defer staged_snapshot.deinit();
-    const expect_metadata = directory.usesMetadata(reconstructed.entries) or !reconstructed.root_meta.isEmpty();
-    const expected_hash = if (expect_metadata)
-        try directory.treeHashV2WithRoot(reconstructed.entries, reconstructed.root_meta)
-    else
-        try directory.treeHash(reconstructed.entries);
-    const staged_hash = if (expect_metadata)
-        try directory.treeHashV2WithRoot(staged_snapshot.entries, staged_snapshot.root_meta)
-    else
-        try directory.treeHash(staged_snapshot.entries);
+    const expected_hash = try directory.treeHashWithRoot(reconstructed.entries, reconstructed.root_meta);
+    const staged_hash = try directory.treeHashWithRoot(staged_snapshot.entries, staged_snapshot.root_meta);
     if (!std.mem.eql(u8, &expected_hash, &staged_hash)) return error.StagedHashMismatch;
 
     try publishStagingDir(io, output_parent, staging_name, output_name);

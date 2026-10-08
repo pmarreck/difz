@@ -38,7 +38,7 @@ All business logic lives in Zig, and the C CLI dogfoods the FFI. File diffing an
 - Portable modes and contained relative symlink targets
 - Domain-separated BLAKE3 tree identity
 
-### `src/directory_patch.zig` — DIFZTREE v1 codec
+### `src/directory_patch.zig` — DIFZTREE v2 codec
 - Deterministic patch creation using the existing file delta core
 - Bounded parser with version, structural, checksum, and allocation-failure controls
 - Pure in-memory source verification and target reconstruction

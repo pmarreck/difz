@@ -587,6 +587,30 @@ fi
 
 printf "\n[Directory diff + staged patch]\n"
 
+mkdir -p "$TEST_DIR/empty source" "$TEST_DIR/empty target"
+EMPTY_TREE_ERR=$("$DIFZ" --no-progress "$TEST_DIR/empty source" "$TEST_DIR/empty target" -o "$TEST_DIR/empty-tree.patch" 2>&1)
+EMPTY_TREE_RC=$?
+EMPTY_TREE_VERSION=$(od -An -v -tx1 -j8 -N4 "$TEST_DIR/empty-tree.patch" 2>/dev/null | tr -d '[:space:]')
+if [ "$EMPTY_TREE_RC" = 0 ] && [ "$EMPTY_TREE_VERSION" = 02000200 ]; then
+	pass "empty directory patch declares format and reader v2"
+else
+	fail "empty directory patch declares format and reader v2" "rc=$EMPTY_TREE_RC, version=$EMPTY_TREE_VERSION, stderr=$EMPTY_TREE_ERR"
+fi
+
+# A valid empty-tree v1 patch captured from the writer at b2144d1.
+printf '%b' \
+	'\x44\x49\x46\x5a\x54\x52\x45\x45\x01\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xbe\x92\x5e\x35\x99\xb9\x13\x8c' \
+	'\xfe\xdb\x5e\x68\xd9\xac\xc6\x94\x7f\x13\x9a\x0b\x03\x04\xc0\x96\xf2\xcc\xa1\x0f\xa7\xa6\xb6\xc2\xbe\x92\x5e\x35\x99\xb9\x13\x8c' \
+	'\xfe\xdb\x5e\x68\xd9\xac\xc6\x94\x7f\x13\x9a\x0b\x03\x04\xc0\x96\xf2\xcc\xa1\x0f\xa7\xa6\xb6\xc2\xb4\xec\xd4\x67\x38\x1f\x81\xb4' \
+	'\xef\x72\x31\x8f\x13\xe5\xdb\x47\x0e\xc0\x3b\x33\x34\xa9\x70\x0b\x77\x4c\xb6\x90\xf6\xbe\x08\x37' > "$TEST_DIR/legacy-tree.patch"
+LEGACY_TREE_ERR=$("$DIFZ" --patch --no-progress "$TEST_DIR/empty source" "$TEST_DIR/legacy-tree.patch" -o "$TEST_DIR/legacy output" 2>&1)
+LEGACY_TREE_RC=$?
+if [ "$LEGACY_TREE_RC" -ne 0 ] && [ ! -e "$TEST_DIR/legacy output" ]; then
+	pass "legacy v1 tree patch is rejected without publishing output"
+else
+	fail "legacy v1 tree patch is rejected without publishing output" "rc=$LEGACY_TREE_RC, stderr=$LEGACY_TREE_ERR"
+fi
+
 mkdir -p "$TEST_DIR/tree source/bin" "$TEST_DIR/tree target/bin" "$TEST_DIR/tree target/empty"
 printf 'old application with shared suffix\n' > "$TEST_DIR/tree source/bin/app"
 printf 'delete me\n' > "$TEST_DIR/tree source/deleted.txt"

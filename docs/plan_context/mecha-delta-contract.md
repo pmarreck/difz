@@ -12,8 +12,8 @@ Canonical sources: `MECHA_RELEASE_PLAN.md` (Sep23 amendment),
   `deltas/difz-v1/`.
 
 The 2026-09-23 names above are the recorded answer. The file engine on this
-branch emits `ZDIF` v4, one zstd level 9 prefix frame, and rejects v3. DIFZTREE
-v1 is unchanged and embeds those frames. The URL prefix is still `deltas/difz-v1/`.
+branch emits `ZDIF` v4, one zstd level 9 prefix frame, and rejects v3. Directory
+patches use DIFZTREE v2 exclusively and reject v1. The URL prefix is still `deltas/difz-v1/`.
 - Updater-pilot measurement is a real Linux x86_64 AppImage pair. Keep the
   historic 89 MB Validate ELF row as engine provenance only.
 - A delta may reconstruct an already-signed target, including its signature.

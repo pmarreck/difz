@@ -99,7 +99,7 @@ The header is the magic `ZDIF` plus version byte `0x04`, the source BLAKE3, the 
 
 The frame is zstd level 9 in prefix mode, the C ABI equivalent of `zstd --patch-from`. The window log is `floor(log2(max(source, target))) + 1`, clamped to the closed range 10 through 31. Either input longer than 2 GiB is rejected. Decode allows a 2 GiB window. Compression is single-threaded. Long-distance matching follows the zstd 1.5.7 CLI rule for that window. A v3 content-defined-chunking patch fails the magic check and is not applied.
 
-Directory patches use DIFZTREE v1 for metadata-free snapshots and v2 when metadata is present. Unchanged files are copies. Each changed file body is its own ZDIF v4 frame. The tree format does not choose a compressor.
+Directory patches always use DIFZTREE v2, including metadata-free snapshots. The v1 format is rejected. Unchanged files are copies. Each changed file body is its own ZDIF v4 frame. The tree format does not choose a compressor. See the [directory format contract](docs/directory-format.md) for metadata and platform limitations.
 
 There is no content-defined chunking and no compressor probe. lz4, bzip2, LZMA2, blar, and BLIP are not linked. The only compression library is the zstdz fork.
 

@@ -6,9 +6,9 @@ Patches should reduce transfer size without excessive creation time, application
 
 The functional core operates on in-memory values behind a C FFI. Filesystem adapters own traversal, metadata transfer, and staged writes. The CLI exercises that same public boundary. Supported metadata and platform limitations belong in the format specifications; unsupported fidelity must not be implied.
 
-The current file-engine direction delegates byte matching and compression to zstdz while preserving BLAKE3 identities and DIFZTREE. Architectural simplicity is a reason to prefer this direction even if the preserved content-defined chunking engine wins individual workloads. Comparative measurements should expose the costs and gains across file sizes and edit patterns, with real release pairs as separate evidence.
+The file engine delegates byte matching and compression to zstdz while preserving BLAKE3 identities and DIFZTREE. Architectural simplicity is a reason for this choice even where the preserved content-defined chunking engine wins individual workloads. Comparative measurements expose the costs and gains across file sizes and edit patterns, with real release pairs as separate evidence.
 
-There are no upstream consumers requiring compatibility with the old API. Interface changes may simplify the current design. Completing the remaining DIFZTREE v2 metadata scope follows the file-engine decision.
+There are no upstream consumers requiring compatibility with old APIs or formats. The project remains in break mode: simplify the current design without maintaining compatibility branches. DIFZTREE v2 is the only supported directory format, including metadata-free snapshots. Completing its remaining metadata scope follows the file-engine decision.
 
 Updater deltas reconstruct publisher-produced bytes. Clients do not re-sign applications. macOS directory updates remain outside the qualified updater path until a supported bundle profile or archive representation passes the required checks.
 
