@@ -8,11 +8,15 @@ A fast binary differ for files and directory trees. Each file patch is one zstd 
 
 ## Performance
 
+The [2026-10-08 CDC-versus-zstd comparison](docs/plan_context/engine-comparison.md) covers 108 verified cases from 1 to 256 MiB, three edit patterns, and one or 12 allowed CPUs. On one CPU, the zstd engine creates patches 1.9–14.3× faster and uses less peak memory across that sweep. Scattered-edit patches are 42–50% smaller. CDC saves 4,756 bytes on the largest moved-content patch and 6,050 bytes on the largest full replacement. The report includes every sample and the shared-machine timing limits.
+
+On the Neovim v0.11.3 → v0.11.4 AppImages, the new engine creates 8.3–12.8× faster at 38 MiB peak RSS, with a slightly smaller patch. These observations describe the measured inputs. The file engine currently rejects either input above 2 GiB.
+
 `nix develop -c ./bm-engines` compares the preserved CDC engine at `a83c041` with the current ReleaseFast engine. The matrix in `profiling.json` covers 1 through 256 MiB by doubling, with scattered edits, moved content plus new bytes, and full replacement. Each case runs on one core and 12 cores, with a warmup and three verified create/apply samples per size. It records wall time, user/system CPU time, peak RSS, patch bytes, fixture hashes, and executable hashes. Raw records live outside the checkout in `$HOME/.local/state/performance-history` by default; `DIFZ_BENCH_HISTORY` overrides that directory. `--case NAME` selects one case. The shared profiler reports new cohorts as unbaselined (exit 3); it does not approve a baseline automatically. These synthetic patterns describe their construction, not a distribution of real executable updates.
 
 Each size is a separate case, for example `cdc-scattered-1core-16MiB`, so an incomplete larger run does not hide smaller results. Each difz invocation has a 120-second wall limit and a 16 GiB address-space ceiling (the CLI flag is named `--max-rss-bytes`). The complete adapter has a 600-second deadline, including fixture generation and verification; `PERFORMANCE_TIMEOUT_MS` overrides it. The pinned profiler package has a local Unix patch to configure that deadline and kill the entire workload process group on timeout. Its callback behavior is tested without live clocks or sleeping. A timeout is an invalid measurement, not a measured creation time.
 
-The tables below are the content-defined chunking engine. This branch's file engine is zstd level 9 `--patch-from`. The paragraph after the ISO table is the one remeasure of that engine. The other rows are still the older engine.
+The tables below retain historical content-defined chunking measurements. Current engine comparisons are in the linked report above. The new file engine is zstd level 9 `--patch-from`.
 
 ### CDC engine, Linux x86_64 real-binary result (2026-08-28)
 
@@ -95,7 +99,7 @@ The header is the magic `ZDIF` plus version byte `0x04`, the source BLAKE3, the 
 
 The frame is zstd level 9 in prefix mode, the C ABI equivalent of `zstd --patch-from`. The window log is `floor(log2(max(source, target))) + 1`, clamped to the closed range 10 through 31. Either input longer than 2 GiB is rejected. Decode allows a 2 GiB window. Compression is single-threaded. Long-distance matching follows the zstd 1.5.7 CLI rule for that window. A v3 content-defined-chunking patch fails the magic check and is not applied.
 
-Directory patches stay DIFZTREE v1. Unchanged files are copies. Each changed file body is its own ZDIF v4 frame. The tree format does not choose a compressor.
+Directory patches use DIFZTREE v1 for metadata-free snapshots and v2 when metadata is present. Unchanged files are copies. Each changed file body is its own ZDIF v4 frame. The tree format does not choose a compressor.
 
 There is no content-defined chunking and no compressor probe. lz4, bzip2, LZMA2, blar, and BLIP are not linked. The only compression library is the zstdz fork.
 

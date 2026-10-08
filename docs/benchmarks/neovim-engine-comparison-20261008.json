@@ -1,0 +1,266 @@
+[
+  {
+    "schema": "performance-measurement/v1",
+    "correct": true,
+    "build_mode": "ReleaseFast",
+    "engine": "cdc",
+    "shape": "real",
+    "seed": "42",
+    "binary_sha256": "0dc9f86cbe6174e03648043394f210b52b44b85773d3debbde1c798f17b4295d",
+    "rows": [
+      {
+        "size": 11012600,
+        "samples": {
+          "wall_ns": [
+            1658863974.48,
+            1628280381.48,
+            1611446393.48
+          ],
+          "user_s": [
+            1.43,
+            1.40,
+            1.42
+          ],
+          "system_s": [
+            0.20,
+            0.18,
+            0.16
+          ],
+          "peak_bytes": [
+            191090688,
+            191090688,
+            191090688
+          ]
+        },
+        "apply": {
+          "wall_ns": [
+            64459506.779999994,
+            67909797.78,
+            64276346.779999994
+          ],
+          "user_s": [
+            0.04,
+            0.04,
+            0.03
+          ],
+          "system_s": [
+            0.01,
+            0.02,
+            0.02
+          ],
+          "peak_bytes": [
+            31735808,
+            31735808,
+            31739904
+          ]
+        },
+        "patch_bytes": 5343722,
+        "source_sha256": "5f377dc48c49a4170bd698a80ef461a702b8ebb8b2f7ddbb776341503d36415f",
+        "target_sha256": "79e7e160f9505819a5e12f3d9366be94213f5309fb912ef4ef3af52df3982977"
+      }
+    ],
+    "measurement": "warm-file whole-process hyperfine wall time; GNU time user/system seconds (0.01 s resolution) and process peak RSS; verification outside timing",
+    "allocator_coverage": "process RSS only; null means the OS reported no RSS sample; no allocation or leak claims",
+    "cores": 1,
+    "cpus": "0",
+    "campaign": "Neovim v0.11.3 to v0.11.4; manual diagnostics outside shared-profiler cohorts"
+  },
+  {
+    "schema": "performance-measurement/v1",
+    "correct": true,
+    "build_mode": "ReleaseFast",
+    "engine": "zstd",
+    "shape": "real",
+    "seed": "42",
+    "binary_sha256": "dec228c76e045e42a634a0a57aebdaf4b32cc500b641c1b92baee3c8d9382aba",
+    "rows": [
+      {
+        "size": 11012600,
+        "samples": {
+          "wall_ns": [
+            126848039.38000003,
+            127634827.38000001,
+            137359410.38000003
+          ],
+          "user_s": [
+            0.10,
+            0.10,
+            0.11
+          ],
+          "system_s": [
+            0.01,
+            0.01,
+            0.01
+          ],
+          "peak_bytes": [
+            39931904,
+            39931904,
+            39931904
+          ]
+        },
+        "apply": {
+          "wall_ns": [
+            24867607.38,
+            23504656.380000003,
+            24060762.38
+          ],
+          "user_s": [
+            0.00,
+            0.00,
+            0.00
+          ],
+          "system_s": [
+            0.01,
+            0.01,
+            0.01
+          ],
+          "peak_bytes": [
+            26243072,
+            26243072,
+            26243072
+          ]
+        },
+        "patch_bytes": 5341984,
+        "source_sha256": "5f377dc48c49a4170bd698a80ef461a702b8ebb8b2f7ddbb776341503d36415f",
+        "target_sha256": "79e7e160f9505819a5e12f3d9366be94213f5309fb912ef4ef3af52df3982977"
+      }
+    ],
+    "measurement": "warm-file whole-process hyperfine wall time; GNU time user/system seconds (0.01 s resolution) and process peak RSS; verification outside timing",
+    "allocator_coverage": "process RSS only; null means the OS reported no RSS sample; no allocation or leak claims",
+    "cores": 1,
+    "cpus": "0",
+    "campaign": "Neovim v0.11.3 to v0.11.4; manual diagnostics outside shared-profiler cohorts"
+  },
+  {
+    "schema": "performance-measurement/v1",
+    "correct": true,
+    "build_mode": "ReleaseFast",
+    "engine": "cdc",
+    "shape": "real",
+    "seed": "42",
+    "binary_sha256": "0dc9f86cbe6174e03648043394f210b52b44b85773d3debbde1c798f17b4295d",
+    "rows": [
+      {
+        "size": 11012600,
+        "samples": {
+          "wall_ns": [
+            1034947854.68,
+            1035190997.68,
+            1055933367.6800001
+          ],
+          "user_s": [
+            1.26,
+            1.26,
+            1.26
+          ],
+          "system_s": [
+            0.35,
+            0.34,
+            0.34
+          ],
+          "peak_bytes": [
+            398442496,
+            402907136,
+            388141056
+          ]
+        },
+        "apply": {
+          "wall_ns": [
+            54680550.84,
+            54083095.84,
+            58894564.84
+          ],
+          "user_s": [
+            0.03,
+            0.03,
+            0.03
+          ],
+          "system_s": [
+            0.02,
+            0.01,
+            0.02
+          ],
+          "peak_bytes": [
+            31739904,
+            31735808,
+            30691328
+          ]
+        },
+        "patch_bytes": 5344292,
+        "source_sha256": "5f377dc48c49a4170bd698a80ef461a702b8ebb8b2f7ddbb776341503d36415f",
+        "target_sha256": "79e7e160f9505819a5e12f3d9366be94213f5309fb912ef4ef3af52df3982977"
+      }
+    ],
+    "measurement": "warm-file whole-process hyperfine wall time; GNU time user/system seconds (0.01 s resolution) and process peak RSS; verification outside timing",
+    "allocator_coverage": "process RSS only; null means the OS reported no RSS sample; no allocation or leak claims",
+    "cores": 12,
+    "cpus": "0-11",
+    "campaign": "Neovim v0.11.3 to v0.11.4; manual diagnostics outside shared-profiler cohorts"
+  },
+  {
+    "schema": "performance-measurement/v1",
+    "correct": true,
+    "build_mode": "ReleaseFast",
+    "engine": "zstd",
+    "shape": "real",
+    "seed": "42",
+    "binary_sha256": "dec228c76e045e42a634a0a57aebdaf4b32cc500b641c1b92baee3c8d9382aba",
+    "rows": [
+      {
+        "size": 11012600,
+        "samples": {
+          "wall_ns": [
+            139969724.10000002,
+            119598053.10000001,
+            125368349.1
+          ],
+          "user_s": [
+            0.12,
+            0.10,
+            0.10
+          ],
+          "system_s": [
+            0.01,
+            0.01,
+            0.01
+          ],
+          "peak_bytes": [
+            39931904,
+            39931904,
+            39931904
+          ]
+        },
+        "apply": {
+          "wall_ns": [
+            24593259.26,
+            25070904.26,
+            23420222.26
+          ],
+          "user_s": [
+            0.00,
+            0.00,
+            0.00
+          ],
+          "system_s": [
+            0.01,
+            0.01,
+            0.01
+          ],
+          "peak_bytes": [
+            26243072,
+            26243072,
+            26243072
+          ]
+        },
+        "patch_bytes": 5341984,
+        "source_sha256": "5f377dc48c49a4170bd698a80ef461a702b8ebb8b2f7ddbb776341503d36415f",
+        "target_sha256": "79e7e160f9505819a5e12f3d9366be94213f5309fb912ef4ef3af52df3982977"
+      }
+    ],
+    "measurement": "warm-file whole-process hyperfine wall time; GNU time user/system seconds (0.01 s resolution) and process peak RSS; verification outside timing",
+    "allocator_coverage": "process RSS only; null means the OS reported no RSS sample; no allocation or leak claims",
+    "cores": 12,
+    "cpus": "0-11",
+    "campaign": "Neovim v0.11.3 to v0.11.4; manual diagnostics outside shared-profiler cohorts"
+  }
+]
