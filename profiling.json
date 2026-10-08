@@ -1,0 +1,384 @@
+{
+  "schema": "performance-project/v1",
+  "project": "difz_engines",
+  "history_url": "file:///var/lib/performance-profiling",
+  "identity": {
+    "runtime": "optimized-native-cli",
+    "build_mode": "ReleaseFast",
+    "concurrency": 1
+  },
+  "cases": [
+    {
+      "name": "cdc-scattered-1core",
+      "definition": "difz-engine-comparison-v1",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        16777216,
+        33554432,
+        67108864,
+        134217728,
+        268435456
+      ]
+    },
+    {
+      "name": "cdc-scattered-12core",
+      "definition": "difz-engine-comparison-v1",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        16777216,
+        33554432,
+        67108864,
+        134217728,
+        268435456
+      ]
+    },
+    {
+      "name": "cdc-moved-1core",
+      "definition": "difz-engine-comparison-v1",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        16777216,
+        33554432,
+        67108864,
+        134217728,
+        268435456
+      ]
+    },
+    {
+      "name": "cdc-moved-12core",
+      "definition": "difz-engine-comparison-v1",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        16777216,
+        33554432,
+        67108864,
+        134217728,
+        268435456
+      ]
+    },
+    {
+      "name": "cdc-replacement-1core",
+      "definition": "difz-engine-comparison-v1",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        16777216,
+        33554432,
+        67108864,
+        134217728,
+        268435456
+      ]
+    },
+    {
+      "name": "cdc-replacement-12core",
+      "definition": "difz-engine-comparison-v1",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "cdc",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        16777216,
+        33554432,
+        67108864,
+        134217728,
+        268435456
+      ]
+    },
+    {
+      "name": "zstd-scattered-1core",
+      "definition": "difz-engine-comparison-v1",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        16777216,
+        33554432,
+        67108864,
+        134217728,
+        268435456
+      ]
+    },
+    {
+      "name": "zstd-scattered-12core",
+      "definition": "difz-engine-comparison-v1",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "scattered",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        16777216,
+        33554432,
+        67108864,
+        134217728,
+        268435456
+      ]
+    },
+    {
+      "name": "zstd-moved-1core",
+      "definition": "difz-engine-comparison-v1",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        16777216,
+        33554432,
+        67108864,
+        134217728,
+        268435456
+      ]
+    },
+    {
+      "name": "zstd-moved-12core",
+      "definition": "difz-engine-comparison-v1",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "moved",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        16777216,
+        33554432,
+        67108864,
+        134217728,
+        268435456
+      ]
+    },
+    {
+      "name": "zstd-replacement-1core",
+      "definition": "difz-engine-comparison-v1",
+      "cores": 1,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        16777216,
+        33554432,
+        67108864,
+        134217728,
+        268435456
+      ]
+    },
+    {
+      "name": "zstd-replacement-12core",
+      "definition": "difz-engine-comparison-v1",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "wall_ns",
+      "comparison": "absolute",
+      "bounds": [
+        1,
+        120000000000
+      ],
+      "command": [
+        "bash",
+        "tests/benchmark/engine_case.bash",
+        "zstd",
+        "replacement",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        16777216,
+        33554432,
+        67108864,
+        134217728,
+        268435456
+      ]
+    }
+  ]
+}

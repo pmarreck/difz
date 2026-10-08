@@ -387,5 +387,65 @@ for mode in --single-thread -T1; do
 	fi
 done
 
+engine_adapter="$ROOT_DIR/tests/benchmark/engine_case.bash"
+if [ ! -f "$engine_adapter" ]; then
+	fail "engine comparison adapter is available"
+else
+	DIFZ_ZSTD="$PINNED_DIFZ" bash "$engine_adapter" zstd scattered 32768 42 \
+		> "$TEST_DIR/engine.json" 2> "$TEST_DIR/engine.stderr"
+	adapter_rc=$?
+	if [ "$adapter_rc" -eq 0 ] && jq -e '
+		.schema == "performance-measurement/v1" and .correct == true and
+		.rows[0].size == 32768 and (.rows[0].samples.wall_ns | length) == 3 and
+		(.rows[0].apply.wall_ns | length) == 3 and .rows[0].patch_bytes > 0
+	' "$TEST_DIR/engine.json" >/dev/null; then
+		pass "engine comparison records verified create and apply samples"
+	else
+		fail "engine comparison records verified create and apply samples"
+	fi
+	DIFZ_ZSTD="$FAKE_BIN/zig" bash "$engine_adapter" zstd scattered 32768 42 \
+		> "$TEST_DIR/skipped-engine.json" 2> "$TEST_DIR/skipped-engine.stderr"
+	adapter_rc=$?
+	if [ "$adapter_rc" -ne 0 ] && [ ! -s "$TEST_DIR/skipped-engine.json" ]; then
+		pass "engine comparison refuses a successful command that skips its work"
+	else
+		fail "engine comparison refuses a successful command that skips its work"
+	fi
+	for shape in moved replacement; do
+		DIFZ_ZSTD="$PINNED_DIFZ" bash "$engine_adapter" zstd "$shape" 32768,65536 42 \
+			> "$TEST_DIR/$shape.json" 2> "$TEST_DIR/$shape.stderr"
+		adapter_rc=$?
+		if [ "$adapter_rc" -eq 0 ] && jq -e '
+			.rows | length == 2 and all(.[]; .source_sha256 != .target_sha256 and .patch_bytes > 0)
+		' "$TEST_DIR/$shape.json" >/dev/null; then
+			pass "engine comparison verifies $shape fixtures at multiple sizes"
+		else
+			fail "engine comparison verifies $shape fixtures at multiple sizes"
+		fi
+	done
+	printf 'ABC' > "$TEST_DIR/oracle-target"
+	printf 'ABD' > "$TEST_DIR/oracle-wrong"
+	ENGINE_TARGET="$TEST_DIR/oracle-target" ENGINE_REBUILT="$TEST_DIR/oracle-wrong" \
+		bash "$ROOT_DIR/tests/benchmark/verify_engine_sample.bash" apply \
+		> "$TEST_DIR/oracle.stdout" 2> "$TEST_DIR/oracle.stderr"
+	if [ "$?" -ne 0 ]; then
+		pass "per-sample oracle rejects a wrong reconstruction of the right size"
+	else
+		fail "per-sample oracle rejects a wrong reconstruction of the right size"
+	fi
+fi
+
+if jq -e '
+	([.cases[].cores] | unique) == [1,12] and
+	([.cases[].command[2]] | unique) == ["cdc","zstd"] and
+	([.cases[].command[3]] | unique) == ["moved","replacement","scattered"] and
+	(.cases | length) == 12 and
+	all(.cases[]; .sizes == [1048576,2097152,4194304,8388608,16777216,33554432,67108864,134217728,268435456])
+' "$ROOT_DIR/profiling.json" >/dev/null 2>&1; then
+	pass "engine matrix covers both engines, three edit patterns, nine sizes, and both core counts"
+else
+	fail "engine matrix covers both engines, three edit patterns, nine sizes, and both core counts"
+fi
+
 printf "\n%d tests, %d failures\n" "$TESTS" "$ERRORS"
 exit "$ERRORS"

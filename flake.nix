@@ -4,13 +4,14 @@
 	inputs = {
 		nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 		flake-utils.url = "github:numtide/flake-utils";
+		performance-profiling.url = "github:pmarreck/performance_profiling/a04d62a441a5b9315e81f6277f57f7eddb9a57af";
 		random = {
 			url = "github:pmarreck/random/yolo";
 			inputs.flake-utils.follows = "flake-utils";
 		};
 	};
 
-	outputs = { self, nixpkgs, flake-utils, random }:
+	outputs = { self, nixpkgs, flake-utils, random, performance-profiling }:
 		flake-utils.lib.eachSystem [
 			"x86_64-linux"
 			"aarch64-linux"
@@ -139,7 +140,7 @@
 					benchmark-contract = pkgs.runCommand "difz-benchmark-contract"
 						{
 							nativeBuildInputs = with pkgs; [
-								bash coreutils file gnugrep gnused gawk time randomPackage zstdBenchmark
+								bash coreutils file gnugrep gnused gawk time jq hyperfine randomPackage zstdBenchmark
 							];
 						} ''
 							cp -r ${./.} work
@@ -163,6 +164,8 @@
 						time
 						file
 						git
+						jq
+						performance-profiling.packages.${system}.default
 						randomPackage
 					];
 				};

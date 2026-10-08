@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Compare the preserved CDC implementation with the current optimized engine.
+set -u
+root="$(cd "$(dirname "$0")" && pwd)"
+if [ "${1:-}" = --help ] || [ "${1:-}" = -h ]; then
+	cat <<'EOF'
+Usage: nix develop -c ./bm-engines [performance-profile options]
+Measures CDC and zstd engines across sizes and edit patterns, on 1 and 12 cores.
+--case NAME selects one case from profiling.json. No baseline is auto-approved.
+Exit 3 means valid unbaselined or inconclusive measurements; inspect the records.
+DIFZ_CDC / DIFZ_ZSTD override optimized executable paths.
+DIFZ_BENCH_HISTORY overrides the external history directory.
+EOF
+	exit 0
+fi
+cd "$root" || exit 1
+if [ -z "${DIFZ_CDC:-}" ]; then
+	old_prefix=$(nix build --no-link --print-out-paths \
+		"git+file://$root?rev=a83c0412446d55c82f490d46cdb2ee1d02a2d2a2") || exit 1
+	DIFZ_CDC="$old_prefix/bin/difz"
+fi
+if [ -z "${DIFZ_ZSTD:-}" ]; then
+	new_prefix=$(nix build --no-link --print-out-paths .#default) || exit 1
+	DIFZ_ZSTD="$new_prefix/bin/difz"
+fi
+export DIFZ_CDC DIFZ_ZSTD
+history="${DIFZ_BENCH_HISTORY:-$HOME/.local/state/performance-history}"
+mkdir -p "$history" || exit 1
+history="$(cd "$history" && pwd)" || exit 1
+exec performance-profile run --config "$root/profiling.json" \
+	--history-url "file://$history" --mode bm --seed 42 "$@"

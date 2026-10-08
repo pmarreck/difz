@@ -8,6 +8,8 @@ A fast binary differ for files and directory trees. Each file patch is one zstd 
 
 ## Performance
 
+`nix develop -c ./bm-engines` compares the preserved CDC engine at `a83c041` with the current ReleaseFast engine. The matrix in `profiling.json` covers 1 through 256 MiB by doubling, with scattered edits, moved content plus new bytes, and full replacement. Each case runs on one core and 12 cores, with a warmup and three verified create/apply samples per size. It records wall time, user/system CPU time, peak RSS, patch bytes, fixture hashes, and executable hashes. Raw records live outside the checkout in `$HOME/.local/state/performance-history` by default; `DIFZ_BENCH_HISTORY` overrides that directory. `--case NAME` selects one case. The shared profiler reports new cohorts as unbaselined (exit 3); it does not approve a baseline automatically. These synthetic patterns describe their construction, not a distribution of real executable updates.
+
 The tables below are the content-defined chunking engine. This branch's file engine is zstd level 9 `--patch-from`. The paragraph after the ISO table is the one remeasure of that engine. The other rows are still the older engine.
 
 ### CDC engine, Linux x86_64 real-binary result (2026-08-28)
