@@ -73,6 +73,7 @@ static const struct {
 	const char *portable_acl_preserved;
 	const char *finder_flags_preserved;
 	const char *finder_info_preserved;
+	const char *sparse_preserved;
 } metadata_messages = {
 	"  --omit-metadata <list>  Omit xattr,acl,timestamps,finder,sparse,hardlink\n",
 	"difz: --omit-metadata requires a nonempty comma-separated list\n",
@@ -86,7 +87,8 @@ static const struct {
 	"difz: warning: native ACL metadata was preserved in difz.native-acl\n",
 	"difz: warning: portable ACL metadata was preserved in difz.portable-acl\n",
 	"difz: warning: BSD flags were preserved in difz.bsd-flags\n",
-	"difz: warning: Finder information was preserved in difz.finder-info\n"
+	"difz: warning: Finder information was preserved in difz.finder-info\n",
+	"difz: warning: sparse layout was preserved in difz.sparse-holes\n"
 };
 
 static void print_usage(FILE *out) {
@@ -509,6 +511,7 @@ static int run_directory_patch(
 		if (compromises & DIFZ_COMPROMISE_PORTABLE_ACL) fputs(metadata_messages.portable_acl_preserved, stderr);
 		if (compromises & DIFZ_COMPROMISE_FINDER_FLAGS) fputs(metadata_messages.finder_flags_preserved, stderr);
 		if (compromises & DIFZ_COMPROMISE_FINDER_INFO) fputs(metadata_messages.finder_info_preserved, stderr);
+		if (compromises & DIFZ_COMPROMISE_SPARSE) fputs(metadata_messages.sparse_preserved, stderr);
 	}
 	return rc == 0 ? 0 : 1;
 }

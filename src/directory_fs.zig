@@ -8,6 +8,7 @@ const symlink_transport = @import("symlink_transport.zig");
 const native_stat = @import("native_stat.zig");
 const native_acl = @import("native_acl.zig");
 const native_finder = @import("native_finder.zig");
+const native_sparse = @import("native_sparse.zig");
 const path_filter = @import("path_filter.zig");
 const xattr_stream = @import("xattr_stream");
 
@@ -262,6 +263,7 @@ fn writeSnapshot(
             var abs_buf: [std.posix.PATH_MAX]u8 = undefined;
             const abs_path = std.fmt.bufPrint(&abs_buf, "{s}/{s}", .{ root_buf[0..root_len], entry.path }) catch return error.NameTooLong;
             const kept_xattrs = try restoreXattrs(temp, abs_path, entry.meta, entry.kind == .symlink, &report);
+            if (!omit.sparse and entry.kind == .file) try restoreSparse(temp, io, root, entry, abs_path, &report);
             const keep_birth = !omit.timestamps and try birthNeedsTransport(temp, io, root, entry.path, abs_path, entry.meta.times.btime);
             if (!omit.finder) {
                 native_finder.setInfo(abs_path, entry.meta.finder_info) catch {};
@@ -473,10 +475,11 @@ fn walk(
                 if (opened_stat.kind != .file) return error.FileChangedDuringSnapshot;
                 var reader = file.reader(io, &.{});
                 const data = try reader.interface.allocRemaining(allocator, .unlimited);
-                const file_meta = if (opened_stat.mtime.nanoseconds == stat.mtime.nanoseconds)
+                var file_meta = if (opened_stat.mtime.nanoseconds == stat.mtime.nanoseconds)
                     meta
                 else
                     try metadataFor(allocator, opened_stat.mtime, abs_path, omit, birth);
+                if (!omit.sparse) file_meta.holes = try readSparse(allocator, io, current, item.name, abs_path, data.len);
                 try entries.append(allocator, .{
                     .path = path,
                     .kind = .file,
@@ -635,6 +638,25 @@ fn aclOnly(meta: metadata.Metadata) metadata.Metadata {
 
 fn finderOnly(meta: metadata.Metadata) metadata.Metadata {
     return .{ .finder_flags = meta.finder_flags, .finder_info = meta.finder_info };
+}
+
+fn readSparse(allocator: std.mem.Allocator, io: std.Io, root: std.Io.Dir, path: []const u8, abs_path: []const u8, size: u64) ![]const metadata.Hole {
+    const bytes = xattr_stream.get(allocator, abs_path, "difz.sparse-holes", logical_xattr_opts) catch |err| switch (err) {
+        error.Missing, error.Unsupported => return native_sparse.capture(allocator, io, root, path, size),
+        else => return err,
+    };
+    const decoded = try metadata.decodeCanonical(allocator, bytes);
+    if (!std.mem.eql(u8, &metadata.canonicalHash(decoded), &metadata.canonicalHash(.{ .holes = decoded.holes }))) return error.InvalidTransport;
+    return decoded.holes;
+}
+
+fn restoreSparse(allocator: std.mem.Allocator, io: std.Io, root: std.Io.Dir, entry: directory.Entry, abs_path: []const u8, report: *metadata.RestoreReport) !void {
+    native_sparse.punch(io, root, entry.path, entry.meta.holes) catch {};
+    const actual = try native_sparse.capture(allocator, io, root, entry.path, entry.data.len);
+    if (std.mem.eql(u8, &metadata.canonicalHash(.{ .holes = actual }), &metadata.canonicalHash(.{ .holes = entry.meta.holes }))) return;
+    const blob = try metadata.encodeCanonical(allocator, .{ .holes = entry.meta.holes });
+    try xattr_stream.set(abs_path, "difz.sparse-holes", blob, logical_xattr_opts);
+    report.add(.sparse_preserved);
 }
 
 fn readFinder(allocator: std.mem.Allocator, path: []const u8) !metadata.Metadata {
@@ -1845,4 +1867,84 @@ test "macOS Finder information is a typed field with native file and root readba
     defer output.close(io);
     const out_len = try output.realPath(io, &buffer);
     try expectStoredXattr(buffer[0..out_len], "com.apple.FinderInfo", &info, raw_xattr_opts);
+}
+
+test "Linux sparse capture and apply preserve physical holes and logical bytes" {
+    if (comptime builtin.os.tag != .linux) return error.SkipZigTest;
+    var tmp = testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try requireTransportFs(io, tmp.dir);
+    try tmp.dir.createDir(io, "source", .default_dir);
+    try tmp.dir.createDir(io, "target", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true });
+    defer source.close(io);
+    var target = try tmp.dir.openDir(io, "target", .{ .iterate = true });
+    defer target.close(io);
+    var size: u64 = 1024 * 1024;
+    var file = try target.createFile(io, "sparse", .{ .read = true });
+    defer file.close(io);
+    const block = [_]u8{42} ** 4096;
+    var first_hole: usize = 0;
+    // Grow beyond the volume's allocation unit, without a timing dependency.
+    for (0..4) |_| {
+        try file.setLength(io, size);
+        try file.writePositionalAll(io, &block, 0);
+        try file.writePositionalAll(io, &block, size - block.len);
+        try file.sync(io);
+        first_hole = std.os.linux.lseek(file.handle, 0, 4);
+        try testing.expectEqual(std.os.linux.E.SUCCESS, std.os.linux.errno(first_hole));
+        if (first_hole < size) break;
+        size *= 4;
+    }
+    size = (try file.stat(io)).size;
+    try testing.expect(first_hole < size);
+    const omit: metadata.Omit = .{ .timestamps = true };
+    var expected = try snapshotDir(testing.allocator, io, target, .{ .omit = omit });
+    defer expected.deinit();
+    try testing.expect(expected.entries[0].meta.holes.len > 0);
+    try testing.expectEqual(first_hole, expected.entries[0].meta.holes[0].offset);
+    const patch = try createPatchFromDirs(testing.allocator, io, source, target, .{ .omit = omit });
+    defer testing.allocator.free(patch);
+    const report = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "out", ".sparse-stage", patch, .{});
+    try testing.expectEqual(@as(u32, 0), report.mask & 32);
+    var output = try tmp.dir.openDir(io, "out", .{ .iterate = true });
+    defer output.close(io);
+    var actual = try snapshotDir(testing.allocator, io, output, .{ .omit = omit });
+    defer actual.deinit();
+    try testing.expectEqualSlices(u8, expected.entries[0].data, actual.entries[0].data);
+    try testing.expectEqualDeep(expected.entries[0].meta.holes, actual.entries[0].meta.holes);
+    // The kernel's allocated-block count is independent of our extent codec.
+    var stat: std.os.linux.Statx = std.mem.zeroes(std.os.linux.Statx);
+    try testing.expectEqual(std.os.linux.E.SUCCESS, std.os.linux.errno(std.os.linux.statx(output.handle, "sparse", 0, .{ .BLOCKS = true, .SIZE = true }, &stat)));
+    try testing.expect(stat.mask.BLOCKS and stat.blocks * 512 < size / 2);
+}
+
+test "unaligned sparse holes use verified transport before readonly permissions" {
+    if (comptime builtin.os.tag != .linux) return error.SkipZigTest;
+    var tmp = testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try requireTransportFs(io, tmp.dir);
+    try tmp.dir.createDir(io, "source", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true });
+    defer source.close(io);
+    const omit: metadata.Omit = .{ .timestamps = true };
+    var original = try snapshotDir(testing.allocator, io, source, .{ .omit = omit });
+    defer original.deinit();
+    const holes = [_]metadata.Hole{.{ .offset = 1, .length = 1 }};
+    const entries = [_]directory.Entry{.{ .path = "data", .kind = .file, .mode = 0o400, .data = "\x00\x00\x00", .meta = .{ .holes = &holes } }};
+    const patch = try directory_patch.createPatch(testing.allocator, original.entries, &entries, .{ .omit = omit, .source_root = original.root_meta });
+    defer testing.allocator.free(patch);
+    const report = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "out", ".sparse-fallback-stage", patch, .{});
+    try testing.expectEqual(@as(u32, 32), report.mask);
+    var output = try tmp.dir.openDir(io, "out", .{ .iterate = true });
+    defer output.close(io);
+    var actual = try snapshotDir(testing.allocator, io, output, .{ .omit = omit });
+    defer actual.deinit();
+    try testing.expectEqualDeep(&holes, actual.entries[0].meta.holes);
+    try testing.expectEqualSlices(u8, "\x00\x00\x00", actual.entries[0].data);
+    var ignored = try snapshotDir(testing.allocator, io, output, .{ .omit = .{ .timestamps = true, .sparse = true } });
+    defer ignored.deinit();
+    try testing.expectEqual(@as(usize, 0), ignored.entries[0].meta.holes.len);
 }
