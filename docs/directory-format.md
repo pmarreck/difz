@@ -144,6 +144,10 @@ Default parser limits are 1,000,000 entries, 4,096 rules, 4,096 bytes per path o
 
 ## Filesystem commit behavior
 
+Unsupported symlink metadata uses the logical attribute `difz.symlinks` on its parent directory. Its bytes are `DIFZLINK\x01`, a u32 record count, then sorted records of u32 basename length, u32 metadata length, basename bytes, and a nonempty canonical metadata record. The complete attribute is bounded to 65,536 bytes; filesystem limits can be smaller and a storage failure fails apply. Names must be canonical basenames and refer to existing symlinks. Sparse and hardlink fields are forbidden. Readback merges the preserved fields with native symlink metadata, then applies the patch's omission mask. The parent transport never appears as a user xattr in tree identity.
+
+The C apply call returns a compromise mask only after publication; the CLI emits one stderr warning per reported category. Objects remain writable until their metadata and parent transport are stored. Final permissions and mtimes follow in reverse path order so directory stamps are restored after child writes.
+
 Create writes a temporary patch beside the requested output and renames it only after encoding succeeds. Apply requires a nonexistent output path, creates a uniquely named sibling staging directory, validates the complete patch and source identity, writes entries without following symlinks, and re-snapshots the stage. Any failure closes handles and removes only that owned staging path. A verified stage is renamed to the requested output path. The source remains unchanged, and replacing a live tree remains a separate caller action.
 
 The logical bundle contents, relative paths, symlink targets, portable modes, and currently supported metadata can round-trip exactly. Remaining native metadata work and updater qualification must pass before claiming filesystem equivalence for a notarized macOS `.app`.

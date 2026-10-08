@@ -167,6 +167,7 @@ export fn difz_directory_patch(
     patch_ptr: [*]const u8,
     patch_len: usize,
     output_path_z: [*:0]const u8,
+    out_compromises: *u32,
 ) callconv(.c) i32 {
     const allocator = std.heap.page_allocator;
     const io = std.Io.Threaded.global_single_threaded.io();
@@ -192,7 +193,7 @@ export fn difz_directory_patch(
         ".{s}.difz-stage-{x:0>16}",
         .{ output_name, random },
     ) catch return -1;
-    directory_fs.applyPatchToNewDir(
+    const report = directory_fs.applyPatchToNewDir(
         allocator,
         io,
         source,
@@ -206,6 +207,7 @@ export fn difz_directory_patch(
         error.OutputAlreadyExists => -3,
         else => -1,
     };
+    out_compromises.* = report.mask;
     return 0;
 }
 

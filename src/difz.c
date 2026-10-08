@@ -65,12 +65,16 @@ static const struct {
 	const char *omit_invalid;
 	const char *omit_create_only;
 	const char *omit_directories_only;
+	const char *raw_xattrs_preserved;
+	const char *symlink_metadata_preserved;
 } metadata_messages = {
 	"  --omit-metadata <list>  Omit xattr,acl,timestamps,finder,sparse,hardlink\n",
 	"difz: --omit-metadata requires a nonempty comma-separated list\n",
 	"difz: --omit-metadata contains an unknown, empty, or duplicate family\n",
 	"difz: --omit-metadata is stored when a directory patch is created\n",
-	"difz: --omit-metadata requires directory inputs\n"
+	"difz: --omit-metadata requires directory inputs\n",
+	"difz: warning: raw attributes were preserved in difz.raw-xattrs\n",
+	"difz: warning: symlink metadata was preserved in difz.symlinks on the parent directory\n"
 };
 
 static void print_usage(FILE *out) {
@@ -478,11 +482,16 @@ static int run_directory_patch(
 	size_t patch_len = 0;
 	uint8_t *patch = read_file(patch_path, &patch_len);
 	if (!patch) return 1;
-	int rc = difz_directory_patch(source_path, patch, patch_len, output_path);
+	uint32_t compromises = 0;
+	int rc = difz_directory_patch(source_path, patch, patch_len, output_path, &compromises);
 	free(patch);
 	if (rc == -2) fprintf(stderr, "difz: directory patch source identity does not match\n");
 	else if (rc == -3) fprintf(stderr, "difz: output already exists: '%s'\n", output_path);
 	else if (rc != 0) fprintf(stderr, "difz: directory patch failed\n");
+	if (rc == 0) {
+		if (compromises & DIFZ_COMPROMISE_RAW_XATTR) fputs(metadata_messages.raw_xattrs_preserved, stderr);
+		if (compromises & DIFZ_COMPROMISE_SYMLINK) fputs(metadata_messages.symlink_metadata_preserved, stderr);
+	}
 	return rc == 0 ? 0 : 1;
 }
 

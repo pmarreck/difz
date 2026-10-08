@@ -16,7 +16,7 @@ All business logic lives in Zig, and the C CLI dogfoods the FFI. File diffing an
 - `difz_diff()` — C FFI: zstd level 9 prefix patch between two buffers, ZDIF v4 blob
 - `difz_patch()` — C FFI: apply diff to source buffer, returns reconstructed target
 - `difz_directory_diff()` — C FFI: snapshot two directories and return a DIFZTREE patch
-- `difz_directory_patch()` — C FFI: apply into a verified new sibling directory
+- `difz_directory_patch()` — C FFI: apply into a verified new sibling directory and return a per-call metadata compromise mask
 - `difz_write_new_file_atomic()` — C FFI: commit a new patch file without replacement
 - `difz_free()` — C FFI: free memory returned by difz_diff or difz_patch
 - Test block imports all modules to ensure test discovery

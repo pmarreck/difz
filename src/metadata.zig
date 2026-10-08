@@ -148,6 +148,16 @@ pub const CompromiseCode = enum(u8) {
     sparse_preserved = 6,
     hardlink_copied = 7,
     raw_xattr_preserved = 8,
+    symlink_metadata_preserved = 9,
+};
+
+/// Per-apply effects, reported only after the verified tree is published.
+pub const RestoreReport = struct {
+    mask: u32 = 0,
+
+    pub fn add(self: *RestoreReport, code: CompromiseCode) void {
+        self.mask |= @as(u32, 1) << @intCast(@intFromEnum(code) - 1);
+    }
 };
 
 pub const Compromise = struct {
@@ -196,6 +206,7 @@ pub const transport_names = [_][]const u8{
     "difz.sparse-holes",
     "difz.hardlink-to",
     "difz.raw-xattrs",
+    "difz.symlinks",
 };
 
 pub fn parseOmit(text: []const u8) MetaError!Omit {
@@ -448,6 +459,7 @@ pub fn planRestore(meta: Metadata, caps: Caps) MetaError!Plan {
 
 pub fn compromiseText(compromise: Compromise, buf: []u8) []const u8 {
     switch (compromise.code) {
+        .symlink_metadata_preserved => return "symlink metadata was preserved in difz.symlinks on the parent directory",
         .native_acl_preserved => {
             const which = switch (compromise.origin orelse .windows) {
                 .linux => "linux",

@@ -73,14 +73,29 @@ int difz_directory_diff(
 	uint32_t omit_metadata,
 	uint8_t **out, size_t *out_len);
 
+enum difz_metadata_compromise {
+	DIFZ_COMPROMISE_NATIVE_ACL = 1,
+	DIFZ_COMPROMISE_PORTABLE_ACL = 2,
+	DIFZ_COMPROMISE_FINDER_FLAGS = 4,
+	DIFZ_COMPROMISE_FINDER_INFO = 8,
+	DIFZ_COMPROMISE_BIRTH_TIME = 16,
+	DIFZ_COMPROMISE_SPARSE = 32,
+	DIFZ_COMPROMISE_HARDLINK = 64,
+	DIFZ_COMPROMISE_RAW_XATTR = 128,
+	DIFZ_COMPROMISE_SYMLINK = 256
+};
+
 /* Apply a DIFZTREE patch into a new output directory through a verified,
  * uniquely named sibling stage. The source and any existing output are never
  * modified. Returns 0 on success, -2 for a wrong source, -3 when output exists,
- * and -1 for other errors. */
+ * and -1 for other errors.
+ * On success, *out_compromises receives the flags above. On error it is
+ * unchanged. A compromise preserves canonical metadata through transport;
+ * failure to store that transport fails the apply. */
 int difz_directory_patch(
 	const char *source_path,
 	const uint8_t *patch, size_t patch_len,
-	const char *output_path);
+	const char *output_path, uint32_t *out_compromises);
 
 /* Write a new file through a uniquely named sibling and non-replacing rename.
  * Returns -3 if the output already exists and -1 for other errors. */

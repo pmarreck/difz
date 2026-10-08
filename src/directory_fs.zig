@@ -4,6 +4,7 @@ const testing = std.testing;
 const directory = @import("directory.zig");
 const directory_patch = @import("directory_patch.zig");
 const metadata = @import("metadata.zig");
+const symlink_transport = @import("symlink_transport.zig");
 const path_filter = @import("path_filter.zig");
 const xattr_stream = @import("xattr_stream");
 
@@ -91,7 +92,7 @@ pub fn applyPatchToNewDir(
     staging_name: []const u8,
     patch_bytes: []const u8,
     limits: directory_patch.Limits,
-) !void {
+) !metadata.RestoreReport {
     try validateBasename(output_name);
     try validateBasename(staging_name);
     if (std.mem.eql(u8, output_name, staging_name)) return error.StagingNameConflict;
@@ -123,7 +124,7 @@ pub fn applyPatchToNewDir(
         .follow_symlinks = false,
     });
     defer stage.close(io);
-    try writeSnapshot(allocator, io, stage, reconstructed.entries, reconstructed.root_meta);
+    const report = try writeSnapshot(allocator, io, stage, reconstructed.entries, reconstructed.root_meta);
 
     var staged_snapshot = try snapshotDir(allocator, io, stage, .{ .omit = owned_rules.omit });
     defer staged_snapshot.deinit();
@@ -133,6 +134,7 @@ pub fn applyPatchToNewDir(
 
     try publishStagingDir(io, output_parent, staging_name, output_name);
     owns_stage = false;
+    return report;
 }
 
 /// Move a finished staging directory to its final name, and fail if that name
@@ -215,18 +217,14 @@ fn makeDirectoriesWritable(io: std.Io, root: std.Io.Dir) !void {
     }
 }
 
-fn treeHasXattrs(entries: []const directory.Entry) bool {
-    for (entries) |entry| if (entry.meta.xattrs.len != 0) return true;
-    return false;
-}
-
 fn writeSnapshot(
     allocator: std.mem.Allocator,
     io: std.Io,
     root: std.Io.Dir,
     entries: []const directory.Entry,
     root_meta: metadata.Metadata,
-) !void {
+) !metadata.RestoreReport {
+    var report: metadata.RestoreReport = .{};
     try directory.validateSnapshot(entries);
     try directory.validateMetadataRelations(entries);
     for (entries) |entry| {
@@ -244,43 +242,59 @@ fn writeSnapshot(
                 });
                 defer file.close(io);
                 try file.writeStreamingAll(io, entry.data);
-                try file.setPermissions(io, try permissionsForMode(entry.mode, .file));
             },
             .symlink => try root.symLink(io, entry.data, entry.path, .{
                 .is_directory = try symlinkPointsToDirectory(allocator, entries, entry),
             }),
         }
     }
+    // Keep objects writable through metadata restore, including parent transport.
+    {
+        var root_buf: [std.posix.PATH_MAX]u8 = undefined;
+        const root_len = try root.realPath(io, &root_buf);
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const temp = arena.allocator();
+        var parents: std.StringHashMapUnmanaged(std.ArrayListUnmanaged(symlink_transport.Record)) = .empty;
+        for (entries) |entry| {
+            var abs_buf: [std.posix.PATH_MAX]u8 = undefined;
+            const abs_path = std.fmt.bufPrint(&abs_buf, "{s}/{s}", .{ root_buf[0..root_len], entry.path }) catch return error.NameTooLong;
+            const kept_xattrs = try restoreXattrs(temp, abs_path, entry.meta, entry.kind == .symlink, &report);
+            if (entry.kind == .symlink) {
+                const kept: metadata.Metadata = .{
+                    .xattrs = kept_xattrs,
+                    .aces = entry.meta.aces,
+                    .native_acl = entry.meta.native_acl,
+                    .times = .{ .btime = entry.meta.times.btime },
+                    .finder_info = entry.meta.finder_info,
+                    .finder_flags = entry.meta.finder_flags,
+                };
+                if (!kept.isEmpty()) {
+                    const parent = if (std.mem.lastIndexOfScalar(u8, entry.path, '/')) |slash| entry.path[0..slash] else "";
+                    const name = if (parent.len == 0) entry.path else entry.path[parent.len + 1 ..];
+                    const slot = try parents.getOrPut(temp, parent);
+                    if (!slot.found_existing) slot.value_ptr.* = .empty;
+                    try slot.value_ptr.append(temp, .{ .name = name, .meta = kept });
+                }
+            }
+        }
+        if (root_meta.xattrs.len != 0) {
+            _ = try restoreXattrs(temp, root_buf[0..root_len], root_meta, false, &report);
+        }
+        var it = parents.iterator();
+        while (it.next()) |parent| {
+            const path = if (parent.key_ptr.len == 0) root_buf[0..root_len] else try std.fmt.allocPrint(temp, "{s}/{s}", .{ root_buf[0..root_len], parent.key_ptr.* });
+            const blob = try symlink_transport.encode(temp, parent.value_ptr.items);
+            try xattr_stream.set(path, symlink_transport.attribute, blob, logical_xattr_opts);
+            report.add(.symlink_metadata_preserved);
+        }
+    }
+    // Final modes and times follow child creation and attribute writes.
     var index = entries.len;
     while (index > 0) {
         index -= 1;
         const entry = entries[index];
-        if (entry.kind == .directory) {
-            try root.setFilePermissions(
-                io,
-                entry.path,
-                try permissionsForMode(entry.mode, .directory),
-                .{ .follow_symlinks = false },
-            );
-        }
-    }
-    // Extended attributes before the timestamp. setxattr can bump mtime,
-    // and the staged hash compares the stamp the patch recorded.
-    if (treeHasXattrs(entries) or root_meta.xattrs.len != 0) {
-        var root_buf: [std.posix.PATH_MAX]u8 = undefined;
-        const root_len = try root.realPath(io, &root_buf);
-        for (entries) |entry| {
-            if (entry.meta.xattrs.len == 0) continue;
-            var abs_buf: [std.posix.PATH_MAX]u8 = undefined;
-            const abs_path = std.fmt.bufPrint(&abs_buf, "{s}/{s}", .{ root_buf[0..root_len], entry.path }) catch return error.NameTooLong;
-            try restoreXattrs(allocator, abs_path, entry.meta);
-        }
-        if (root_meta.xattrs.len != 0) {
-            try restoreXattrs(allocator, root_buf[0..root_len], root_meta);
-        }
-    }
-    // After content and permission writes, which can bump mtime.
-    for (entries) |entry| {
+        if (entry.kind != .symlink) try root.setFilePermissions(io, entry.path, try permissionsForMode(entry.mode, entry.kind), .{ .follow_symlinks = false });
         if (entry.meta.times.mtime) |mtime| {
             try root.setTimestamps(io, entry.path, .{
                 .follow_symlinks = false,
@@ -288,6 +302,7 @@ fn writeSnapshot(
             });
         }
     }
+    return report;
 }
 
 fn trimLeadingSlashes(path: []const u8) []const u8 {
@@ -360,6 +375,7 @@ fn walk(
     omit: metadata.Omit,
     entries: *std.ArrayListUnmanaged(directory.Entry),
 ) !void {
+    const transported = if (omit.bits() == 0x3f) &.{} else try readSymlinkTransport(allocator, io, current, abs_dir);
     var iterator = current.iterate();
     while (try iterator.next(io)) |item| {
         const path = if (prefix.len == 0)
@@ -413,12 +429,15 @@ fn walk(
             .sym_link => {
                 var buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
                 const length = try current.readLink(io, item.name, &buffer);
+                var link_meta = meta;
+                if (symlink_transport.find(transported, item.name)) |record|
+                    link_meta = try mergeSymlinkMetadata(allocator, meta, record.meta, omit);
                 try entries.append(allocator, .{
                     .path = path,
                     .kind = .symlink,
                     .mode = 0o777,
                     .data = try allocator.dupe(u8, buffer[0..length]),
-                    .meta = meta,
+                    .meta = link_meta,
                 });
             },
             else => return error.UnsupportedEntryKind,
@@ -480,6 +499,41 @@ fn readXattrs(allocator: std.mem.Allocator, abs_path: []const u8) ![]const metad
     return xattrs.toOwnedSlice(allocator);
 }
 
+fn readSymlinkTransport(allocator: std.mem.Allocator, io: std.Io, parent: std.Io.Dir, abs_path: []const u8) ![]const symlink_transport.Record {
+    const blob = xattr_stream.get(allocator, abs_path, symlink_transport.attribute, logical_xattr_opts) catch |err| switch (err) {
+        error.Missing, error.Unsupported => return &.{},
+        else => return err,
+    };
+    var decoded = try symlink_transport.decode(allocator, blob);
+    defer decoded.deinit();
+    const records = try allocator.alloc(symlink_transport.Record, decoded.records.len);
+    for (decoded.records, records) |record, *target| {
+        const stat = parent.statFile(io, record.name, .{ .follow_symlinks = false }) catch |err| switch (err) {
+            error.FileNotFound => return error.InvalidTransport,
+            else => return err,
+        };
+        if (stat.kind != .sym_link) return error.InvalidTransport;
+        target.* = .{ .name = record.name, .meta = try metadata.canonicalize(allocator, record.meta, .{}) };
+    }
+    return records;
+}
+
+fn mergeSymlinkMetadata(allocator: std.mem.Allocator, native: metadata.Metadata, kept: metadata.Metadata, omit: metadata.Omit) !metadata.Metadata {
+    var result = native;
+    var attrs: std.ArrayListUnmanaged(metadata.Xattr) = .empty;
+    try attrs.appendSlice(allocator, native.xattrs);
+    for (kept.xattrs) |attr| if (!hasXattr(attrs.items, attr.class, attr.name)) try attrs.append(allocator, attr);
+    result.xattrs = try attrs.toOwnedSlice(allocator);
+    if (kept.aces.len != 0) result.aces = kept.aces;
+    if (kept.native_acl != null) result.native_acl = kept.native_acl;
+    if (kept.times.mtime != null) result.times.mtime = kept.times.mtime;
+    if (kept.times.atime != null) result.times.atime = kept.times.atime;
+    if (kept.times.btime != null) result.times.btime = kept.times.btime;
+    if (kept.finder_flags != 0) result.finder_flags = kept.finder_flags;
+    if (kept.finder_info != null) result.finder_info = kept.finder_info;
+    return metadata.canonicalize(allocator, result, omit);
+}
+
 fn metadataFor(allocator: std.mem.Allocator, timestamp: std.Io.Timestamp, abs_path: []const u8, omit: metadata.Omit) !metadata.Metadata {
     var meta: metadata.Metadata = if (omit.timestamps) .{} else modificationMetadata(timestamp);
     meta.xattrs = if (omit.xattr) &.{} else try readXattrs(allocator, abs_path);
@@ -487,17 +541,22 @@ fn metadataFor(allocator: std.mem.Allocator, timestamp: std.Io.Timestamp, abs_pa
     return metadata.canonicalize(allocator, meta, .{});
 }
 
-fn restoreXattrs(allocator: std.mem.Allocator, abs_path: []const u8, meta: metadata.Metadata) !void {
+fn restoreXattrs(allocator: std.mem.Allocator, abs_path: []const u8, meta: metadata.Metadata, is_link: bool, report: *metadata.RestoreReport) ![]const metadata.Xattr {
     const os = switch (builtin.os.tag) {
         .macos => metadata.Os.macos,
         .windows => metadata.Os.windows,
         else => metadata.Os.linux,
     };
     var preserved: std.ArrayListUnmanaged(metadata.Xattr) = .empty;
-    defer preserved.deinit(allocator);
     for (meta.xattrs) |xattr| {
         switch (xattr.class) {
-            .logical => xattr_stream.set(abs_path, xattr.name, xattr.value, logical_xattr_opts) catch return error.XattrRestoreFailed,
+            .logical => xattr_stream.set(abs_path, xattr.name, xattr.value, logical_xattr_opts) catch |err| switch (err) {
+                error.Permission, error.Unsupported => {
+                    if (!is_link) return error.XattrRestoreFailed;
+                    try preserved.append(allocator, xattr);
+                },
+                else => return error.XattrRestoreFailed,
+            },
             .raw => {
                 if (!metadata.rawAccepted(os, xattr.name)) {
                     try preserved.append(allocator, xattr);
@@ -510,11 +569,13 @@ fn restoreXattrs(allocator: std.mem.Allocator, abs_path: []const u8, meta: metad
             },
         }
     }
-    if (preserved.items.len == 0) return;
+    if (is_link) return preserved.toOwnedSlice(allocator);
+    if (preserved.items.len == 0) return &.{};
     const blob = try metadata.encodeCanonical(allocator, .{ .xattrs = preserved.items });
     defer allocator.free(blob);
     xattr_stream.set(abs_path, "difz.raw-xattrs", blob, logical_xattr_opts) catch return error.XattrRestoreFailed;
-    std.debug.print("difz: raw attributes that this OS cannot store were preserved in difz.raw-xattrs\n", .{});
+    report.add(.raw_xattr_preserved);
+    return &.{};
 }
 
 fn excludedXattr(native: []const u8) bool {
@@ -811,7 +872,7 @@ test "filesystem directory patch round-trip is deterministic and staged" {
     defer testing.allocator.free(second);
     try testing.expectEqualSlices(u8, first, second);
 
-    try applyPatchToNewDir(
+    _ = try applyPatchToNewDir(
         testing.allocator,
         io,
         source,
@@ -880,7 +941,7 @@ test "filesystem apply restores last-modification time" {
 
     const patch = try createPatchFromDirs(testing.allocator, io, source, target, .{});
     defer testing.allocator.free(patch);
-    try applyPatchToNewDir(
+    _ = try applyPatchToNewDir(
         testing.allocator,
         io,
         source,
@@ -1041,7 +1102,7 @@ test "staged filesystem apply cleans up every injected allocation failure" {
             parent_dir: std.Io.Dir,
             bytes: []const u8,
         ) !void {
-            try applyPatchToNewDir(
+            _ = try applyPatchToNewDir(
                 allocator,
                 test_io,
                 source_dir,
@@ -1075,7 +1136,7 @@ test "filesystem apply reuses stored omission for source and staged capture" {
     });
     defer testing.allocator.free(patch);
     try source.setTimestamps(io, "data", .{ .modify_timestamp = .{ .new = .{ .nanoseconds = 42 } }, .follow_symlinks = false });
-    try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".omit-stage", patch, .{});
+    _ = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".omit-stage", patch, .{});
     var output = try tmp.dir.openDir(io, "output", .{ .iterate = true });
     defer output.close(io);
     var buffer: [16]u8 = undefined;
@@ -1105,7 +1166,7 @@ test "filesystem hardlinks use the first included path and restore one inode" {
     try testing.expect(snapshot.entries[2].meta.hardlink_to == null);
     const patch = try createPatchFromDirs(testing.allocator, io, source, target, .{ .rules = &rules });
     defer testing.allocator.free(patch);
-    try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".hardlink-stage", patch, .{});
+    _ = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".hardlink-stage", patch, .{});
     var output = try tmp.dir.openDir(io, "output", .{ .iterate = true });
     defer output.close(io);
     const b = try output.statFile(io, "b", .{});
@@ -1117,10 +1178,115 @@ test "filesystem hardlinks use the first included path and restore one inode" {
 
     const omitted = try createPatchFromDirs(testing.allocator, io, source, target, .{ .omit = .{ .hardlink = true } });
     defer testing.allocator.free(omitted);
-    try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "copies", ".copy-stage", omitted, .{});
+    _ = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "copies", ".copy-stage", omitted, .{});
     var copies = try tmp.dir.openDir(io, "copies", .{ .iterate = true });
     defer copies.close(io);
     try testing.expect((try copies.statFile(io, "a", .{})).inode != (try copies.statFile(io, "b", .{})).inode);
+}
+
+test "symlink metadata survives through a parent attribute without changing its target" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
+    const transport = @import("symlink_transport.zig");
+    var tmp = testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try tmp.dir.createDir(io, "source", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true });
+    defer source.close(io);
+    var source_buf: [std.posix.PATH_MAX]u8 = undefined;
+    const source_len = try source.realPath(io, &source_buf);
+    try setFixtureXattr(source_buf[0..source_len], "comment", "probe", logical_xattr_opts);
+    var baseline = try snapshotDir(testing.allocator, io, source, .{});
+    defer baseline.deinit();
+    const stamp: metadata.Times = .{ .mtime = .{ .sec = 42 } };
+    const link_meta: metadata.Metadata = .{
+        .xattrs = &.{.{ .class = .logical, .name = "comment", .value = "on-link" }},
+        .native_acl = .{ .origin = .windows, .bytes = "DACL" },
+        .times = .{ .mtime = stamp.mtime, .btime = .{ .sec = 1, .nsec = 2 } },
+        .finder_info = [_]u8{1} ** 32,
+    };
+    const entries = [_]directory.Entry{
+        .{ .path = "data", .kind = .file, .mode = 0o644, .data = "kept", .meta = .{ .times = stamp } },
+        .{ .path = "folder", .kind = .directory, .mode = 0o500, .meta = .{ .times = stamp } },
+        .{ .path = "folder/link", .kind = .symlink, .mode = 0o777, .data = "../data", .meta = link_meta },
+    };
+    const patch = try directory_patch.createPatch(testing.allocator, baseline.entries, &entries, .{
+        .source_root = baseline.root_meta,
+        .target_root = baseline.root_meta,
+    });
+    defer testing.allocator.free(patch);
+    const report = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".link-stage", patch, .{});
+    try testing.expectEqual(@as(u32, 1 << 8), report.mask);
+    defer deleteOwnedTree(io, tmp.dir, "output") catch {};
+    var output = try tmp.dir.openDir(io, "output", .{ .iterate = true });
+    defer output.close(io);
+    var snapshot = try snapshotDir(testing.allocator, io, output, .{});
+    defer snapshot.deinit();
+    try testing.expectEqualSlices(u8, &metadata.canonicalHash(link_meta), &metadata.canonicalHash(snapshot.entries[2].meta));
+    try testing.expectEqual(@as(usize, 0), snapshot.entries[0].meta.xattrs.len);
+    try testing.expectEqual(@as(usize, 0), snapshot.entries[1].meta.xattrs.len);
+    var abs_buf: [std.posix.PATH_MAX]u8 = undefined;
+    const abs_len = try output.realPath(io, &abs_buf);
+    const parent = try std.fmt.allocPrint(testing.allocator, "{s}/folder", .{abs_buf[0..abs_len]});
+    defer testing.allocator.free(parent);
+    const blob = try xattr_stream.get(testing.allocator, parent, transport.attribute, logical_xattr_opts);
+    defer testing.allocator.free(blob);
+    var decoded = try transport.decode(testing.allocator, blob);
+    defer decoded.deinit();
+    try testing.expectEqual(@as(usize, 1), decoded.records.len);
+    try testing.expectEqualStrings("link", decoded.records[0].name);
+    try testing.checkAllAllocationFailures(testing.allocator, struct {
+        fn run(allocator: std.mem.Allocator, test_io: std.Io, source_dir: std.Io.Dir, parent_dir: std.Io.Dir, bytes: []const u8) !void {
+            _ = try applyPatchToNewDir(allocator, test_io, source_dir, parent_dir, "allocation", ".allocation-link-stage", bytes, .{});
+            try deleteOwnedTree(test_io, parent_dir, "allocation");
+        }
+    }.run, .{ io, source, tmp.dir, patch });
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, ".allocation-link-stage", .{}));
+
+    const large = try testing.allocator.alloc(u8, symlink_transport.max_bytes);
+    defer testing.allocator.free(large);
+    @memset(large, 0);
+    var too_large = entries;
+    too_large[2].meta.xattrs = &.{.{ .class = .logical, .name = "comment", .value = large }};
+    const large_patch = try directory_patch.createPatch(testing.allocator, baseline.entries, &too_large, .{
+        .source_root = baseline.root_meta,
+        .target_root = baseline.root_meta,
+    });
+    defer testing.allocator.free(large_patch);
+    if (comptime builtin.os.tag == .linux) {
+        try testing.expectError(error.TransportTooLarge, applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "too-large", ".large-link-stage", large_patch, .{}));
+        try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, "too-large", .{}));
+        try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, ".large-link-stage", .{}));
+    }
+
+    const omitted = try directory_patch.createPatch(testing.allocator, baseline.entries, &entries, .{
+        .source_root = baseline.root_meta,
+        .target_root = baseline.root_meta,
+        .omit = .{ .xattr = true, .acl = true, .timestamps = true, .finder = true },
+    });
+    defer testing.allocator.free(omitted);
+    const omitted_report = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "omitted", ".omitted-link-stage", omitted, .{});
+    defer deleteOwnedTree(io, tmp.dir, "omitted") catch {};
+    try testing.expectEqual(@as(u32, 0), omitted_report.mask);
+}
+
+test "parent transport rejects missing names and names that are not symlinks" {
+    if (comptime builtin.os.tag == .windows) return error.SkipZigTest;
+    var tmp = testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try tmp.dir.writeFile(io, .{ .sub_path = "file", .data = "kept" });
+    var abs_buf: [std.posix.PATH_MAX]u8 = undefined;
+    const abs_len = try tmp.dir.realPath(io, &abs_buf);
+    const abs_path = abs_buf[0..abs_len];
+    for ([_][]const u8{ "file", "missing" }) |name| {
+        const blob = try symlink_transport.encode(testing.allocator, &.{.{ .name = name, .meta = .{ .times = .{ .btime = .{ .sec = 1 } } } }});
+        defer testing.allocator.free(blob);
+        try setFixtureXattr(abs_path, symlink_transport.attribute, blob, logical_xattr_opts);
+        try testing.expectError(error.InvalidTransport, snapshotDir(testing.allocator, io, tmp.dir, .{}));
+        var ignored = try snapshotDir(testing.allocator, io, tmp.dir, .{ .omit = try metadata.Omit.fromBits(63) });
+        ignored.deinit();
+    }
 }
 
 test "filesystem snapshot and apply round-trip logical and raw extended attributes" {
@@ -1158,7 +1324,7 @@ test "filesystem snapshot and apply round-trip logical and raw extended attribut
 
     const patch = try createPatchFromDirs(testing.allocator, io, source, target, .{});
     defer testing.allocator.free(patch);
-    try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".output.difz-stage-xattr", patch, .{});
+    _ = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".output.difz-stage-xattr", patch, .{});
     var output = try tmp.dir.openDir(io, "output", .{ .iterate = true, .follow_symlinks = false });
     defer output.close(io);
     var out_root_buf: [std.posix.PATH_MAX]u8 = undefined;
@@ -1210,7 +1376,7 @@ test "filesystem snapshot keeps an extended attribute on the snapshot root" {
 
     const patch = try createPatchFromDirs(testing.allocator, io, source, target, .{});
     defer testing.allocator.free(patch);
-    try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".output.difz-stage-root-xattr", patch, .{});
+    _ = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "output", ".output.difz-stage-root-xattr", patch, .{});
     var output = try tmp.dir.openDir(io, "output", .{ .iterate = true, .follow_symlinks = false });
     defer output.close(io);
     var out_buf: [std.posix.PATH_MAX]u8 = undefined;

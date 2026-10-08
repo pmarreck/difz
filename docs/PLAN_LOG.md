@@ -118,3 +118,4 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 - [x] [Active] Branch a per-file zstd --patch-from engine that keeps BLAKE3 checks and DIFZTREE outside and drops CDC plus compression selection. (done 2026-10-08 12:31am EDT)
 - [x] [Active] Remeasure the branch on the same ISO pair. Keep the CDC engine reachable from the pre-change commit if the branch wins. (done 2026-10-08 12:36am EDT)
 - [x] [Active] Adopt zstdz on yolo and preserve the CDC tip as old-cdc-plus-compression-probe-design; keep both local unless publication is requested. (done 2026-10-08 14:17 EDT)
+- [x] [Active] Make DIFZTREE v2 the only supported tree format, including metadata-free trees; remove v1 codec and identity branches and reject v1 input. (done 2026-10-08 14:23 EDT)
