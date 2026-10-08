@@ -7,6 +7,7 @@ const metadata = @import("metadata.zig");
 const symlink_transport = @import("symlink_transport.zig");
 const native_stat = @import("native_stat.zig");
 const native_acl = @import("native_acl.zig");
+const native_finder = @import("native_finder.zig");
 const path_filter = @import("path_filter.zig");
 const xattr_stream = @import("xattr_stream");
 
@@ -262,26 +263,32 @@ fn writeSnapshot(
             const abs_path = std.fmt.bufPrint(&abs_buf, "{s}/{s}", .{ root_buf[0..root_len], entry.path }) catch return error.NameTooLong;
             const kept_xattrs = try restoreXattrs(temp, abs_path, entry.meta, entry.kind == .symlink, &report);
             const keep_birth = !omit.timestamps and try birthNeedsTransport(temp, io, root, entry.path, abs_path, entry.meta.times.btime);
+            if (!omit.finder) {
+                native_finder.setInfo(abs_path, entry.meta.finder_info) catch {};
+                native_finder.setFlags(temp, abs_path, entry.meta.finder_flags) catch |err| if (err == error.OutOfMemory) return err;
+            }
             if (entry.kind == .symlink) {
                 const keep_mtime = !omit.timestamps and try mtimeNeedsTransport(io, root, entry.path, entry.meta.times.mtime);
                 const actual_acl = if (omit.acl) metadata.Metadata{} else try metadata.canonicalize(temp, try native_acl.capture(temp, abs_path), .{});
                 const keep_acl = !omit.acl and !std.mem.eql(u8, &metadata.canonicalHash(aclOnly(actual_acl)), &metadata.canonicalHash(aclOnly(entry.meta)));
+                const actual_finder = if (omit.finder) metadata.Metadata{} else try native_finder.capture(temp, abs_path);
+                const keep_finder = !omit.finder and !std.mem.eql(u8, &metadata.canonicalHash(finderOnly(actual_finder)), &metadata.canonicalHash(finderOnly(entry.meta)));
                 const kept: metadata.Metadata = .{
                     .xattrs = kept_xattrs,
                     .aces = if (keep_acl) entry.meta.aces else &.{},
                     .native_acl = if (keep_acl) entry.meta.native_acl else null,
                     .times = .{ .btime = if (keep_birth) entry.meta.times.btime else null, .mtime = if (keep_mtime) entry.meta.times.mtime else null },
-                    .finder_info = entry.meta.finder_info,
-                    .finder_flags = entry.meta.finder_flags,
+                    .finder_info = if (keep_finder) entry.meta.finder_info else null,
+                    .finder_flags = if (keep_finder) entry.meta.finder_flags else 0,
                 };
                 const absent_times: u8 = @as(u8, @intFromBool(keep_mtime and entry.meta.times.mtime == null)) |
                     (@as(u8, @intFromBool(keep_birth and entry.meta.times.btime == null)) << 2);
-                if (!kept.isEmpty() or absent_times != 0 or keep_acl) {
+                if (!kept.isEmpty() or absent_times != 0 or keep_acl or keep_finder) {
                     const parent = if (std.mem.lastIndexOfScalar(u8, entry.path, '/')) |slash| entry.path[0..slash] else "";
                     const name = if (parent.len == 0) entry.path else entry.path[parent.len + 1 ..];
                     const slot = try parents.getOrPut(temp, parent);
                     if (!slot.found_existing) slot.value_ptr.* = .empty;
-                    try slot.value_ptr.append(temp, .{ .name = name, .meta = kept, .absent_times = absent_times, .observed_mtime = if (keep_mtime) timeFromTimestamp((try root.statFile(io, entry.path, .{ .follow_symlinks = false })).mtime) else null, .acl_override = keep_acl });
+                    try slot.value_ptr.append(temp, .{ .name = name, .meta = kept, .absent_times = absent_times, .observed_mtime = if (keep_mtime) timeFromTimestamp((try root.statFile(io, entry.path, .{ .follow_symlinks = false })).mtime) else null, .acl_override = keep_acl, .finder_override = keep_finder });
                 }
             } else if (keep_birth) {
                 try writeTimeOverride(abs_path, "difz.btime", entry.meta.times.btime);
@@ -291,6 +298,7 @@ fn writeSnapshot(
                 try restoreAcl(temp, abs_path, entry.meta, &report);
                 try root.setFilePermissions(io, entry.path, if (entry.kind == .directory) writableDirectoryPermissions() else writableFilePermissions(), .{ .follow_symlinks = false });
             }
+            if (!omit.finder and entry.kind != .symlink) try restoreFinder(temp, abs_path, entry.meta, &report);
         }
         if (root_meta.xattrs.len != 0) {
             _ = try restoreXattrs(temp, root_buf[0..root_len], root_meta, false, &report);
@@ -298,6 +306,11 @@ fn writeSnapshot(
         if (!omit.acl) {
             try restoreAcl(temp, root_buf[0..root_len], root_meta, &report);
             try root.setFilePermissions(io, ".", writableDirectoryPermissions(), .{ .follow_symlinks = false });
+        }
+        if (!omit.finder) {
+            native_finder.setInfo(root_buf[0..root_len], root_meta.finder_info) catch {};
+            native_finder.setFlags(temp, root_buf[0..root_len], root_meta.finder_flags) catch |err| if (err == error.OutOfMemory) return err;
+            try restoreFinder(temp, root_buf[0..root_len], root_meta, &report);
         }
         if (!omit.timestamps and try birthNeedsTransport(temp, io, root, ".", root_buf[0..root_len], root_meta.times.btime)) {
             try writeTimeOverride(root_buf[0..root_len], "difz.btime", root_meta.times.btime);
@@ -559,7 +572,7 @@ fn readSymlinkTransport(allocator: std.mem.Allocator, io: std.Io, parent: std.Io
             else => return err,
         };
         if (stat.kind != .sym_link) return error.InvalidTransport;
-        target.* = .{ .name = record.name, .meta = try metadata.canonicalize(allocator, record.meta, .{}), .absent_times = record.absent_times, .observed_mtime = record.observed_mtime, .acl_override = record.acl_override };
+        target.* = .{ .name = record.name, .meta = try metadata.canonicalize(allocator, record.meta, .{}), .absent_times = record.absent_times, .observed_mtime = record.observed_mtime, .acl_override = record.acl_override, .finder_override = record.finder_override };
     }
     return records;
 }
@@ -586,6 +599,10 @@ fn mergeSymlinkMetadata(allocator: std.mem.Allocator, native: metadata.Metadata,
     if (record.absent_times & 4 != 0) result.times.btime = null;
     if (kept.finder_flags != 0) result.finder_flags = kept.finder_flags;
     if (kept.finder_info != null) result.finder_info = kept.finder_info;
+    if (record.finder_override) {
+        result.finder_flags = kept.finder_flags;
+        result.finder_info = kept.finder_info;
+    }
     return metadata.canonicalize(allocator, result, omit);
 }
 
@@ -604,11 +621,50 @@ fn metadataFor(allocator: std.mem.Allocator, timestamp: std.Io.Timestamp, abs_pa
         meta.aces = acl.aces;
         meta.native_acl = acl.native_acl;
     }
+    if (!omit.finder) {
+        const finder = try readFinder(allocator, abs_path);
+        meta.finder_flags = finder.finder_flags;
+        meta.finder_info = finder.finder_info;
+    }
     return metadata.canonicalize(allocator, meta, .{});
 }
 
 fn aclOnly(meta: metadata.Metadata) metadata.Metadata {
     return .{ .aces = meta.aces, .native_acl = meta.native_acl };
+}
+
+fn finderOnly(meta: metadata.Metadata) metadata.Metadata {
+    return .{ .finder_flags = meta.finder_flags, .finder_info = meta.finder_info };
+}
+
+fn readFinder(allocator: std.mem.Allocator, path: []const u8) !metadata.Metadata {
+    var result = try native_finder.capture(allocator, path);
+    for ([_][]const u8{ "difz.bsd-flags", "difz.finder-info" }, 0..) |name, index| {
+        const bytes = xattr_stream.get(allocator, path, name, logical_xattr_opts) catch |err| switch (err) {
+            error.Missing, error.Unsupported => continue,
+            else => return err,
+        };
+        const decoded = try metadata.decodeCanonical(allocator, bytes);
+        var field = metadata.Metadata{};
+        if (index == 0) field.finder_flags = decoded.finder_flags else field.finder_info = decoded.finder_info;
+        if (!std.mem.eql(u8, &metadata.canonicalHash(decoded), &metadata.canonicalHash(field))) return error.InvalidTransport;
+        if (index == 0) result.finder_flags = decoded.finder_flags else result.finder_info = decoded.finder_info;
+    }
+    return result;
+}
+
+fn restoreFinder(allocator: std.mem.Allocator, path: []const u8, meta: metadata.Metadata, report: *metadata.RestoreReport) !void {
+    const actual = try native_finder.capture(allocator, path);
+    if (actual.finder_flags != meta.finder_flags) {
+        const blob = try metadata.encodeCanonical(allocator, .{ .finder_flags = meta.finder_flags });
+        try xattr_stream.set(path, "difz.bsd-flags", blob, logical_xattr_opts);
+        report.add(.finder_flags_preserved);
+    }
+    if (!std.meta.eql(actual.finder_info, meta.finder_info)) {
+        const blob = try metadata.encodeCanonical(allocator, .{ .finder_info = meta.finder_info });
+        try xattr_stream.set(path, "difz.finder-info", blob, logical_xattr_opts);
+        report.add(.finder_info_preserved);
+    }
 }
 
 fn readAcl(allocator: std.mem.Allocator, path: []const u8) !metadata.Metadata {
@@ -732,6 +788,9 @@ fn restoreXattrs(allocator: std.mem.Allocator, abs_path: []const u8, meta: metad
 
 fn excludedXattr(native: []const u8) bool {
     const bare = transportBare(native);
+    if (comptime builtin.os.tag == .macos) {
+        if (std.mem.eql(u8, native, "com.apple.FinderInfo")) return true;
+    }
     if (std.mem.eql(u8, bare, "com.apple.ResourceFork")) return true;
     if (std.mem.eql(u8, native, "system.posix_acl_access")) return true;
     if (std.mem.eql(u8, native, "system.posix_acl_default")) return true;
@@ -1702,15 +1761,88 @@ test "foreign ACLs retain canonical native and portable records on readonly file
     try testing.expect(ignored.root_meta.isEmpty());
 }
 
-test "parent transport can override an inherited symlink ACL with canonical absence" {
+test "parent transport can override inherited symlink ACL and Finder fields with canonical absence" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const inherited: metadata.Metadata = .{ .native_acl = .{ .origin = .windows, .bytes = "inherited" }, .aces = &.{.{ .tag = .everyone, .read = true }} };
-    const record: symlink_transport.Record = .{ .name = "link", .meta = .{}, .acl_override = true };
+    const inherited: metadata.Metadata = .{ .native_acl = .{ .origin = .windows, .bytes = "inherited" }, .aces = &.{.{ .tag = .everyone, .read = true }}, .finder_flags = 1, .finder_info = [_]u8{9} ** 32 };
+    const record: symlink_transport.Record = .{ .name = "link", .meta = .{}, .acl_override = true, .finder_override = true };
     const bytes = try symlink_transport.encode(testing.allocator, &.{record});
     defer testing.allocator.free(bytes);
     var decoded = try symlink_transport.decode(testing.allocator, bytes);
     defer decoded.deinit();
     const result = try mergeSymlinkMetadata(arena.allocator(), inherited, decoded.records[0], .{});
     try testing.expect(result.isEmpty());
+}
+
+test "Finder fields survive foreign restore on readonly files directories symlinks and root" {
+    if (comptime builtin.os.tag != .linux) return error.SkipZigTest;
+    var tmp = testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try requireTransportFs(io, tmp.dir);
+    try tmp.dir.createDir(io, "source", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true });
+    defer source.close(io);
+    const omit: metadata.Omit = .{ .timestamps = true };
+    var original = try snapshotDir(testing.allocator, io, source, .{ .omit = omit });
+    defer original.deinit();
+    const finder: metadata.Metadata = .{ .finder_flags = 0x8003, .finder_info = [_]u8{42} ** 32 };
+    const entries = [_]directory.Entry{
+        .{ .path = "dir", .kind = .directory, .mode = 0o500, .meta = finder },
+        .{ .path = "dir/data", .kind = .file, .mode = 0o400, .data = "same", .meta = finder },
+        .{ .path = "link", .kind = .symlink, .mode = 0o777, .data = "dir/data", .meta = finder },
+    };
+    const patch = try directory_patch.createPatch(testing.allocator, original.entries, &entries, .{ .omit = omit, .source_root = original.root_meta, .target_root = finder });
+    defer testing.allocator.free(patch);
+    const report = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "out", ".finder-stage", patch, .{});
+    try testing.expectEqual(@as(u32, 4 | 8 | 256), report.mask);
+    var output = try tmp.dir.openDir(io, "out", .{ .iterate = true });
+    defer output.close(io);
+    var snapshot = try snapshotDir(testing.allocator, io, output, .{ .omit = omit });
+    defer snapshot.deinit();
+    for (snapshot.entries) |entry| try testing.expectEqualSlices(u8, &metadata.canonicalHash(finder), &metadata.canonicalHash(entry.meta));
+    try testing.expectEqualSlices(u8, &metadata.canonicalHash(finder), &metadata.canonicalHash(snapshot.root_meta));
+    const omitted_patch = try directory_patch.createPatch(testing.allocator, original.entries, &entries, .{ .omit = .{ .timestamps = true, .finder = true }, .source_root = original.root_meta, .target_root = finder });
+    defer testing.allocator.free(omitted_patch);
+    const omitted_report = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "omit", ".finder-omit-stage", omitted_patch, .{});
+    try testing.expectEqual(@as(u32, 0), omitted_report.mask);
+}
+
+test "macOS Finder information is a typed field with native file and root readback" {
+    if (comptime builtin.os.tag != .macos) return error.SkipZigTest;
+    var tmp = testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try requireTransportFs(io, tmp.dir);
+    try tmp.dir.createDir(io, "source", .default_dir);
+    try tmp.dir.createDir(io, "target", .default_dir);
+    var source = try tmp.dir.openDir(io, "source", .{ .iterate = true });
+    defer source.close(io);
+    var target = try tmp.dir.openDir(io, "target", .{ .iterate = true });
+    defer target.close(io);
+    try target.writeFile(io, .{ .sub_path = "data", .data = "Finder payload" });
+    var buffer: [std.posix.PATH_MAX]u8 = undefined;
+    const length = try target.realPath(io, &buffer);
+    const path = try std.fmt.allocPrint(testing.allocator, "{s}/data", .{buffer[0..length]});
+    defer testing.allocator.free(path);
+    const info = [_]u8{0} ** 8 ++ [_]u8{ 0x40, 0 } ++ [_]u8{0} ** 22;
+    try setFixtureXattr(path, "com.apple.FinderInfo", &info, raw_xattr_opts);
+    try setFixtureXattr(buffer[0..length], "com.apple.FinderInfo", &info, raw_xattr_opts);
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    try native_finder.setFlags(arena.allocator(), path, 0x8001);
+    var snapshot = try snapshotDir(testing.allocator, io, target, .{});
+    defer snapshot.deinit();
+    try testing.expectEqualDeep(@as(?[32]u8, info), snapshot.root_meta.finder_info);
+    try testing.expectEqualDeep(@as(?[32]u8, info), snapshot.entries[0].meta.finder_info);
+    try testing.expectEqual(@as(u32, 0x8001), snapshot.entries[0].meta.finder_flags & 0x8001);
+    try testing.expect(!hasXattr(snapshot.entries[0].meta.xattrs, .raw, "com.apple.FinderInfo"));
+    const patch = try createPatchFromDirs(testing.allocator, io, source, target, .{});
+    defer testing.allocator.free(patch);
+    const report = try applyPatchToNewDir(testing.allocator, io, source, tmp.dir, "out", ".finder-native-stage", patch, .{});
+    try testing.expectEqual(@as(u32, 0), report.mask & 12);
+    var output = try tmp.dir.openDir(io, "out", .{ .iterate = true });
+    defer output.close(io);
+    const out_len = try output.realPath(io, &buffer);
+    try expectStoredXattr(buffer[0..out_len], "com.apple.FinderInfo", &info, raw_xattr_opts);
 }
