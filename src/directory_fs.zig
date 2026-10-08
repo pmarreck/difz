@@ -49,13 +49,16 @@ pub fn snapshotDir(
     try walk(arena_allocator, io, root, "", root_buf[0..root_len], options.omit, &raw);
     std.mem.sort(directory.Entry, raw.items, {}, entryLessThan);
     try directory.validateSnapshot(raw.items);
+    try directory.validateMetadataRelations(raw.items);
+    if (!options.omit.hardlink) try assignHardlinks(arena_allocator, io, root, raw.items);
+    try directory.validateMetadataRelations(raw.items);
 
     const entries = if (options.rules.len == 0)
         try raw.toOwnedSlice(arena_allocator)
     else
         try selectEntries(arena_allocator, raw.items, options.rules);
     try directory.validateSnapshot(entries);
-    if (!options.omit.hardlink) try assignHardlinks(arena_allocator, io, root, entries);
+    if (!options.omit.hardlink) try rebaseHardlinks(arena_allocator, entries);
     try directory.validateMetadataRelations(entries);
     const root_stat = try root.statFile(io, ".", .{ .follow_symlinks = false });
     const root_birth = if (options.omit.timestamps) null else (try native_stat.read(io, root, ".")).birth;
@@ -227,7 +230,27 @@ fn writeSnapshot(
     root_meta: metadata.Metadata,
     omit: metadata.Omit,
 ) !metadata.RestoreReport {
+    return writeSnapshotWith(NativeLinks, allocator, io, root, entries, root_meta, omit);
+}
+
+const NativeLinks = struct {
+    fn create(io: std.Io, root: std.Io.Dir, original: []const u8, link: []const u8) !void {
+        try root.hardLink(original, root, link, io, .{ .follow_symlinks = false });
+    }
+};
+
+fn writeSnapshotWith(
+    comptime Links: type,
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    root: std.Io.Dir,
+    entries: []const directory.Entry,
+    root_meta: metadata.Metadata,
+    omit: metadata.Omit,
+) !metadata.RestoreReport {
     var report: metadata.RestoreReport = .{};
+    var copied: std.StringHashMapUnmanaged(void) = .empty;
+    defer copied.deinit(allocator);
     try directory.validateSnapshot(entries);
     try directory.validateMetadataRelations(entries);
     for (entries) |entry| {
@@ -235,8 +258,12 @@ fn writeSnapshot(
             .directory => try root.createDir(io, entry.path, writableDirectoryPermissions()),
             .file => {
                 if (entry.meta.hardlink_to) |canonical_path| {
-                    try root.hardLink(canonical_path, root, entry.path, io, .{ .follow_symlinks = false });
-                    continue;
+                    if (Links.create(io, root, canonical_path, entry.path)) |_| {
+                        continue;
+                    } else |err| {
+                        if (!canCopyHardlink(err)) return err;
+                        try copied.put(allocator, entry.path, {});
+                    }
                 }
                 var file = try root.createFile(io, entry.path, .{
                     .exclusive = true,
@@ -263,6 +290,11 @@ fn writeSnapshot(
             var abs_buf: [std.posix.PATH_MAX]u8 = undefined;
             const abs_path = std.fmt.bufPrint(&abs_buf, "{s}/{s}", .{ root_buf[0..root_len], entry.path }) catch return error.NameTooLong;
             const kept_xattrs = try restoreXattrs(temp, abs_path, entry.meta, entry.kind == .symlink, &report);
+            if (copied.contains(entry.path)) {
+                const blob = try metadata.encodeCanonical(temp, .{ .hardlink_to = entry.meta.hardlink_to });
+                try xattr_stream.set(abs_path, "difz.hardlink-to", blob, logical_xattr_opts);
+                report.add(.hardlink_copied);
+            }
             if (!omit.sparse and entry.kind == .file) try restoreSparse(temp, io, root, entry, abs_path, &report);
             const keep_birth = !omit.timestamps and try birthNeedsTransport(temp, io, root, entry.path, abs_path, entry.meta.times.btime);
             if (!omit.finder) {
@@ -480,6 +512,7 @@ fn walk(
                 else
                     try metadataFor(allocator, opened_stat.mtime, abs_path, omit, birth);
                 if (!omit.sparse) file_meta.holes = try readSparse(allocator, io, current, item.name, abs_path, data.len);
+                if (!omit.hardlink) file_meta.hardlink_to = try readHardlink(allocator, abs_path);
                 try entries.append(allocator, .{
                     .path = path,
                     .kind = .file,
@@ -638,6 +671,23 @@ fn aclOnly(meta: metadata.Metadata) metadata.Metadata {
 
 fn finderOnly(meta: metadata.Metadata) metadata.Metadata {
     return .{ .finder_flags = meta.finder_flags, .finder_info = meta.finder_info };
+}
+
+fn readHardlink(allocator: std.mem.Allocator, path: []const u8) !?[]const u8 {
+    const bytes = xattr_stream.get(allocator, path, "difz.hardlink-to", logical_xattr_opts) catch |err| switch (err) {
+        error.Missing, error.Unsupported => return null,
+        else => return err,
+    };
+    const decoded = try metadata.decodeCanonical(allocator, bytes);
+    if (decoded.hardlink_to == null or !std.mem.eql(u8, &metadata.canonicalHash(decoded), &metadata.canonicalHash(.{ .hardlink_to = decoded.hardlink_to }))) return error.InvalidTransport;
+    return decoded.hardlink_to;
+}
+
+fn canCopyHardlink(err: anyerror) bool {
+    return switch (err) {
+        error.OperationUnsupported, error.AccessDenied, error.PermissionDenied, error.CrossDevice, error.LinkQuotaExceeded => true,
+        else => false,
+    };
 }
 
 fn readSparse(allocator: std.mem.Allocator, io: std.Io, root: std.Io.Dir, path: []const u8, abs_path: []const u8, size: u64) ![]const metadata.Hole {
@@ -886,7 +936,23 @@ fn assignHardlinks(allocator: std.mem.Allocator, io: std.Io, root: std.Io.Dir, e
         const slot = try canonical.getOrPut(allocator, identity);
         if (slot.found_existing) {
             entry.meta.hardlink_to = slot.value_ptr.*;
-        } else slot.value_ptr.* = entry.path;
+        } else slot.value_ptr.* = entry.meta.hardlink_to orelse entry.path;
+    }
+}
+
+fn rebaseHardlinks(allocator: std.mem.Allocator, entries: []directory.Entry) !void {
+    var canonical: std.StringHashMapUnmanaged([]const u8) = .empty;
+    defer canonical.deinit(allocator);
+    for (entries) |*entry| {
+        if (entry.kind != .file) continue;
+        const group = entry.meta.hardlink_to orelse entry.path;
+        const slot = try canonical.getOrPut(allocator, group);
+        if (slot.found_existing) {
+            entry.meta.hardlink_to = slot.value_ptr.*;
+        } else {
+            slot.value_ptr.* = entry.path;
+            entry.meta.hardlink_to = null;
+        }
     }
 }
 
@@ -1947,4 +2013,96 @@ test "unaligned sparse holes use verified transport before readonly permissions"
     var ignored = try snapshotDir(testing.allocator, io, output, .{ .omit = .{ .timestamps = true, .sparse = true } });
     defer ignored.deinit();
     try testing.expectEqual(@as(usize, 0), ignored.entries[0].meta.holes.len);
+}
+
+test "unsupported hardlinks preserve groups as copies and rebase after filtering" {
+    if (comptime builtin.os.tag != .linux) return error.SkipZigTest;
+    const NoLinks = struct {
+        fn create(_: std.Io, _: std.Io.Dir, _: []const u8, _: []const u8) !void {
+            return error.OperationUnsupported;
+        }
+    };
+    var tmp = testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const io = testing.io;
+    try requireTransportFs(io, tmp.dir);
+    try tmp.dir.createDir(io, "stage", .default_dir);
+    var stage = try tmp.dir.openDir(io, "stage", .{ .iterate = true });
+    defer stage.close(io);
+    const omit: metadata.Omit = .{ .timestamps = true };
+    const entries = [_]directory.Entry{
+        .{ .path = "a", .kind = .file, .mode = 0o400, .data = "same" },
+        .{ .path = "b", .kind = .file, .mode = 0o400, .data = "same", .meta = .{ .hardlink_to = "a" } },
+        .{ .path = "c", .kind = .file, .mode = 0o400, .data = "same", .meta = .{ .hardlink_to = "a" } },
+    };
+    const report = try writeSnapshotWith(NoLinks, testing.allocator, io, stage, &entries, .{}, omit);
+    try testing.expectEqual(@as(u32, 64), report.mask);
+    const a = try stage.statFile(io, "a", .{});
+    const b = try stage.statFile(io, "b", .{});
+    const c = try stage.statFile(io, "c", .{});
+    try testing.expect(a.inode != b.inode and a.inode != c.inode and b.inode != c.inode);
+    var snapshot = try snapshotDir(testing.allocator, io, stage, .{ .omit = omit });
+    defer snapshot.deinit();
+    try testing.expectEqualSlices(u8, &(try directory.treeHash(&entries)), &(try directory.treeHash(snapshot.entries)));
+    var filtered = try snapshotDir(testing.allocator, io, stage, .{ .omit = omit, .rules = &.{.{ .action = .exclude, .pattern = "a" }} });
+    defer filtered.deinit();
+    try testing.expectEqual(@as(usize, 2), filtered.entries.len);
+    try testing.expectEqualStrings("b", filtered.entries[0].path);
+    try testing.expect(filtered.entries[0].meta.hardlink_to == null);
+    try testing.expectEqualStrings("b", filtered.entries[1].meta.hardlink_to.?);
+    var omitted = try snapshotDir(testing.allocator, io, stage, .{ .omit = .{ .timestamps = true, .hardlink = true } });
+    defer omitted.deinit();
+    for (omitted.entries) |entry| try testing.expect(entry.meta.hardlink_to == null);
+    try testing.checkAllAllocationFailures(testing.allocator, struct {
+        fn run(allocator: std.mem.Allocator, operation_io: std.Io, parent: std.Io.Dir, expected: []const directory.Entry, omissions: metadata.Omit) !void {
+            try parent.createDir(operation_io, "fault-stage", .default_dir);
+            defer deleteOwnedTree(operation_io, parent, "fault-stage") catch {};
+            var partial = try parent.openDir(operation_io, "fault-stage", .{ .iterate = true });
+            defer partial.close(operation_io);
+            _ = try writeSnapshotWith(NoLinks, allocator, operation_io, partial, expected, .{}, omissions);
+            var captured = try snapshotDir(allocator, operation_io, partial, .{ .omit = omissions });
+            defer captured.deinit();
+            try testing.expectEqualSlices(u8, &(try directory.treeHash(expected)), &(try directory.treeHash(captured.entries)));
+        }
+    }.run, .{ io, tmp.dir, &entries, omit });
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, "fault-stage", .{ .follow_symlinks = false }));
+}
+
+test "hardlink rebasing preserves both groups over every filtered subset" {
+    const all = [_]directory.Entry{
+        .{ .path = "a", .kind = .file, .mode = 0o644, .data = "same" },
+        .{ .path = "b", .kind = .file, .mode = 0o644, .data = "same" },
+        .{ .path = "c", .kind = .file, .mode = 0o644, .data = "same", .meta = .{ .hardlink_to = "a" } },
+        .{ .path = "d", .kind = .file, .mode = 0o644, .data = "same", .meta = .{ .hardlink_to = "b" } },
+        .{ .path = "e", .kind = .file, .mode = 0o644, .data = "same", .meta = .{ .hardlink_to = "a" } },
+    };
+    for (0..32) |mask| {
+        var selected: std.ArrayListUnmanaged(directory.Entry) = .empty;
+        defer selected.deinit(testing.allocator);
+        for (all, 0..) |entry, i| if (mask & (@as(usize, 1) << @intCast(i)) != 0) try selected.append(testing.allocator, entry);
+        try rebaseHardlinks(testing.allocator, selected.items);
+        try directory.validateMetadataRelations(selected.items);
+        const first_a: []const u8 = if (mask & 1 != 0) "a" else if (mask & 4 != 0) "c" else "e";
+        const first_b: []const u8 = if (mask & 2 != 0) "b" else "d";
+        for (selected.items) |entry| {
+            const group = if (entry.path[0] == 'b' or entry.path[0] == 'd') first_b else first_a;
+            if (std.mem.eql(u8, entry.path, group)) try testing.expect(entry.meta.hardlink_to == null) else try testing.expectEqualStrings(group, entry.meta.hardlink_to.?);
+        }
+    }
+}
+
+test "hardlink copy fallback classifies the complete native error set" {
+    var selected: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer selected.deinit(testing.allocator);
+    inline for (@typeInfo(std.Io.File.HardLinkError).error_set.?) |item| {
+        if (canCopyHardlink(@field(anyerror, item.name))) try selected.append(testing.allocator, item.name);
+    }
+    std.mem.sort([]const u8, selected.items, {}, struct {
+        fn less(_: void, a: []const u8, b: []const u8) bool {
+            return std.mem.order(u8, a, b) == .lt;
+        }
+    }.less);
+    const expected = [_][]const u8{ "AccessDenied", "CrossDevice", "LinkQuotaExceeded", "OperationUnsupported", "PermissionDenied" };
+    try testing.expectEqual(expected.len, selected.items.len);
+    for (expected, selected.items) |a, b| try testing.expectEqualStrings(a, b);
 }

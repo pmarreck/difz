@@ -84,3 +84,11 @@ Linux and macOS capture the holes reported by `SEEK_HOLE` and `SEEK_DATA`; Windo
 The logical payload always contains the complete bytes. Holes must remain within the file and contain only zeros. Filesystem allocation units can exceed a requested range, so a valid one-byte hole may require transport even where large aligned holes restore natively. Capture records the filesystem's reported extent view; compression and allocated block counts alone do not identify holes.
 
 The Linux fixture grows across allocation units until the kernel independently confirms a hole, synchronizes fixture writes without sleeps, and checks native hole offsets, logical bytes, and allocated block counts after apply. The fallback test covers a one-byte hole on a read-only file. Pure tests exhaust all 256 eight-byte allocated layouts, and the injected query port checks pagination, nonprogress rejection, and every allocation failure. Mac and Windows ports have cross-build coverage; their runtime extent behavior still requires host qualification.
+
+## Hardlink groups
+
+Capture validates transported references against the complete snapshot, then groups native hardlinks by device and inode. Filtering rebases each group onto its first included path; equal contents never merge unrelated groups. References must name an earlier regular file with identical bytes, mode, and shared metadata, and cannot form chains.
+
+Apply first attempts native linking. Unsupported linking, permission restrictions, cross-device errors, and link-count limits permit a copy fallback. Storage exhaustion and unrelated errors remain failures. Each copied alias stores a canonical metadata record containing only `hardlink_to` in `difz.hardlink-to`. Readback validates the group and the complete staged identity before publication. The CLI reports the copy compromise once per apply. Failure to store the transport fails apply.
+
+Linux tests inject unsupported linking, independently confirm distinct inodes for the resulting copies, check canonical readback and omission, and exercise every allocation failure with stage cleanup. Pure tests exhaust all 32 subsets of two interleaved groups and classify the complete native linking error set.

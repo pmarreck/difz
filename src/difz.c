@@ -74,6 +74,7 @@ static const struct {
 	const char *finder_flags_preserved;
 	const char *finder_info_preserved;
 	const char *sparse_preserved;
+	const char *hardlink_copied;
 } metadata_messages = {
 	"  --omit-metadata <list>  Omit xattr,acl,timestamps,finder,sparse,hardlink\n",
 	"difz: --omit-metadata requires a nonempty comma-separated list\n",
@@ -88,7 +89,8 @@ static const struct {
 	"difz: warning: portable ACL metadata was preserved in difz.portable-acl\n",
 	"difz: warning: BSD flags were preserved in difz.bsd-flags\n",
 	"difz: warning: Finder information was preserved in difz.finder-info\n",
-	"difz: warning: sparse layout was preserved in difz.sparse-holes\n"
+	"difz: warning: sparse layout was preserved in difz.sparse-holes\n",
+	"difz: warning: hardlinks were restored as copies with difz.hardlink-to metadata\n"
 };
 
 static void print_usage(FILE *out) {
@@ -512,6 +514,7 @@ static int run_directory_patch(
 		if (compromises & DIFZ_COMPROMISE_FINDER_FLAGS) fputs(metadata_messages.finder_flags_preserved, stderr);
 		if (compromises & DIFZ_COMPROMISE_FINDER_INFO) fputs(metadata_messages.finder_info_preserved, stderr);
 		if (compromises & DIFZ_COMPROMISE_SPARSE) fputs(metadata_messages.sparse_preserved, stderr);
+		if (compromises & DIFZ_COMPROMISE_HARDLINK) fputs(metadata_messages.hardlink_copied, stderr);
 	}
 	return rc == 0 ? 0 : 1;
 }
