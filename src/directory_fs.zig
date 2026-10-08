@@ -1006,10 +1006,7 @@ test "filesystem snapshot and apply round-trip logical and raw extended attribut
     const file_path = std.fmt.bufPrint(&file_buf, "{s}/note.txt", .{root_buf[0..root_len]}) catch return error.NameTooLong;
     const logical = xattr_stream.Options{ .follow_symlinks = false };
     const raw = xattr_stream.Options{ .follow_symlinks = false, .raw_names = true };
-    // Nix builds on this machine's ZFS store return EOPNOTSUPP for every
-    // setxattr, including on the sandbox tmpfs. Skip there. A host tmpfs and
-    // APFS still run the assertions.
-    if (!try setXattrOrSkip(file_path, "comment", "kept", logical)) return;
+    try setFixtureXattr(file_path, "comment", "kept", logical);
     // macOS stores the Gatekeeper attribute under its real name. Linux raw
     // names need a namespace, and this one is not a logical name.
     const raw_name = if (comptime builtin.os.tag == .macos) "com.apple.quarantine" else "user.com.apple.quarantine";
@@ -1057,7 +1054,7 @@ test "filesystem snapshot keeps an extended attribute on the snapshot root" {
     const raw = xattr_stream.Options{ .follow_symlinks = false, .raw_names = true };
     const quarantine_name = if (comptime builtin.os.tag == .macos) "com.apple.quarantine" else "user.com.apple.quarantine";
     const quarantine_value = "03c1;difz";
-    if (!try setXattrOrSkip(source_buf[0..source_len], "comment", "src", logical)) return;
+    try setFixtureXattr(source_buf[0..source_len], "comment", "src", logical);
     try xattr_stream.set(target_buf[0..target_len], "comment", "bundle", logical);
     try xattr_stream.set(target_buf[0..target_len], quarantine_name, quarantine_value, raw);
     if (comptime builtin.os.tag == .macos) {
@@ -1089,14 +1086,16 @@ test "filesystem snapshot keeps an extended attribute on the snapshot root" {
     }
 }
 
-/// False when this filesystem refuses extended attributes. The Nix ZFS
-/// sandbox returns EOPNOTSUPP for setxattr. Any other error still fails.
-fn setXattrOrSkip(path: []const u8, name: []const u8, value: []const u8, opts: xattr_stream.Options) !bool {
+/// A sandbox without xattrs reports a skip. The complete entry point sets
+/// DIFZ_REQUIRE_XATTR_TESTS so missing host support fails instead of skipping.
+fn setFixtureXattr(path: []const u8, name: []const u8, value: []const u8, opts: xattr_stream.Options) !void {
     xattr_stream.set(path, name, value, opts) catch |err| switch (err) {
-        error.Unsupported => return false,
+        error.Unsupported => {
+            if (std.c.getenv("DIFZ_REQUIRE_XATTR_TESTS") == null) return error.SkipZigTest;
+            return err;
+        },
         else => return err,
     };
-    return true;
 }
 
 fn entryByPath(entries: []const directory.Entry, path: []const u8) ?directory.Entry {

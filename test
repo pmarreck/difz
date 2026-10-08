@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 
-# Run all difz tests in Debug mode through the canonical Nix check.
+# Run host filesystem tests and the reproducible Nix checks in Debug mode.
 
 set -u
 
 errors=0
 
 if ! tests/nix/test_flake_outputs.bash; then
+	errors=$((errors + 1))
+fi
+
+# The sandbox may lack xattrs. Require their real-adapter assertions on the host.
+if ! nix develop -c env DIFZ_REQUIRE_XATTR_TESTS=1 zig build test -Doptimize=Debug; then
 	errors=$((errors + 1))
 fi
 

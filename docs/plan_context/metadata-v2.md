@@ -51,7 +51,7 @@ The filesystem root record is xattrs only. Root mtime, mode, and the other famil
 
 The 2026-10-04 host tests cover a logical `comment` and a raw quarantine name on a file, and the same pair on the snapshot root, through create and apply. On macOS the root also carries `com.apple.provenance` and `com.apple.macl`. The quarantine name is `com.apple.quarantine` there and `user.com.apple.quarantine` on Linux. Writing a quarantine attribute that was not on the source is not part of this path.
 
-`./test` builds inside Nix's sandbox. On the measured Linux filesystem, `setxattr` returns EOPNOTSUPP there, including on the sandbox tmpfs, so those two filesystem tests return before asserting. `nix develop -c zig build test` uses the host temporary filesystem, which accepts `user.*`, and that is the run that executes them. The pure patch tests, including the root trailer and the source-root hash, still run in the sandbox.
+`./test` requires the host filesystem metadata suite as well as the Nix checks. It sets `DIFZ_REQUIRE_XATTR_TESTS=1` for the host run, so unsupported xattrs fail the complete entry point. In the Nix sandbox, a filesystem without xattrs reports those cases as skipped rather than silently passing them. The host run supplies the required real-adapter assertions; pure patch tests also run in the sandbox.
 
 ## Best-effort restore
 

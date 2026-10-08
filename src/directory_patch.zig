@@ -10,6 +10,8 @@ const magic = "DIFZTREE";
 const format_version: u16 = 2;
 const checksum_offset: usize = 88;
 const header_length: usize = 120;
+const min_rule_length: usize = 9; // Fixed rule fields and one pattern byte.
+const min_entry_length: usize = 41; // Fixed fields, one path byte, and an empty metadata record.
 // Bit 0: a canonical metadata record for the snapshot root follows the entries.
 // Set only when that record is non-empty. Other bits stay reserved.
 const flag_root_metadata: u32 = 1;
@@ -280,7 +282,7 @@ const EncodedEntry = struct {
 };
 
 const DecodedPatch = struct {
-    allocator: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
     rules: []path_filter.Rule,
     entries: []EncodedEntry,
     source_hash: [32]u8,
@@ -288,16 +290,7 @@ const DecodedPatch = struct {
     target_root: metadata.Metadata = .{},
 
     fn deinit(self: *DecodedPatch) void {
-        for (self.entries) |entry| {
-            self.allocator.free(entry.meta.xattrs);
-            self.allocator.free(entry.meta.aces);
-            self.allocator.free(entry.meta.holes);
-        }
-        self.allocator.free(self.target_root.xattrs);
-        self.allocator.free(self.target_root.aces);
-        self.allocator.free(self.target_root.holes);
-        self.allocator.free(self.rules);
-        self.allocator.free(self.entries);
+        self.arena.deinit();
         self.* = undefined;
     }
 };
@@ -333,8 +326,15 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
     @memcpy(&target_hash, try reader.take(32));
     _ = try reader.take(32);
 
-    const rules = try allocator.alloc(path_filter.Rule, rule_count);
-    errdefer allocator.free(rules);
+    const body_bytes = bytes.len - reader.position;
+    if (rule_count > body_bytes / min_rule_length) return error.UnexpectedEndOfInput;
+    const after_rules = body_bytes - rule_count * min_rule_length;
+    if (entry_count > after_rules / min_entry_length) return error.UnexpectedEndOfInput;
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    errdefer arena.deinit();
+    const arena_allocator = arena.allocator();
+    const rules = try arena_allocator.alloc(path_filter.Rule, rule_count);
     for (rules) |*rule| {
         const action = std.enums.fromInt(path_filter.Action, try reader.readInt(u8)) orelse return error.InvalidRule;
         if (try reader.readInt(u8) != 0 or try reader.readInt(u16) != 0) return error.InvalidRule;
@@ -345,14 +345,12 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
         rule.* = .{ .action = action, .pattern = pattern };
     }
     if (rules.len > 0) {
-        var filter = try path_filter.Filter.compile(allocator, rules);
+        var filter = try path_filter.Filter.compile(arena_allocator, rules);
         filter.deinit();
     }
 
-    const entries = try allocator.alloc(EncodedEntry, entry_count);
-    errdefer allocator.free(entries);
-    const snapshot_view = try allocator.alloc(directory.Entry, entry_count);
-    defer allocator.free(snapshot_view);
+    const entries = try arena_allocator.alloc(EncodedEntry, entry_count);
+    const snapshot_view = try arena_allocator.alloc(directory.Entry, entry_count);
     for (entries, snapshot_view) |*entry, *view| {
         const operation = std.enums.fromInt(Operation, try reader.readInt(u8)) orelse return error.InvalidOperation;
         if (try reader.readInt(u8) != 0) return error.UnsupportedFlags;
@@ -366,7 +364,7 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
         const payload = try reader.take(payload_length);
         const meta_length = try countToUsize(try reader.readInt(u32), limits.max_payload_bytes);
         const meta_bytes = try reader.take(meta_length);
-        const meta = try metadata.decodeCanonical(allocator, meta_bytes);
+        const meta = try metadata.decodeCanonical(arena_allocator, meta_bytes);
 
         const kind: directory.EntryKind = switch (operation) {
             .directory => blk: {
@@ -387,22 +385,17 @@ fn decodePatch(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) 
         view.* = .{ .path = path, .kind = kind, .mode = mode, .data = if (kind == .directory) "" else payload, .meta = meta };
     }
     var target_root: metadata.Metadata = .{};
-    errdefer {
-        allocator.free(target_root.xattrs);
-        allocator.free(target_root.aces);
-        allocator.free(target_root.holes);
-    }
     if (header_flags & flag_root_metadata != 0) {
         const meta_length = try countToUsize(try reader.readInt(u32), limits.max_payload_bytes);
         const meta_bytes = try reader.take(meta_length);
-        target_root = try metadata.decodeCanonical(allocator, meta_bytes);
+        target_root = try metadata.decodeCanonical(arena_allocator, meta_bytes);
         if (target_root.isEmpty()) return error.BadMetadata;
     }
     if (reader.position != bytes.len) return error.TrailingData;
     try directory.validateSnapshot(snapshot_view);
 
     return .{
-        .allocator = allocator,
+        .arena = arena,
         .rules = rules,
         .entries = entries,
         .source_hash = source_hash,
@@ -842,4 +835,50 @@ test "directory patch create and apply release all allocations on failure" {
             defer reconstructed.deinit();
         }
     }.run, .{patch_bytes});
+}
+
+test "metadata-bearing patches release all allocations on parser and apply failure" {
+    const empty = [_]directory.Entry{};
+    const rich: metadata.Metadata = .{
+        .xattrs = &.{.{ .class = .logical, .name = "comment", .value = "hi" }},
+        .aces = &.{.{ .tag = .owner, .read = true }},
+        .native_acl = .{ .origin = .windows, .bytes = "DACL" },
+        .times = .{ .mtime = .{ .sec = 42 }, .btime = .{ .sec = 1 } },
+        .finder_info = [_]u8{0x11} ** 32,
+    };
+    const target = [_]directory.Entry{
+        .{ .path = "a", .kind = .file, .mode = 0o644, .data = "A", .meta = rich },
+        .{ .path = "b", .kind = .file, .mode = 0o644, .data = "B", .meta = rich },
+    };
+    const bytes = try createPatch(testing.allocator, &empty, &target, .{ .target_root = rich });
+    defer testing.allocator.free(bytes);
+    try testing.checkAllAllocationFailures(testing.allocator, struct {
+        fn run(allocator: std.mem.Allocator, patch_bytes: []const u8) !void {
+            var restored = try applyPatch(allocator, &empty, patch_bytes, .{});
+            defer restored.deinit();
+        }
+    }.run, .{bytes});
+
+    const truncated = try testing.allocator.dupe(u8, bytes);
+    defer testing.allocator.free(truncated);
+    for (header_length..bytes.len) |length| {
+        recomputeChecksum(truncated[0..length]);
+        if (applyPatch(testing.allocator, &empty, truncated[0..length], .{})) |result| {
+            var unexpected = result;
+            unexpected.deinit();
+            return error.TruncationAccepted;
+        } else |_| {}
+    }
+}
+
+test "directory collection counts are bounded by body bytes before allocation" {
+    const empty = [_]directory.Entry{};
+    const bytes = try createPatch(testing.allocator, &empty, &empty, .{});
+    defer testing.allocator.free(bytes);
+    for ([_]usize{ 16, 20 }) |offset| {
+        std.mem.writeInt(u32, bytes[offset..][0..4], 1, .little);
+        recomputeChecksum(bytes);
+        try testing.expectError(error.UnexpectedEndOfInput, applyPatch(testing.failing_allocator, &empty, bytes, .{}));
+        std.mem.writeInt(u32, bytes[offset..][0..4], 0, .little);
+    }
 }

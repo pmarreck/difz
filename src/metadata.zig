@@ -272,11 +272,51 @@ pub fn encodeCanonical(allocator: std.mem.Allocator, meta: Metadata) ![]u8 {
     return list.toOwnedSlice(allocator);
 }
 
+/// Strings and blobs borrow `bytes`; the caller owns the xattr, ACE, and hole
+/// descriptor arrays allocated through `allocator`.
 pub fn decodeCanonical(allocator: std.mem.Allocator, bytes: []const u8) !Metadata {
     var cursor = Cursor{ .bytes = bytes, .pos = 0 };
     const meta = try readCanonical(allocator, &cursor);
+    errdefer {
+        allocator.free(meta.xattrs);
+        allocator.free(meta.aces);
+        allocator.free(meta.holes);
+    }
     if (cursor.pos != bytes.len) return error.TrailingMetadata;
+    try validateCanonical(meta);
     return meta;
+}
+
+fn validateCanonical(meta: Metadata) MetaError!void {
+    for (meta.xattrs, 0..) |xattr, index| {
+        if (isTransportName(xattr.name)) return error.ReservedTransportName;
+        switch (xattr.class) {
+            .logical => try validateLogical(xattr.name),
+            .raw => try validateRaw(xattr.name),
+        }
+        if (index > 0) {
+            const previous = meta.xattrs[index - 1];
+            if (previous.class == xattr.class and std.mem.eql(u8, previous.name, xattr.name)) return error.DuplicateXattr;
+            if (!xattrLess({}, previous, xattr)) return error.BadMetadata;
+        }
+    }
+    for (meta.aces, 0..) |ace, index| {
+        try validateAce(ace);
+        if (index > 0) {
+            const previous = meta.aces[index - 1];
+            if (previous.tag == ace.tag and std.mem.eql(u8, previous.name, ace.name)) return error.DuplicateAce;
+            if (!aceLess({}, previous, ace)) return error.BadMetadata;
+        }
+    }
+    if (meta.native_acl) |acl| if (acl.bytes.len == 0) return error.EmptyNativeAcl;
+    var previous_end: ?u64 = null;
+    for (meta.holes) |hole| {
+        if (hole.length == 0) return error.ZeroLengthHole;
+        const end = std.math.add(u64, hole.offset, hole.length) catch return error.HoleOverflow;
+        if (previous_end) |value| if (hole.offset <= value) return error.BadMetadata;
+        previous_end = end;
+    }
+    if (meta.hardlink_to) |path| try validateHardlink(path);
 }
 
 /// Decide native apply versus sidecar preservation for one target OS.
@@ -725,11 +765,18 @@ const Cursor = struct {
         const raw = try self.take(@sizeOf(T));
         return std.mem.readInt(T, raw[0..@sizeOf(T)], .little);
     }
+
+    fn count(self: *Cursor, comptime minimum_record_bytes: usize) MetaError!usize {
+        const value = std.math.cast(usize, try self.int(u32)) orelse return error.BadMetadata;
+        if (value > (self.bytes.len - self.pos) / minimum_record_bytes) return error.TruncatedMetadata;
+        return value;
+    }
 };
 
 fn readCanonical(allocator: std.mem.Allocator, cursor: *Cursor) !Metadata {
-    const xattr_count: usize = std.math.cast(usize, try cursor.int(u32)) orelse return error.BadMetadata;
+    const xattr_count = try cursor.count(@sizeOf(u8) + 2 * @sizeOf(u32));
     const xattrs = try allocator.alloc(Xattr, xattr_count);
+    errdefer allocator.free(xattrs);
     for (xattrs) |*xattr| {
         const class_raw = try cursor.int(u8);
         const class = std.enums.fromInt(XattrClass, class_raw) orelse return error.BadMetadata;
@@ -737,8 +784,9 @@ fn readCanonical(allocator: std.mem.Allocator, cursor: *Cursor) !Metadata {
         const value = try cursor.take(std.math.cast(usize, try cursor.int(u32)) orelse return error.BadMetadata);
         xattr.* = .{ .class = class, .name = name, .value = value };
     }
-    const ace_count: usize = std.math.cast(usize, try cursor.int(u32)) orelse return error.BadMetadata;
+    const ace_count = try cursor.count(2 * @sizeOf(u8) + @sizeOf(u32));
     const aces = try allocator.alloc(Ace, ace_count);
+    errdefer allocator.free(aces);
     for (aces) |*ace| {
         const tag = std.enums.fromInt(AceTag, try cursor.int(u8)) orelse return error.BadMetadata;
         const bits = try cursor.int(u8);
@@ -776,8 +824,9 @@ fn readCanonical(allocator: std.mem.Allocator, cursor: *Cursor) !Metadata {
         },
         else => return error.BadMetadata,
     };
-    const hole_count: usize = std.math.cast(usize, try cursor.int(u32)) orelse return error.BadMetadata;
+    const hole_count = try cursor.count(2 * @sizeOf(u64));
     const holes = try allocator.alloc(Hole, hole_count);
+    errdefer allocator.free(holes);
     for (holes) |*hole| {
         hole.* = .{ .offset = try cursor.int(u64), .length = try cursor.int(u64) };
     }
@@ -1083,4 +1132,76 @@ test "compromise text names the foreign ACL and the sidecar" {
         "native windows ACL was not applied; portable permissions were applied and the native ACL was preserved in difz.native-acl",
         text,
     );
+}
+test "metadata collection counts are bounded by the available bytes before allocation" {
+    const huge_xattrs = [_]u8{0xff} ** 4;
+    const huge_aces = [_]u8{0} ** 4 ++ [_]u8{0xff} ** 4;
+    const huge_holes = [_]u8{0} ** 15 ++ [_]u8{0xff} ** 4;
+    for ([_][]const u8{ &huge_xattrs, &huge_aces, &huge_holes }) |bytes| {
+        try testing.expectError(error.TruncatedMetadata, decodeCanonical(testing.failing_allocator, bytes));
+    }
+}
+
+test "metadata decoding rejects invalid and noncanonical records" {
+    const Case = struct { meta: Metadata, err: anyerror };
+    const cases = [_]Case{
+        .{ .meta = .{ .xattrs = &.{.{ .class = .logical, .name = "difz.btime", .value = "x" }} }, .err = error.ReservedTransportName },
+        .{ .meta = .{ .xattrs = &.{.{ .class = .raw, .name = "a/b", .value = "x" }} }, .err = error.InvalidRawName },
+        .{ .meta = .{ .xattrs = &.{.{ .class = .logical, .name = "", .value = "x" }} }, .err = error.EmptyName },
+        .{ .meta = .{ .xattrs = &.{
+            .{ .class = .logical, .name = "a", .value = "one" },
+            .{ .class = .logical, .name = "a", .value = "two" },
+        } }, .err = error.DuplicateXattr },
+        .{ .meta = .{ .xattrs = &.{
+            .{ .class = .logical, .name = "b", .value = "one" },
+            .{ .class = .logical, .name = "a", .value = "two" },
+        } }, .err = error.BadMetadata },
+        .{ .meta = .{ .aces = &.{.{ .tag = .owner, .name = "unexpected" }} }, .err = error.InvalidAceName },
+        .{ .meta = .{ .aces = &.{.{ .tag = .owner }, .{ .tag = .owner, .read = true }} }, .err = error.DuplicateAce },
+        .{ .meta = .{ .aces = &.{.{ .tag = .group }, .{ .tag = .owner }} }, .err = error.BadMetadata },
+        .{ .meta = .{ .native_acl = .{ .origin = .linux, .bytes = "" } }, .err = error.EmptyNativeAcl },
+        .{ .meta = .{ .holes = &.{.{ .offset = 0, .length = 0 }} }, .err = error.ZeroLengthHole },
+        .{ .meta = .{ .holes = &.{.{ .offset = std.math.maxInt(u64), .length = 1 }} }, .err = error.HoleOverflow },
+        .{ .meta = .{ .holes = &.{.{ .offset = 0, .length = 8 }, .{ .offset = 8, .length = 8 }} }, .err = error.BadMetadata },
+        .{ .meta = .{ .hardlink_to = "../a" }, .err = error.InvalidHardlink },
+    };
+    for (cases) |case| {
+        const bytes = try encodeCanonical(testing.allocator, case.meta);
+        defer testing.allocator.free(bytes);
+        try testing.expectError(case.err, decodeCanonical(testing.allocator, bytes));
+    }
+}
+
+test "metadata decoder releases allocations on truncation and trailing data" {
+    const fixture: Metadata = .{
+        .xattrs = &.{.{ .class = .logical, .name = "comment", .value = "hi" }},
+        .aces = &.{.{ .tag = .owner, .read = true }},
+        .native_acl = .{ .origin = .windows, .bytes = "DACL" },
+        .times = .{ .mtime = .{ .sec = -1, .nsec = 999_999_999 }, .btime = .{ .sec = 1 } },
+        .finder_flags = 0x8000,
+        .finder_info = [_]u8{0x11} ** 32,
+        .holes = &.{.{ .offset = 4096, .length = 4096 }},
+        .hardlink_to = "a.txt",
+    };
+    const encoded = try encodeCanonical(testing.allocator, fixture);
+    defer testing.allocator.free(encoded);
+    for (0..encoded.len) |length| {
+        try testing.expectError(error.TruncatedMetadata, decodeCanonical(testing.allocator, encoded[0..length]));
+    }
+    const trailing = try testing.allocator.alloc(u8, encoded.len + 1);
+    defer testing.allocator.free(trailing);
+    @memcpy(trailing[0..encoded.len], encoded);
+    trailing[encoded.len] = 0;
+    try testing.expectError(error.TrailingMetadata, decodeCanonical(testing.allocator, trailing));
+    try testing.checkAllAllocationFailures(testing.allocator, struct {
+        fn run(allocator: std.mem.Allocator, bytes: []const u8) !void {
+            const meta = try decodeCanonical(allocator, bytes);
+            defer allocator.free(meta.xattrs);
+            defer allocator.free(meta.aces);
+            defer allocator.free(meta.holes);
+            const round_trip = try encodeCanonical(allocator, meta);
+            defer allocator.free(round_trip);
+            try testing.expectEqualSlices(u8, bytes, round_trip);
+        }
+    }.run, .{encoded});
 }

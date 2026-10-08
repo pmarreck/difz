@@ -114,3 +114,5 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 - [x] [Active] Split create time between the matcher and the `--compress best` probe. On a pinned seed, `best` matched LZMA2 or uncompressed, and the probe was the extra cost. (done 2026-10-07 10:08am EDT)
 - [x] [Active] Remeasure the cached ISO pair warm with difz and the pinned CLI in single-thread and T1 modes; verify every reconstruction and record all three samples. (done 2026-10-08 09:49 EDT; context: docs/plan_context/engine-comparison.md)
 - [x] [Active] Isolate the CLI thread-mode effect on the same zstdz pin; the prior CLI wall-time advantage was not reproduced, so keep difz compression single-threaded. (done 2026-10-08 09:49 EDT; context: docs/plan_context/engine-comparison.md)
+- [x] [Active] Commit the verified comparison on this branch; preserve the CDC branch and do not push. (done 2026-10-08 09:49 EDT)
+- [x] [Active] Branch a per-file zstd --patch-from engine that keeps BLAKE3 checks and DIFZTREE outside and drops CDC plus compression selection. (done 2026-10-08 12:31am EDT)
