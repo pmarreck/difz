@@ -124,3 +124,15 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 - [x] [Active › Complete the remaining DIFZTREE v2 metadata work after adopt…] Persist metadata omission in the patch, apply it before hashing and capture, and expose it through the CLI and C boundary. (done 2026-10-08 14:43 EDT)
 - [x] [Active › Complete the remaining DIFZTREE v2 metadata work after adopt… › Capture and restore ACLs, birth time, Finder fields, sparse …] Validate physical metadata relations and encode hardlinks as references to earlier canonical files; preserve identity after filtering. (done 2026-10-08 14:52 EDT)
 - [x] [Active › Complete the remaining DIFZTREE v2 metadata work after adopt…] Preserve symlink metadata that cannot be stored natively in a parent-directory transport attribute, with canonical readback and a compromise warning. (done 2026-10-08 14:59 EDT)
+
+## Retired 2026-10-14
+
+- [x] [Active] Complete the remaining DIFZTREE v2 metadata work after adopting zstdz; the project remains in break mode, with no v1 compatibility path. (done 2026-10-08 16:02 EDT; context: docs/plan_context/metadata-v2.md)
+	- [x] Capture and restore ACLs, birth time, Finder fields, sparse extents, hardlink identity, and snapshot-root metadata with verified fallbacks. (done 2026-10-08 16:02 EDT)
+		- [x] Preserve hardlink groups as verified copies when native linking is unavailable, including filtered canonical paths and compromise reporting. (done 2026-10-08 15:58 EDT)
+		- [x] Capture native sparse extents, restore physical holes, and preserve layouts the destination cannot represent with verified transport. (done 2026-10-08 15:47 EDT)
+		- [x] Capture native Mac Finder information and BSD flags; restore staging-safe flags and preserve unsupported fields on objects, symlinks, and root. (done 2026-10-08 15:38 EDT)
+		- [x] Capture Linux access/default ACLs and native Mac/Windows ACLs; verify restore and preserve foreign or unsupported forms, including root and symlink absence. (done 2026-10-08 15:32 EDT)
+		- [x] Capture root timestamps and native birth time; preserve unsupported values and timestamp absence through verified transport. (done 2026-10-08 15:19 EDT)
+	- [x] Reject sparse extents and hardlink references on directory-root metadata before filesystem staging. (done 2026-10-08 16:02 EDT)
+	- [x] Verify builds for all five supported OS/architecture combinations after the metadata changes. (done 2026-10-08 16:02 EDT)
