@@ -27,7 +27,7 @@ The v2 hash includes it, and the staged tree has to match the publisher hash. ta
 
 Apply sets mtime last, on the object itself, after bytes, xattrs, ACLs, and hole punches. Symlinks are updated without following them. A directory's mtime is set after its children exist. Hardlinked names share one stamp, set on the canonical file. A timestamp-only change uses `file_copy` (bytes taken from the source tree, empty payload) plus the metadata record.
 
-Snapshot and apply cover files, directories, symlinks, and the snapshot root. Filesystem tests check applied stamps with `stat`, and the staged-tree check always uses the v2 hash. Linux birth time comes from `statx` when available; macOS and Windows use their native metadata APIs. Runtime assertions currently run on Linux; native Mac and Windows setters have cross-build coverage.
+Snapshot and apply cover files, directories, symlinks, and the snapshot root. Filesystem tests check applied stamps with `stat`, and the staged-tree check always uses the v2 hash. Linux birth time comes from `statx` when available; macOS and Windows use their native metadata APIs. Runtime preservation assertions run on Linux and macOS ARM64; Windows setters have cross-build coverage.
 
 Birth time is recorded. macOS and Windows attempt native setters and verify readback. Linux writes `difz.btime` and warns once per apply. Capture prefers that sidecar over the kernel birth time. The sidecar explicitly represents either absence or signed seconds plus nanoseconds; it can suppress a new inode's birth time when the original recorded none. Symlinks use parent transport for the same purpose.
 
@@ -65,7 +65,7 @@ The 2026-10-01 archive measurement covers a ditto zip of an already-signed app, 
 
 Linux captures both `system.posix_acl_access` and `system.posix_acl_default`. The native blob is `DIFZACL\x01`, access/default u32 lengths, and their kernel bytes. The access ACL also maps to portable read/write/execute entries, with decimal numeric IDs for named principals. Default ACLs remain in the native form. Both sets are validated before restore. Representable portable ACLs are attempted on Linux; foreign principal names stay in transport.
 
-macOS uses no-follow extended ACL APIs and their bounded text representation. Windows records the DACL and its inheritance-protection flag, with explicit NULL-DACL representation; owner/group and privileged SACLs remain outside this scope. ACE bounds are checked before native calls. Windows static-library consumers must link `advapi32` as well as the usual system libraries. Native setters compile for both Windows architectures and macOS; current runtime assertions are on Linux. [Apple's ACL API](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/acl_to_text.3.html) and [Microsoft's security API](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setsecurityinfo) define these native forms.
+macOS uses no-follow extended ACL APIs and their bounded text representation. Windows records the DACL and its inheritance-protection flag, with explicit NULL-DACL representation; owner/group and privileged SACLs remain outside this scope. ACE bounds are checked before native calls. Windows static-library consumers must link `advapi32` as well as the usual system libraries. Native setters compile for both Windows architectures and macOS; nonempty native ACL runtime fixtures currently run on Linux. [Apple's ACL API](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/acl_to_text.3.html) and [Microsoft's security API](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setsecurityinfo) define these native forms.
 
 Restore verifies canonical native and portable readback separately. Unsupported or foreign forms use `difz.native-acl` and `difz.portable-acl`, each encoded as a canonical metadata record containing only its named field. Empty records preserve absence when a destination generates an ACL. Other fields in these sidecars are rejected. Symlinks use parent transport; its ACL-override flag preserves both presence and absence. ACL omission skips native capture and sidecar reads.
 
@@ -75,7 +75,7 @@ Transport is written while objects are writable. Native ACLs are then reapplied 
 
 macOS captures `com.apple.FinderInfo` as exactly 32 typed bytes and BSD flags from no-follow stat, including the snapshot root. Finder information stays out of the xattr family, including when Finder metadata is omitted. Linux and Windows preserve foreign Finder fields in `difz.finder-info` and `difz.bsd-flags`. Each sidecar is a canonical metadata record containing only its named field; an empty record preserves canonical absence. Symlinks use the parent transport with a Finder-override flag, so inherited fields can also be suppressed.
 
-The macOS setter attempts native Finder information and the `UF_NODUMP` and `UF_HIDDEN` flags. Other BSD flags remain in transport with a warning. In particular, immutable, append-only, and OS-managed flags must not prevent staging cleanup or atomic publication. Existing OS-managed flags are left intact; a sidecar preserves the requested canonical value when they differ. This is a reported fidelity compromise, not native equivalence for those flags. Linux tests cover foreign fields on a read-only file, directory, symlink, and root, plus omission. The macOS native readback case is present in the complete suite but requires a macOS host; cross-builds alone do not qualify that filesystem behavior.
+The macOS setter attempts native Finder information and the `UF_NODUMP` and `UF_HIDDEN` flags. Other BSD flags remain in transport with a warning. In particular, immutable, append-only, and OS-managed flags must not prevent staging cleanup or atomic publication. Existing OS-managed flags are left intact; a sidecar preserves the requested canonical value when they differ. This is a reported fidelity compromise, not native equivalence for those flags. Linux tests cover foreign fields on a read-only file, directory, symlink, and root, plus omission. The macOS native readback case passed in the October 14 baseline below, including typed Finder information and the two supported flags.
 
 ## Sparse filesystem extents
 
@@ -98,3 +98,16 @@ Linux tests inject unsupported linking, independently confirm distinct inodes fo
 The complete `./test` entry point passed, including required host metadata assertions, the default CLI metadata path, sandbox unit and CLI checks, the installed C consumer, benchmark contracts, and the Windows x86_64 build. The root-metadata regression first reproduced acceptance of regular-file-only fields, then verified rejection by both writer and preflight reader with a recomputed valid patch checksum.
 
 ReleaseFast builds passed for Linux x86_64 and aarch64, macOS aarch64, and Windows x86_64 and aarch64. Native metadata runtime assertions ran on Linux x86_64. Cross-build success does not qualify native Mac or Windows filesystem behavior; those host runs and macOS updater qualification remain separate work.
+
+## Native macOS baseline, 2026-10-14
+
+An isolated checkout of `c59caee348456652da7d0aae60e4f939ec6c364f` passed the native Debug Zig suite on macOS 26.7.1 ARM64 with APFS fixtures: 89 tests passed, seven skipped, zero failures. Required host xattr support was enabled. The command was:
+
+```bash
+nix develop -c env -u NIX_CFLAGS_COMPILE -u NIX_LDFLAGS \
+	DIFZ_REQUIRE_XATTR_TESTS=1 zig build test -Doptimize=Debug -j4 --summary all
+```
+
+The run exercises native Finder information and staging-safe flags, logical and raw xattrs, root metadata, timestamp preservation, hardlink identity and filtering, symlink transport, and allocation-failure cleanup. Timestamp preservation can use verified transport; this result does not establish that every birth-time value lands natively.
+
+The seven skipped cases are Linux-specific fixtures for out-of-range mtime, native access/default ACLs, foreign ACLs, foreign Finder fields, physical sparse holes, unaligned sparse holes, and forced hardlink copies. Focused nonempty macOS ACL and sparse-file fixtures remain required, as does native Windows qualification. This was the Zig suite only; the complete macOS `./test`, its C CLI and installed-consumer paths, and the separate Darwin memory-ceiling fix were not qualified by this run. The Linux fleet reservation controlled admission; it did not impose a memory cap on the remote compiler.
