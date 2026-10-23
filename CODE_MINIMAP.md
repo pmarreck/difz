@@ -79,6 +79,7 @@ All business logic lives in Zig, and the C CLI dogfoods the FFI. File diffing an
 ## Build & Config Files
 
 - `build.zig` — Zig 0.16 build: difz module, static library (libdifz.a), C executable, tests
+- `zig build lib` — install the flattened C ABI archive and header without building the C frontend, for Rust and other native consumers
 - `build.zig.zon` — package manifest: zstdz, pcre2, progrez, xattr_stream
 - `flake.nix` — Nix flake: devShell (zig, hyperfine, bsdiff, xdelta) + packages.default
 
@@ -92,6 +93,8 @@ All business logic lives in Zig, and the C CLI dogfoods the FFI. File diffing an
 
 - Zig unit tests live next to the modules and run through `./test`
 - CLI integration tests in `tests/cli/test_cli.bash`, including an independent recursive directory oracle
+- Rust C ABI consumer in `tests/ffi/rust_caller.rs`, linked against a target-matched Debug archive by `tests/ffi/test_rust_lib.bash`
+- Pinned Rust codec compatibility checks in `tests/codec_rust/`, cross-applying raw-prefix frames against the Zig executable; these are QA dependencies, not the production codec
 - Benchmark suite in `bm` (run via `bash bm`). `op_count` stays in the CSV and is recorded as 0
 
 ## Dependencies

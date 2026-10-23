@@ -20,6 +20,16 @@ if ! nix develop -c env -u DIFZ_TEST_DIRECTORY_OMIT DIFZ_PREBUILT=0 DIFZ=./zig-o
 	errors=$((errors + 1))
 fi
 
+# Prove Rust can use the installed C ABI in one mixed-language executable.
+if ! nix develop -c bash tests/ffi/test_rust_lib.bash; then
+	errors=$((errors + 1))
+fi
+
+# Codec candidates must cross-apply against the existing implementation.
+if ! nix develop -c env DIFZ_ORACLE="$(pwd)/zig-out/bin/difz" bash tests/codec_rust/test; then
+	errors=$((errors + 1))
+fi
+
 system="$(nix eval --impure --raw --expr builtins.currentSystem)"
 if ! nix build -L \
 	".#checks.${system}.test" \

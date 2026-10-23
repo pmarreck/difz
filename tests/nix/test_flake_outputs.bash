@@ -126,3 +126,14 @@ if [ ! -x "$ROOT_DIR/fuzz" ]; then
 	exit 1
 fi
 printf 'PASS ./fuzz is executable\n'
+
+rust_tools=$(nix eval --json \
+	--apply 'shell: builtins.sort builtins.lessThan (builtins.filter (name: builtins.elem name [ "cargo" "rustc" ]) (map (input: input.pname or input.name or "") shell.nativeBuildInputs))' \
+	"$FLAKE_REF#devShells.${system}.default" 2>/dev/null)
+rc=$?
+if [ "$rc" -ne 0 ] || [ "$rust_tools" != '["cargo","rustc"]' ]; then
+	printf 'FAIL Rust interoperability checks require declared cargo and rustc tools\n' >&2
+	printf '     actual: %s\n' "$rust_tools" >&2
+	exit 1
+fi
+printf 'PASS Rust interoperability checks have declared cargo and rustc tools\n'

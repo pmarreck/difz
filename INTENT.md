@@ -6,7 +6,9 @@ Patches should reduce transfer size without excessive creation time, application
 
 The functional core operates on in-memory values behind a C FFI. Filesystem adapters own traversal, metadata transfer, and staged writes. The CLI exercises that same public boundary. Supported metadata and platform limitations belong in the format specifications; unsupported fidelity must not be implied.
 
-The file engine delegates byte matching and compression to zstdz while preserving BLAKE3 identities and DIFZTREE. Architectural simplicity is a reason for this choice even where the preserved content-defined chunking engine wins individual workloads. Comparative measurements expose the costs and gains across file sizes and edit patterns, with real release pairs as separate evidence.
+The file engine delegates byte matching and compression to Zstandard source-prefix frames while preserving BLAKE3 identities and DIFZTREE. Architectural simplicity is a reason for this choice even where the preserved content-defined chunking engine wins individual workloads. Comparative measurements expose the costs and gains across file sizes and edit patterns, with real release pairs as separate evidence.
+
+The requested Rust build covers the CLI, library cores, C ABI implementation, and filesystem adapters; combined Zig/Rust packaging remains under investigation. The existing Zig/C implementation with zstdz is preserved as a validation oracle. Evaluate existing Rust Zstandard codecs before considering a new implementation, which would require a separate public repository. Selecting a replacement requires independent interoperability and resource-bound checks. See [the Rust migration](docs/plan_context/rust-port.md) for scope, sequence, and unresolved dependency choices.
 
 There are no upstream consumers requiring compatibility with old APIs or formats. The project remains in break mode: simplify the current design without maintaining compatibility branches. DIFZTREE v2 is the only supported directory format, including metadata-free snapshots. Completing its remaining metadata scope follows the file-engine decision.
 

@@ -106,6 +106,9 @@ pub fn build(b: *std.Build) void {
     const install_header = b.addInstallFileWithDir(b.path("src/difz.h"), .header, "difz.h");
     b.getInstallStep().dependOn(&install_flat.step);
     b.getInstallStep().dependOn(&install_header.step);
+    const library_step = b.step("lib", "Install the C ABI archive and header without the C CLI");
+    library_step.dependOn(&install_flat.step);
+    library_step.dependOn(&install_header.step);
 
     // C CLI executable — dogfoods the FFI
     const c_flags: []const []const u8 = if (optimize == .Debug)

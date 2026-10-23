@@ -136,3 +136,7 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 		- [x] Capture root timestamps and native birth time; preserve unsupported values and timestamp absence through verified transport. (done 2026-10-08 15:19 EDT)
 	- [x] Reject sparse extents and hardlink references on directory-root metadata before filesystem staging. (done 2026-10-08 16:02 EDT)
 	- [x] Verify builds for all five supported OS/architecture combinations after the metadata changes. (done 2026-10-08 16:02 EDT)
+
+## Retired 2026-10-23
+
+- [x] [Active › Enforce `--max-rss-bytes` on Darwin after reproducing its li…] Verify that an 8 GiB Darwin virtual-memory ceiling can fall below initial VM size while a ceiling above current usage succeeds in isolated shell processes. (done 2026-10-14 14:43 EDT; evidence: 51acfb3)

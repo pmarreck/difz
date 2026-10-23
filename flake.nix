@@ -166,6 +166,9 @@
 				devShells.default = pkgs.mkShell {
 					packages = with pkgs; [
 						zig
+						rustc
+						cargo
+						rustfmt
 						hyperfine
 						bsdiff
 						xdelta

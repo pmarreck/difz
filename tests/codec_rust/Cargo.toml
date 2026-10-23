@@ -1,0 +1,12 @@
+[package]
+name = "difz-rust-codec-check"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+[lib]
+path = "interop.rs"
+
+[dev-dependencies]
+rusty_zstd = "=0.4.1"
