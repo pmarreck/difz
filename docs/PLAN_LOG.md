@@ -140,3 +140,5 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 ## Retired 2026-10-23
 
 - [x] [Active › Enforce `--max-rss-bytes` on Darwin after reproducing its li…] Verify that an 8 GiB Darwin virtual-memory ceiling can fall below initial VM size while a ceiling above current usage succeeds in isolated shell processes. (done 2026-10-14 14:43 EDT; evidence: 51acfb3)
+- [x] [Active › Qualify metadata capture and restore on native macOS and Win…] Complete the single admitted native-runner reservation without starting an additional remote build wave. (done 2026-10-14 14:53 EDT)
+- [x] [Active › Qualify metadata capture and restore on native macOS and Win…] Run the native macOS metadata suite in an isolated runner checkout and preserve failures or qualification evidence; 89 passed, seven Linux cases skipped at c59caee. (done 2026-10-14 14:53 EDT)

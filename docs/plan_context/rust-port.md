@@ -23,6 +23,8 @@ The encoder bounds above come from the published crates' recorded revisions: [ru
 
 Rusty_zstd's one-shot prefix decoder accepts a window cap but has no output-limit argument. Its separate bounded one-shot decoder does not accept a prefix. Production adoption therefore still requires a bounded streaming-prefix adapter or an upstream API extension, followed by hostile-input tests. Passing cross-apply checks alone does not establish that resource contract.
 
+Only Rusty_zstd has been executed in this investigation. Structured-zstd 0.2.5 and the other candidates above were reviewed from their published sources; they have no local interoperability or performance result. The Rusty_zstd tests exercise eight input pairs across three test functions. No replacement codec is selected for production.
+
 ## Combined Rust/Zig route
 
 Rust can statically link the existing `libdifz.a` through `unsafe extern "C"` declarations. Rust byte slices cross that boundary as pointer/length pairs. Returned buffers remain owned by difz and must be freed with `difz_free`; Rust must not adopt them with `Vec::from_raw_parts`. This retains the Zig core and zstdz in the same process as the Rust frontend. It is a hybrid implementation, not a complete Rust rewrite. See the [Rust FFI guide](https://doc.rust-lang.org/nomicon/ffi.html).
@@ -36,6 +38,24 @@ The Rust codec checks in `tests/codec_rust/` are QA-only dependencies. On the sa
 The remaining owner decision is the implementation boundary: port the core and CLI while retaining zstdz through its C ABI, port only the CLI over the existing Zig core, or port everything including the codec dependency to Rust. The static-link proof establishes a local packaging mechanism, not the final choice or a five-platform release.
 
 The complete `./test` passed on that host after these additions, including the existing Debug core, 92 host CLI checks, the Nix Debug and installed-C checks, 25 benchmark-contract checks, and the Windows GNU cross-build. Rust formatting and Bash syntax checks also passed. Windows compilation here covers the existing Zig/C executable, not the Rust consumer.
+
+## Use from another Rust library
+
+A consuming application can depend on a Rust difz crate that links the Zig archive. The Rust library's build configuration must provide the native archive for the final target and propagate its link requirements to the final executable. The existing direct Rust consumer establishes the C ABI link, not a published Cargo package or a transitive dependency packaging test. See the [Rust linkage reference](https://doc.rust-lang.org/reference/linkage.html).
+
+The application, Rust wrapper, Zig core and linked C dependencies share one process and address space. Another crate layer provides no crash containment. The current C ABI converts handled errors into status codes, including wrong-source and output-limit failures; a Rust adapter can return those as `Result`. An abort or fatal memory fault can terminate the entire consuming application. Memory corruption can also damage application state before any visible crash.
+
+The current progress callback and its user pointer are mutable globals. A safe reusable Rust adapter needs an explicit synchronization or per-operation-context contract before allowing concurrent callback registration and calls. The direct consumer test does not establish concurrent or reentrant library safety.
+
+Rust's [`catch_unwind`](https://doc.rust-lang.org/std/panic/fn.catch_unwind.html) catches unwinding Rust panics, not process aborts, and does not turn memory faults into recoverable errors. Changing the declaration to `C-unwind` would not supply crash containment. Rust callbacks must also prevent an unwinding panic from escaping a non-unwinding C ABI boundary. Returning status codes is the supported error path here.
+
+Containing a worker crash requires a separate process and an explicit request/response contract. A CLI could launch its own executable in a worker mode. A reusable Rust library cannot assume its consuming executable implements that mode, so its helper packaging or host-provided worker would need a separate design decision. No worker isolation has been implemented.
+
+If the Rust port is intended to reduce native memory-safety exposure, keeping the Zig/C implementation in process leaves that exposure in the dependency chain. An entirely Rust implementation can reduce it, depending on its unsafe code and native dependencies; it still does not guarantee recovery from every panic, allocation failure or process termination. The language boundary and the failure-containment requirement remain separate choices.
+
+## Build conformance queued
+
+PLAN includes conformance to the updated cross-platform-project-build-arch skill. Project-controlled outputs and publication use `macos-arm64`, `linux-amd64`, `linux-arm64`, `mswin-amd64`, and `mswin-arm64`. GNU/musl variants sit below PF and before the profile; compiler triples and compiler-owned caches retain their native spellings. A mixed-language product counts as one implementation. `CANONICAL_IMPL` and canonization apply when independently executable implementations coexist. Host publication, target inspection, complete build scopes, Nix/native agreement and rollback behavior require tests before conformance is claimed.
 
 ## Acceptance and sequence
 
