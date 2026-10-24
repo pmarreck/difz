@@ -10,6 +10,7 @@ annotate=[
 	build = Optimized Nix build by default; debug selects the direct Zig Debug build; PF/profile publication conformance remains queued in PLAN
 	build.zig = Zig 0.16 graph: modules, CLI, tests, flattened libdifz.a and header; lib step installs only the C ABI archive/header for native consumers
 	build.zig.zon = Pinned Zig dependencies: zstdz codec, PCRE2 path matching, progrez CLI progress, and xattr_stream metadata adapters
+	docs/benchmarks/structured-zstd-upstream-0.2.5-level9.csv = Upstream-reported Structured-zstd 0.2.5 level-9 results for all seven x86_64 GNU scenarios; not local difz measurements
 	docs/deep-code-review-recommendations.md = Skill-improvement notes from the 2026-09-04 audit; do not edit the shared skill here
 	docs/directory-format-v1.md = DIFZTREE v1 path, filter, identity, encoding, parser-limit, and staging contract
 	docs/macos-bundle-profile.md = Supported macOS bundle profile; difz deltas stay disabled

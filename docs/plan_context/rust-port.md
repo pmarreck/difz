@@ -25,6 +25,45 @@ Rusty_zstd's one-shot prefix decoder accepts a window cap but has no output-limi
 
 Only Rusty_zstd has been executed in this investigation. Structured-zstd 0.2.5 and the other candidates above were reviewed from their published sources; they have no local interoperability or performance result. The Rusty_zstd tests exercise eight input pairs across three test functions. No replacement codec is selected for production.
 
+## Structured-zstd investigation, 2026-10-24
+
+The inspected package is 0.2.5 at revision `fa09f7ca0d7b662d1087d1f16321af20a17b0370`. Version-pinned source matters: the cached docs.rs `latest` page still described 0.2.0, including an obsolete restriction on long-distance matching. The crates.io API was inaccessible during this follow-up, so this is not a claim that 0.2.5 is the newest release.
+
+### Purpose and design
+
+Structured-zstd implements standard Zstandard frames. The project describes its origin in CoordiNode's database and per-label dictionary workloads, starting from ruzstd. Its name does not designate another compression format or require structured input. It adds prepared dictionary reuse and optional storage-facing APIs, including skippable metadata, partial block decoding and resumable state. Those are useful integration surfaces for database containers. See the [project description](https://github.com/structured-world/structured-zstd#origins).
+
+The library is Rust code without a native libzstd dependency; the separate C ABI package lets existing C consumers call that implementation. Its level-to-strategy mapping follows upstream zstd, while its matching and entropy implementations can produce different frames and performance. It supports runtime CPU dispatch, streaming and no_std configurations. The source contains unsafe pointer and SIMD code, so the pure-Rust description does not establish an entirely safe implementation. Its published manifest includes pointer-provenance tests suitable for Miri. See the [pinned manifest](https://github.com/structured-world/structured-zstd/blob/fa09f7ca0d7b662d1087d1f16321af20a17b0370/zstd/Cargo.toml).
+
+For memory-corruption prevention, safe Rust supplies stronger compile-time ownership and concurrency guarantees than C or Zig; the existence of process-aborting failures does not make their failure probabilities equal. The safety of these particular codecs still depends on their unsafe internals, validation and resource handling. See [Rust's unsafe boundary](https://doc.rust-lang.org/nomicon/what-unsafe-does.html) and [Zig's ownership contract](https://ziglang.org/documentation/0.16.0/#Lifetime-and-Ownership).
+
+### Published performance evidence
+
+The project's [benchmark data](https://structured-world.github.io/structured-zstd/dev/bench/benchmark-delta.json), retrieved 2026-10-24, identifies the same 0.2.5 revision and a generation time of `2026-10-22T20:31:01+03:00`. The downloaded JSON's SHA-256 is `ab6c308f9061bac41529396b64bcf2e18c98f732631bbc101a63e60cc4734a2b`. The [extracted CSV](../benchmarks/structured-zstd-upstream-0.2.5-level9.csv) retains all seven scenarios for its `x86_64-gnu`, `level_9_lazy` cohort. These are upstream-reported measurements, not fresh difz measurements or a local performance baseline.
+
+| Input | Bytes | Encode throughput / C | Decode throughput / C | Compressed bytes / C |
+| --- | ---: | ---: | ---: | ---: |
+| Repository decode corpus | 1,022,035 | 0.82x | 0.88x | 0.9993 |
+| High-entropy random | 1,048,576 | 2.37x | 0.99x | 1.0000 |
+| Repetitive log stream | 16,777,216 | 4.89x | 1.03x | 0.0751 |
+| Low-entropy patterned | 1,048,576 | 2.75x | 9.28x | 1.0000 |
+| Small random | 10,240 | 5.05x | 0.91x | 1.0000 |
+| Small random | 1,024 | 7.57x | 0.73x | 1.0000 |
+| Log lines | 4,096 | 1.16x | 0.91x | 1.0000 |
+
+Throughput above 1 favors Rust; compressed-byte ratios below 1 favor Rust. Decode rows use the same C-produced frame on both sides. The paired throughput ratios alternate the implementations, with fresh compression contexts and reused output buffers; their values are not always the quotient of the separately timed Criterion arms. The metadata does not identify the CPU model, affinity or exact C codec revision, so these are limited to the author's reported environment. The C binding manifest requests `zstd` 0.14.0, which alone does not identify the linked C source. The seven-scenario spread does not support one universal speed multiplier.
+
+The repository's [methodology](https://github.com/structured-world/structured-zstd/blob/fa09f7ca0d7b662d1087d1f16321af20a17b0370/BENCHMARKS.md) covers entropy extremes, small payloads and corpus data; some older level descriptions lag the actual rows. The [benchmark implementation](https://github.com/structured-world/structured-zstd/blob/fa09f7ca0d7b662d1087d1f16321af20a17b0370/zstd/benches/compare_ffi.rs) is the stronger source for the measured operation. Memory tracking runs separately using allocation counters; those bytes must not be described as RSS. No result here establishes performance against zstdz, Rusty_zstd, real binary release pairs, or the whole-source-prefix workload used by difz.
+
+### Fit for difz
+
+- The raw-content dictionary API can accept arbitrary source bytes; `from_raw_content` avoids interpreting dictionary magic as a trained dictionary. This still needs our cross-apply and distant-prefix controls. The CLI advertises `--patch-from`.
+- The encoder caps `window_log` at 30 (1 GiB), because its match-finder uses u32 positions across a twice-window eviction band. Difz currently permits window log 31 (2 GiB), so adopting this crate unchanged would narrow its maximum match-history reach. Larger files can still be compressed using a sliding window. See the [parameter bounds](https://github.com/structured-world/structured-zstd/blob/fa09f7ca0d7b662d1087d1f16321af20a17b0370/zstd/src/encoding/parameters.rs).
+- The optional caller-owned decoder bounds window, output and work without allocating, but exposes no external prefix installation. Its documentation also rejects dictionary-naming frames. It therefore does not establish bounded decoding of difz's raw-prefix frames; that adapter remains to be designed and tested. See the [workspace decoder](https://github.com/structured-world/structured-zstd/blob/fa09f7ca0d7b662d1087d1f16321af20a17b0370/zstd/src/decoding/workspace.rs).
+- The CLI accepts `-T` but ignores it; it does not supply upstream zstd's worker implementation. This is less consequential for difz's current single-threaded file encoder, but it prevents treating the tools as equivalent multicore compressors. LDM is available across strategies in 0.2.5; older docs describing a level-16 floor are stale.
+
+The next implementation gate is a pinned, source-bounded Nix probe with isolated runtime tests, followed by shared-profiler measurements on the same verified prefix-delta cases as zstdz and Rusty_zstd. That has not run. The existing Rusty_zstd proof was a host development build; it does not establish the Nix-only dependency closure now required for future probes.
+
 ## Combined Rust/Zig route
 
 Rust can statically link the existing `libdifz.a` through `unsafe extern "C"` declarations. Rust byte slices cross that boundary as pointer/length pairs. Returned buffers remain owned by difz and must be freed with `difz_free`; Rust must not adopt them with `Vec::from_raw_parts`. This retains the Zig core and zstdz in the same process as the Rust frontend. It is a hybrid implementation, not a complete Rust rewrite. See the [Rust FFI guide](https://doc.rust-lang.org/nomicon/ffi.html).
