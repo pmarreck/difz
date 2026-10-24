@@ -64,6 +64,24 @@ The repository's [methodology](https://github.com/structured-world/structured-zs
 
 The next implementation gate is a pinned, source-bounded Nix probe with isolated runtime tests, followed by shared-profiler measurements on the same verified prefix-delta cases as zstdz and Rusty_zstd. That has not run. The existing Rusty_zstd proof was a host development build; it does not establish the Nix-only dependency closure now required for future probes.
 
+## Encoded bytes and compression workers, 2026-10-24
+
+Interoperability requires the reconstructed target to match exactly. It does not require the compressed frame or complete diff to match another encoder byte for byte. Staying below 1 GiB only avoids the history-window ceiling; it does not force matching token choices, block boundaries, entropy coding or frame options. The published Structured-zstd level-9 corpus row already has a compressed-size ratio of 0.9993 against C for an input smaller than 1 MiB, so those ordinary compressed outputs cannot be identical. Structured-zstd prefix-diff byte identity has not been tested here and is not promised. The ZDIF source/target identities remain stable for the same inputs.
+
+| Implementation | Compression worker support | Evidence and qualification |
+| --- | --- | --- |
+| Upstream zstd | Yes: `-T#`, `-T0`, and the worker-count API | The [CLI manual](https://github.com/facebook/zstd/blob/dev/programs/zstd.1.md) documents the modes; the experimental CLI and API already appeared in [v1.1.3](https://github.com/facebook/zstd/releases/tag/v1.1.3). |
+| Pinned zstdz | Yes on hosted targets | Its `build.zig` enables `ZSTD_MULTITHREAD` except for freestanding targets. |
+| Current difz file encoder | Uses zero workers | `src/zstd_patch.zig` explicitly sets `ZSTD_c_nbWorkers` to zero. |
+| Rusty_zstd 0.4.1 | Yes with its default std feature | `AdvancedOptions::nb_workers` selects its threaded path. Our cross-apply tests used zero workers and did not qualify that path. |
+| Structured-zstd 0.2.5 | No implemented worker pipeline | Its CLI accepts `-T` but ignores it. No verified maintainer explanation for the omission was found. |
+
+Parallel compression divides input into jobs and controls how much prior history each job reloads. Job boundaries and available history can change match choices and compressed bytes. Upstream explicitly documents different output between `--single-thread` and `-T1`; the latter overlaps a compression worker with I/O. This does not imply that scheduling must make each run nondeterministic: a fixed partition can produce stable indexed output. Changing the encoder, parameters or mode remains a separate compatibility question. See [upstream's job and overlap parameters](https://github.com/facebook/zstd/blob/dev/lib/zstd.h).
+
+Rusty_zstd's `compress_mt` builds concatenated independent frames when input spans multiple jobs. Its [worker implementation](https://github.com/Remade-With-Rust/rusty_zstd/blob/cd41258855309fd3dd77c2adf992fdfe4d401666/crates/rusty_zstd/src/mt.rs) stores results by job index; later jobs use earlier target bytes for table priming rather than retaining the original external source prefix as their dictionary. One job falls back to its one-shot encoder, so a qualification fixture must exceed the resolved job size to actually exercise multiple jobs.
+
+Difz specifies and emits one frame today. Its apply implementation delegates to `ZSTD_decompressDCtx`, whose general API can read concatenated frames, and does not explicitly count frames. Therefore it would be incorrect to claim that apply necessarily rejects Rusty's multi-frame output. Its prefix behavior, bounds and compatibility with the declared frame contract need direct tests before enabling that mode. No multi-job prefix test was run for this investigation.
+
 ## Combined Rust/Zig route
 
 Rust can statically link the existing `libdifz.a` through `unsafe extern "C"` declarations. Rust byte slices cross that boundary as pointer/length pairs. Returned buffers remain owned by difz and must be freed with `difz_free`; Rust must not adopt them with `Vec::from_raw_parts`. This retains the Zig core and zstdz in the same process as the Rust frontend. It is a hybrid implementation, not a complete Rust rewrite. See the [Rust FFI guide](https://doc.rust-lang.org/nomicon/ffi.html).
