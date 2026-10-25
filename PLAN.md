@@ -6,6 +6,8 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 
 - [ ] Deliver a Rust implementation of difz, using the existing tests and executable as independent oracles. (context: docs/plan_context/rust-port.md)
 	- [ ] Decide the Rust boundary after reviewing the static-link proof: Rust core/CLI with zstdz, Rust CLI with the Zig core, or an entirely Rust implementation; keep production entry points unchanged pending that decision.
+	- [x] Explain worker wall-time scaling with verified 8 MiB and 32 MiB ordinary-compression and prefix-diff controls, using explicit 8 MiB jobs. (done 2026-10-24 22:55 EDT; context: docs/plan_context/zstd-worker-apply.md)
+	- [x] Compare codec decode and complete difz apply using 24 shuffled blocks and an identical-input control; preserve all 288 paired samples and storage limits. (done 2026-10-24 22:55 EDT; context: docs/plan_context/zstd-worker-apply.md)
 	- [x] Clarify compressed-byte identity and worker support; record Rusty's multi-frame path and difz's unqualified concatenated-frame acceptance. (done 2026-10-24 10:34 EDT; context: docs/plan_context/rust-port.md)
 	- [ ] Qualify multi-job prefix compression and frame acceptance for Rusty_zstd and zstdz, including original-source reach, deterministic output, and resource limits.
 	- [x] Measure zstdz level-9 single-thread versus worker modes on partially compressible seeded-random prefix deltas; preserve all 72 verified samples and source-derived multi-job coverage. (done 2026-10-24 11:29 EDT; context: docs/plan_context/zstd-worker-modes.md)
