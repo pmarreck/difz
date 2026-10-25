@@ -23,7 +23,7 @@ The encoder bounds above come from the published crates' recorded revisions: [ru
 
 Rusty_zstd's one-shot prefix decoder accepts a window cap but has no output-limit argument. Its separate bounded one-shot decoder does not accept a prefix. Production adoption therefore still requires a bounded streaming-prefix adapter or an upstream API extension, followed by hostile-input tests. Passing cross-apply checks alone does not establish that resource contract.
 
-Only Rusty_zstd has been executed in this investigation. Structured-zstd 0.2.5 and the other candidates above were reviewed from their published sources; they have no local interoperability or performance result. The Rusty_zstd tests exercise eight input pairs across three test functions. No replacement codec is selected for production.
+Only Rusty_zstd has been executed in this investigation. Structured-zstd 0.2.5 and the other candidates above were reviewed from their published sources; they have no local interoperability or performance result. The checks cover the original eight input pairs and the multi-job controls below, across five test functions. No replacement codec is selected for production.
 
 ## Structured-zstd investigation, 2026-10-24
 
@@ -85,14 +85,26 @@ Interoperability requires the reconstructed target to match exactly. It does not
 | Upstream zstd | Yes: `-T#`, `-T0`, and the worker-count API | The [CLI manual](https://github.com/facebook/zstd/blob/dev/programs/zstd.1.md) documents the modes; the experimental CLI and API already appeared in [v1.1.3](https://github.com/facebook/zstd/releases/tag/v1.1.3). |
 | Pinned zstdz | Yes on hosted targets | Its `build.zig` enables `ZSTD_MULTITHREAD` except for freestanding targets. |
 | Current difz file encoder | Uses zero workers | `src/zstd_patch.zig` explicitly sets `ZSTD_c_nbWorkers` to zero. |
-| Rusty_zstd 0.4.1 | Yes with its default std feature | `AdvancedOptions::nb_workers` selects its threaded path. Our cross-apply tests used zero workers and did not qualify that path. |
+| Rusty_zstd 0.4.1 | Yes with its default std feature | `AdvancedOptions::nb_workers` selects its threaded path. Zero-worker cross-apply and explicit four-job characterization are covered below; this does not qualify production adoption. |
 | Structured-zstd 0.2.5 | No implemented worker pipeline | Its CLI accepts `-T` but ignores it. No verified maintainer explanation for the omission was found. |
 
 Parallel compression divides input into jobs and controls how much prior history each job reloads. Job boundaries and available history can change match choices and compressed bytes. Upstream explicitly documents different output between `--single-thread` and `-T1`; the latter overlaps a compression worker with I/O. This does not imply that scheduling must make each run nondeterministic: a fixed partition can produce stable indexed output. Changing the encoder, parameters or mode remains a separate compatibility question. See [upstream's job and overlap parameters](https://github.com/facebook/zstd/blob/dev/lib/zstd.h).
 
 Rusty_zstd's `compress_mt` builds concatenated independent frames when input spans multiple jobs. Its [worker implementation](https://github.com/Remade-With-Rust/rusty_zstd/blob/cd41258855309fd3dd77c2adf992fdfe4d401666/crates/rusty_zstd/src/mt.rs) stores results by job index; later jobs use earlier target bytes for table priming rather than retaining the original external source prefix as their dictionary. One job falls back to its one-shot encoder, so a qualification fixture must exceed the resolved job size to actually exercise multiple jobs.
 
-Difz specifies and emits one frame today. Its apply implementation delegates to `ZSTD_decompressDCtx`, whose general API can read concatenated frames, and does not explicitly count frames. Therefore it would be incorrect to claim that apply necessarily rejects Rusty's multi-frame output. Its prefix behavior, bounds and compatibility with the declared frame contract need direct tests before enabling that mode. No multi-job prefix test was run for this investigation.
+Difz specifies and emits one frame today. Its apply implementation delegates to `ZSTD_decompressDCtx`, whose general API can read concatenated frames, and does not explicitly count frames. The later direct test below proves that current apply accepts Rusty's four-frame output when later frames require no original prefix. Decoder acceptance does not itself qualify that encoding mode or its resource limits for production.
+
+### Four-job prefix characterization, 2026-10-24
+
+Two Nix-executed tests use a 2 MiB deterministic high-entropy source and a target with one flipped byte in the middle of each 512 KiB job. The explicit job size produces four real jobs rather than testing a worker flag on a single job. Changed targets prevent merely returning the unchanged source from passing reconstruction. The pinned zstdz CLI is a declared Nix input to the runtime check. No production encoder or decoder setting changes.
+
+For Rusty_zstd, the test disables overlap to isolate original-source reach. Its worker stream contains four independently parsed Zstandard frames. The first frame is smaller than one eighth of its 512 KiB output, decodes with the source prefix, and fails without that prefix. Each later frame decodes correctly with no dictionary and is larger than half its output. The complete worker stream is larger than half the 2 MiB target, while the single-frame prefix encoding is smaller than one eighth. These negative controls establish the loss of source reuse after the first job on this workload. Requested worker counts 1 and 4, including a repeated four-worker run, produce identical bytes.
+
+The complete Rusty stream decodes correctly in Rust and in existing native difz after borrowing only the oracle-generated ZDIF v4 header. Native source/target identity checks and an independent byte comparison both pass. Rust's prefix decoder accepts the stream with a 4 MiB window cap and rejects it with a 1 MiB cap. This is advertised-window evidence; its prefix API still has no output cap, so bounded hostile-input adoption remains unqualified.
+
+For zstdz, the test covers `--single-thread`, `-T1`, `-T4`, and a repeated `-T4`, with the same explicit job size. Every stream has exactly one frame, is smaller than one eighth of the target, and reconstructs the entire target through the Rust decoder with the original prefix. Its T1/T4 outputs are byte identical. An ordinary-compression control without the prefix remains larger than one eighth, preventing a merely compressible input from establishing prefix reach. Pinned source-derived job geometry confirms that the 512 KiB request is not raised above that size by the default overlap for this case.
+
+The five-function Nix codec suite, including both multi-job tests and the original eight-pair checks, executes in roughly one second on the measured Linux host. This is correctness and capability evidence. It is not a comparative codec performance benchmark, a full resource-limit qualification, or a decision to adopt Rusty's multiframe path.
 
 ## Combined Rust/Zig route
 

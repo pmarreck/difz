@@ -172,6 +172,7 @@
 						mkdir -p "$HOME"
 						bash ${./tests/codec_rust}/test_runner.bash
 						DIFZ_ORACLE=${releaseFast}/bin/difz \
+							ZSTD_CLI=${zstdBenchmark}/bin/zstd \
 							DIFZ_CODEC_TEST=${rustCodecTests}/bin/difz-codec-check \
 							bash ${./tests/codec_rust}/test --test-threads=1
 						touch "$out"

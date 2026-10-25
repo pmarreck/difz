@@ -65,24 +65,29 @@ mod tests {
 	}
 
 	fn rust_frame(source: &[u8], target: &[u8], window_override: Option<u32>) -> Vec<u8> {
+		rust_frame_options(
+			source,
+			target,
+			window_override,
+			rusty_zstd::AdvancedOptions {
+				ldm: rusty_zstd::LdmParams::enabled(),
+				..Default::default()
+			},
+		)
+	}
+
+	fn rust_frame_options(
+		source: &[u8],
+		target: &[u8],
+		window_override: Option<u32>,
+		options: rusty_zstd::AdvancedOptions,
+	) -> Vec<u8> {
 		let span = source.len().max(target.len()) as u64;
 		let window = (64 - span.leading_zeros()).clamp(10, 31);
 		let mut parameters = rusty_zstd::compression_params(9, Some(target.len() as u64)).unwrap();
 		parameters.window_log = window_override.unwrap_or(window);
-		rusty_zstd::compress_with_advanced(
-			target,
-			parameters,
-			false,
-			None,
-			source,
-			false,
-			rusty_zstd::AdvancedOptions {
-				ldm: rusty_zstd::LdmParams::enabled(),
-				nb_workers: 0,
-				..Default::default()
-			},
-		)
-		.unwrap()
+		rusty_zstd::compress_with_advanced(target, parameters, false, None, source, false, options)
+			.unwrap()
 	}
 
 	fn apply_native(fixture: &Fixture, source: &Path, patch: &[u8], name: &str) -> PathBuf {
@@ -241,5 +246,163 @@ mod tests {
 			rusty_zstd::FrameKind::Zstd(header) => assert_eq!(header.window_size, 1 << 31),
 			_ => panic!("not a Zstandard frame"),
 		}
+	}
+
+	#[test]
+	fn multi_job_frames_reconstruct_but_only_the_first_reuses_the_original_prefix() {
+		// Characterize the candidate before adoption: this mode does not meet
+		// difz's current single-frame encoding contract or full-prefix reach.
+		const JOB: usize = 512 * 1024;
+		let source = random_bytes(4 * JOB);
+		let mut target = source.clone();
+		for byte in target.iter_mut().skip(JOB / 2).step_by(JOB) {
+			*byte ^= 1;
+		}
+		let fixture = Fixture::new();
+		let source_path = fixture.path("source");
+		let target_path = fixture.path("target");
+		let native_path = fixture.path("native.zdif");
+		std::fs::write(&source_path, &source).unwrap();
+		std::fs::write(&target_path, &target).unwrap();
+		require_success(oracle(&[
+			source_path.as_os_str(),
+			target_path.as_os_str(),
+			"-o".as_ref(),
+			native_path.as_os_str(),
+		]));
+		let native = std::fs::read(&native_path).unwrap();
+		let single = rust_frame(&source, &target, None);
+		assert!(single.len() < source.len() / 8);
+		let options = |workers| rusty_zstd::AdvancedOptions {
+			ldm: rusty_zstd::LdmParams::enabled(),
+			nb_workers: workers,
+			job_size: JOB,
+			overlap_log: 1,
+			..Default::default()
+		};
+		let threaded = rust_frame_options(&source, &target, None, options(1));
+		for workers in [4, 4] {
+			assert_eq!(
+				rust_frame_options(&source, &target, None, options(workers)),
+				threaded,
+				"job order and bytes must not depend on worker scheduling"
+			);
+		}
+		let mut remaining = threaded.as_slice();
+		let mut frames = Vec::new();
+		while !remaining.is_empty() {
+			let length = rusty_zstd::find_frame_compressed_size(remaining).unwrap();
+			assert!(length > 0 && length <= remaining.len());
+			frames.push(&remaining[..length]);
+			remaining = &remaining[length..];
+		}
+		assert_eq!(frames.len(), 4, "must exercise four actual frames/jobs");
+		assert!(frames[0].len() < JOB / 8);
+		let first = rusty_zstd::decompress_using_prefix(frames[0], &source).unwrap();
+		assert_eq!(first, target[..JOB]);
+		assert!(rusty_zstd::decompress(frames[0]).is_err());
+		for (index, frame) in frames.iter().enumerate().skip(1) {
+			// A decoder given no dictionary still reconstructs later jobs. This
+			// negative control demonstrates their lack of source-prefix use.
+			assert_eq!(
+				rusty_zstd::decompress(frame).unwrap(),
+				target[index * JOB..(index + 1) * JOB]
+			);
+			assert!(frame.len() > JOB / 2);
+		}
+		assert!(threaded.len() > source.len() / 2);
+		assert_eq!(
+			rusty_zstd::decompress_using_prefix_with(
+				&threaded,
+				&source,
+				rusty_zstd::DecompressOptions {
+					window_max: 1 << 22,
+					force_ignore_checksum: false,
+				},
+			)
+			.unwrap(),
+			target
+		);
+		assert!(
+			rusty_zstd::decompress_using_prefix_with(
+				&threaded,
+				&source,
+				rusty_zstd::DecompressOptions {
+					window_max: 1 << 20,
+					force_ignore_checksum: false,
+				},
+			)
+			.is_err(),
+			"an advertised window above the caller's cap must be rejected"
+		);
+		assert_eq!(
+			rusty_zstd::decompress_using_prefix(&threaded, &source).unwrap(),
+			target
+		);
+		let mut combined = native[..HEADER_LEN].to_vec();
+		combined.extend_from_slice(&threaded);
+		let rebuilt = apply_native(&fixture, &source_path, &combined, "multi-frame");
+		assert_eq!(std::fs::read(rebuilt).unwrap(), target);
+	}
+
+	#[test]
+	fn zstdz_multiple_jobs_keep_one_frame_and_reach_the_whole_source() {
+		const JOB: usize = 512 * 1024;
+		let source = random_bytes(4 * JOB);
+		let mut target = source.clone();
+		for byte in target.iter_mut().skip(JOB / 2).step_by(JOB) {
+			*byte ^= 1;
+		}
+		let fixture = Fixture::new();
+		let source_path = fixture.path("source");
+		let target_path = fixture.path("target");
+		std::fs::write(&source_path, &source).unwrap();
+		std::fs::write(&target_path, &target).unwrap();
+		let executable = std::env::var_os("ZSTD_CLI")
+			.expect("ZSTD_CLI must name the Nix-prepared pinned zstdz CLI");
+		let mut reference = None;
+		for (index, mode) in ["--single-thread", "-T1", "-T4", "-T4"].iter().enumerate() {
+			let patch = fixture.path(&format!("frame-{index}.zst"));
+			let result = Command::new(&executable)
+				.args(["-q", "-f", "-9", mode, "--jobsize=524288"])
+				.arg(format!("--patch-from={}", source_path.display()))
+				.arg(&target_path)
+				.arg("-o")
+				.arg(&patch)
+				.output()
+				.unwrap();
+			require_success(result);
+			let frame = std::fs::read(patch).unwrap();
+			assert_eq!(
+				rusty_zstd::find_frame_compressed_size(&frame).unwrap(),
+				frame.len()
+			);
+			assert!(frame.len() < source.len() / 8);
+			assert_eq!(
+				rusty_zstd::decompress_using_prefix(&frame, &source).unwrap(),
+				target
+			);
+			if index > 0 {
+				if let Some(previous) = &reference {
+					assert_eq!(
+						&frame, previous,
+						"worker count and scheduling must preserve bytes"
+					);
+				} else {
+					reference = Some(frame);
+				}
+			}
+		}
+		let plain = fixture.path("no-prefix.zst");
+		require_success(
+			Command::new(executable)
+				.args(["-q", "-f", "-9", "--single-thread"])
+				.arg(&target_path)
+				.arg("-o")
+				.arg(&plain)
+				.output()
+				.unwrap(),
+		);
+		assert!(std::fs::metadata(plain).unwrap().len() >= (source.len() / 8) as u64);
 	}
 }
