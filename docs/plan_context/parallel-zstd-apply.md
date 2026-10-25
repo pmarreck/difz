@@ -1,5 +1,11 @@
 # Actual parallel Zstandard application
 
+Production decision, 2026-10-25: retain the current single-threaded encoding
+and application. Preserve one source-prefix frame per file and compression
+across new target data. The measured parallel speedups remain valid; the
+current choice favors compression and architectural simplicity over adopting
+independent frames. Keep the prototype and results for future review.
+
 The earlier application measurements used a serial decoder for both encoder
 outputs. They did not test four- or eight-worker decoding. This experiment
 implements and measures that separate scenario for ordinary compression and
