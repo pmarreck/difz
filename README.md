@@ -189,8 +189,13 @@ Requires [Nix](https://nixos.org/) with flakes enabled:
 
 ```bash
 ./build  # reproducible optimized Nix build
-./test   # canonical Nix unit and CLI checks
+./test   # Nix-prepared suites, then confined host filesystem and ABI tests
 ```
+
+Test preparation requires Nix. Linux host execution requires Bubblewrap and
+user namespaces, supplied and checked by the pinned test environment. Unsupported
+host isolation fails explicitly; native macOS/Windows execution remains to be
+qualified. See [test preparation](docs/plan_context/test-preparation.md).
 
 ## Running benchmarks
 

@@ -1788,7 +1788,10 @@ test "Linux access and default ACLs survive create apply and native readback" {
     const length = try target.realPath(io, &buffer);
     const path = try std.fmt.allocPrint(testing.allocator, "{s}/data", .{buffer[0..length]});
     defer testing.allocator.free(path);
-    const acl = [_]u8{ 2, 0, 0, 0, 1, 0, 7, 0, 255, 255, 255, 255, 2, 0, 4, 0, 123, 0, 0, 0, 4, 0, 5, 0, 255, 255, 255, 255, 16, 0, 5, 0, 255, 255, 255, 255, 32, 0, 0, 0, 255, 255, 255, 255 };
+    var acl = [_]u8{ 2, 0, 0, 0, 1, 0, 7, 0, 255, 255, 255, 255, 2, 0, 4, 0, 0, 0, 0, 0, 4, 0, 5, 0, 255, 255, 255, 255, 16, 0, 5, 0, 255, 255, 255, 255, 32, 0, 0, 0, 255, 255, 255, 255 };
+    // User namespaces can map only the caller; use a named principal the kernel
+    // can represent there while still checking exact native ACL preservation.
+    std.mem.writeInt(u32, acl[16..20], std.c.getuid(), .little);
     try setFixtureXattr(path, "system.posix_acl_access", &acl, raw_xattr_opts);
     try setFixtureXattr(buffer[0..length], "system.posix_acl_default", &acl, raw_xattr_opts);
     var snapshot = try snapshotDir(testing.allocator, io, target, .{});

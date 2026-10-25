@@ -1,37 +1,60 @@
 #!/usr/bin/env bash
-
-# Run host filesystem tests and the reproducible Nix checks in Debug mode.
-
+# Prepare every artifact through Nix, then exercise host adapters in confinement.
 set -u
-
+cd "$(dirname "$0")" || exit 1
 errors=0
-
-if ! nix develop -c bash tests/nix/test_flake_outputs.bash; then
-	errors=$((errors + 1))
-fi
-
-# The sandbox may lack xattrs. Require their real-adapter assertions on the host.
-if ! nix develop -c env DIFZ_REQUIRE_XATTR_TESTS=1 zig build test -Doptimize=Debug; then
-	errors=$((errors + 1))
-fi
-
-# Exercise default directory metadata through the C boundary on the host.
-if ! nix develop -c env -u DIFZ_TEST_DIRECTORY_OMIT DIFZ_PREBUILT=0 DIFZ=./zig-out/bin/difz bash tests/cli/test_cli.bash; then
-	errors=$((errors + 1))
-fi
-
-# Prove Rust can use the installed C ABI in one mixed-language executable.
-if ! nix develop -c bash tests/ffi/test_rust_lib.bash; then
-	errors=$((errors + 1))
-fi
-
-system="$(nix eval --impure --raw --expr builtins.currentSystem)"
-if ! nix build -L \
+manifest=$(mktemp "${TMPDIR:-/tmp}/difz-test-build.XXXXXXXX") || exit 1
+trap 'rm -f -- "$manifest"' EXIT
+clock_tick() {
+	if [ -r /proc/uptime ]; then
+		read -r uptime _ < /proc/uptime
+		fraction="${uptime#*.}00"
+		printf '%s' "$(( ${uptime%.*} * 100 + 10#${fraction:0:2} ))"
+	else
+		printf unknown
+	fi
+}
+elapsed() {
+	if [ "$1" = unknown ] || [ "$2" = unknown ]; then printf unknown; else
+		delta=$(( $2 - $1 ))
+		printf '%d.%02d s' "$((delta / 100))" "$((delta % 100))"
+	fi
+}
+started=$(clock_tick)
+printf 'Checking flake contracts and preparing all test artifacts through Nix...\n'
+if ! nix develop -c bash tests/nix/test_flake_outputs.bash; then errors=$((errors + 1)); fi
+system=$(nix eval --impure --raw --expr builtins.currentSystem) || exit 1
+if nix build --no-link --json -L \
+	".#packages.${system}.host-tests" \
 	".#checks.${system}.test" \
 	".#checks.${system}.benchmark-contract" \
 	".#checks.${system}.rust-codec" \
-	".#checks.${system}.windows-gnu"; then
-	errors=$((errors + 1))
+	".#checks.${system}.rust-ffi" \
+	".#checks.${system}.windows-gnu" > "$manifest"; then
+	prepared=1
+else
+	errors=$((errors + 1)); prepared=0
 fi
-
+prepared_at=$(clock_tick)
+printf 'Nix preparation and sandbox checks: %s (evaluation, builds, and cached/fresh checks combined).\n' "$(elapsed "$started" "$prepared_at")"
+if [ "$prepared" -eq 1 ]; then
+	prefix=$(nix develop -c jq -er '
+		[ .[] | .outputs.out | select(endswith("-difz-host-tests")) ] |
+		if length == 1 then .[0] else error("expected one prepared host-test output") end
+	' "$manifest") || exit 1
+	printf 'Running prepared host tests within the verified filesystem boundary...\n'
+	if [ "$(uname -s)" = Linux ] && command -v build-budget >/dev/null 2>&1; then
+		build-budget --project difz -- nix develop -c bash tests/run-host-tests "$prefix"
+		status=$?
+	else
+		nix develop -c bash tests/run-host-tests "$prefix"
+		status=$?
+	fi
+	[ "$status" -eq 0 ] || errors=$((errors + 1))
+else
+	printf 'INCOMPLETE host execution: Nix preparation failed.\n' >&2
+fi
+finished=$(clock_tick)
+printf 'Host execution phase including environment/admission: %s; total: %s; failures: %d\n' \
+	"$(elapsed "$prepared_at" "$finished")" "$(elapsed "$started" "$finished")" "$errors"
 exit "$errors"

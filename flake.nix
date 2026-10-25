@@ -91,13 +91,14 @@
 					'';
 				};
 
-				zigBuild = { optimize ? "ReleaseFast", doCheck ? false }: pkgs.stdenv.mkDerivation {
+				zigBuild = { optimize ? "ReleaseFast", doCheck ? false, prepareTests ? false }: pkgs.stdenv.mkDerivation {
 					pname = "difz";
 					version = "0.1.0";
 					src = zigSource;
 
 					nativeBuildInputs = [ pkgs.zig ];
-				nativeCheckInputs = with pkgs; [ bash coreutils diffutils gnugrep gcc binutils ];
+				nativeCheckInputs = with pkgs; [ bash coreutils diffutils gnugrep gcc binutils ]
+					++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.util-linux ];
 
 					dontConfigure = true;
 					dontInstall = true;
@@ -109,14 +110,14 @@
 						cp -r ${zigDeps}/* $ZIG_GLOBAL_CACHE_DIR/
 						chmod -R u+w $ZIG_GLOBAL_CACHE_DIR
 
-						zig build -Doptimize=${optimize} --prefix $out
+						zig build ${pkgs.lib.optionalString prepareTests "test-artifacts"} -Doptimize=${optimize} --prefix $out
 					'';
 
 					doCheck = doCheck;
 					checkPhase = ''
 						export HOME=$TMPDIR
 						errors=0
-						if ! zig build test -Doptimize=${optimize} 2>&1; then
+						if ! ${if prepareTests then "$out/libexec/difz-unit-tests" else "zig build test -Doptimize=${optimize}"} 2>&1; then
 							errors=$((errors + 1))
 						fi
 					# The sandbox can prohibit xattr writes needed for Linux birth time.
@@ -132,6 +133,37 @@
 			};
 
 			releaseFast = zigBuild {};
+				debugTests = zigBuild { optimize = "Debug"; doCheck = true; prepareTests = true; };
+				rustFfiTests = pkgs.stdenv.mkDerivation {
+					pname = "difz-rust-ffi-tests";
+					version = "0.0.0";
+					src = zigSource;
+					nativeBuildInputs = with pkgs; [ zig rustc binutils ];
+					dontConfigure = true;
+					buildPhase = ''
+						runHook preBuild
+						export HOME="$TMPDIR/home"
+						export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-cache"
+						mkdir -p "$HOME" "$ZIG_GLOBAL_CACHE_DIR"
+						cp -r ${zigDeps}/* "$ZIG_GLOBAL_CACHE_DIR/"
+						chmod -R u+w "$ZIG_GLOBAL_CACHE_DIR"
+						zig build lib -Dtarget=${if pkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-gnu" else "x86_64-linux-gnu"} \
+							-Doptimize=Debug --prefix "$TMPDIR/ffi"
+						test -f "$TMPDIR/ffi/lib/libdifz.a"
+						test -f "$TMPDIR/ffi/include/difz.h"
+						test ! -e "$TMPDIR/ffi/bin/difz"
+						rustc --edition=2024 tests/ffi/rust_caller.rs -L "native=$TMPDIR/ffi/lib" \
+							${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "-C link-arg=-no-pie -C link-arg=-lubsan"} -o rust-caller
+						runHook postBuild
+					'';
+					installPhase = ''
+						install -Dm755 rust-caller "$out/bin/difz-rust-caller"
+					'';
+				};
+				hostTests = pkgs.symlinkJoin {
+					name = "difz-host-tests";
+					paths = [ debugTests rustFfiTests ];
+				};
 				rustCodecTests = pkgs.rustPlatform.buildRustPackage {
 					pname = "difz-rust-codec-tests";
 					version = "0.0.0";
@@ -180,10 +212,17 @@
 				packages.zstd-benchmark = zstdBenchmark;
 				packages.performance-benchmark = performancePackage;
 				packages.rust-codec-tests = rustCodecTests;
+				packages.host-tests = hostTests;
 
 				checks = {
 					build = releaseFast;
-					test = zigBuild { optimize = "Debug"; doCheck = true; };
+					test = debugTests;
+					rust-ffi = pkgs.runCommand "difz-rust-ffi-check" {
+						nativeBuildInputs = with pkgs; [ bash coreutils binutils ];
+					} ''
+						DIFZ_RUST_CALLER=${rustFfiTests}/bin/difz-rust-caller bash ${./tests/ffi}/test_rust_lib.bash
+						touch "$out"
+					'';
 					rust-codec = pkgs.runCommand "difz-rust-codec-check" {
 						nativeBuildInputs = with pkgs; [ bash coreutils diffutils jq ];
 					} ''
@@ -240,6 +279,7 @@
 
 				devShells.default = pkgs.mkShell {
 					packages = with pkgs; [
+						bash coreutils diffutils gnugrep gnused gawk binutils
 						zig
 						rustc
 						cargo
@@ -255,7 +295,7 @@
 						luajit
 						performancePackage
 						randomPackage
-					];
+					] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.bubblewrap pkgs.util-linux ];
 					PERFORMANCE_PROCESS_MODULE = "${performancePackage}/share/performance-profile/src/process.lua";
 				};
 			}

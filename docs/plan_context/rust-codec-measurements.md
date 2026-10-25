@@ -105,6 +105,12 @@ an owned raw dictionary. `Structured owned` transfers an existing `Vec<u8>`
 instead. The latter two use the same codec and emit identical bytes on all
 measured cases.
 
+The existing C ABI borrows source pointers. A Rust wrapper cannot take ownership
+of those bytes merely by receiving the pointer. Achieving the owned-adapter
+result for C callers would require an explicit buffer-transfer contract or a
+borrowed-dictionary API from the codec. The copying wrapper's cost remains
+relevant when preserving the current borrowed-input contract.
+
 | Input MiB | Adapter | Encode ms | Decode ms | Encode peak RSS MiB | Decode peak RSS MiB | Frame bytes |
 | ---: | --- | ---: | ---: | ---: | ---: | ---: |
 | 4 | C | 38.2 | 2.1 | 20 | 9 | 263,273 |

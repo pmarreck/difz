@@ -159,10 +159,25 @@ if ! nix eval --raw "$FLAKE_REF#checks.${system}.rust-codec.name" >/dev/null 2>&
 fi
 printf 'PASS Rust codec test binaries and their runtime check are declared\n'
 
+prepared_outputs=$(nix eval --json --apply '
+	outputs: builtins.mapAttrs (_: packages: builtins.hasAttr "host-tests" packages) outputs
+' "$FLAKE_REF#packages" 2>/dev/null)
+rc=$?
+if [ "$rc" -ne 0 ] || ! jq -e 'length == 3 and all(.[]; . == true)' <<< "$prepared_outputs" >/dev/null; then
+	printf 'FAIL every native system must expose Nix-prepared host tests\n' >&2
+	exit 1
+fi
+printf 'PASS native host test artifacts have declared Nix outputs\n'
+if ! nix eval --raw "$FLAKE_REF#checks.${system}.rust-ffi.name" >/dev/null 2>&1; then
+	printf 'FAIL the installed Rust consumer must have a Nix runtime check\n' >&2
+	exit 1
+fi
+printf 'PASS installed Rust consumer runtime has a declared Nix check\n'
+
 source_membership=$(nix eval --json --apply 'source:
 	let
-		required = [ "build.zig" "build.zig.zon" "src/lib.zig" "src/difz.c" "src/difz.h" "scripts/flatten-static-lib" "tests/cli/test_cli.bash" "tests/ffi/caller.c" "tests/ffi/test_installed_lib.bash" ];
-		excluded = [ "PLAN.md" "README.md" "flake.nix" "tests/codec_rust/interop.rs" "tests/codec_rust/test_runner.bash" "docs/plan_context/rust-port.md" ];
+		required = [ "build.zig" "build.zig.zon" "src/lib.zig" "src/difz.c" "src/difz.h" "scripts/flatten-static-lib" "tests/cli/test_cli.bash" "tests/ffi/caller.c" "tests/ffi/rust_caller.rs" "tests/ffi/test_installed_lib.bash" ];
+		excluded = [ "PLAN.md" "README.md" "flake.nix" "scripts/run-tests-isolated" "tests/run-prepared-host" "tests/codec_rust/interop.rs" "tests/codec_rust/test_runner.bash" "docs/plan_context/rust-port.md" ];
 		present = path: builtins.pathExists (source + "/${path}");
 	in { required = map present required; excluded = map present excluded; }
 ' "$FLAKE_REF#packages.${system}.default.src" 2>/dev/null)

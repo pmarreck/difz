@@ -5,7 +5,7 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 ## Active
 
 - [ ] Deliver a Rust implementation of difz, using the existing tests and executable as independent oracles. (context: docs/plan_context/rust-port.md)
-	- [ ] Decide the Rust boundary after reviewing the static-link proof: Rust core/CLI with zstdz, Rust CLI with the Zig core, or an entirely Rust implementation; keep production entry points unchanged pending that decision.
+	- [ ] Select the shipped codec for the full Rust port from the measured zstdz, Structured, and Rusty tradeoffs; keep production entry points unchanged pending that decision. (context: docs/plan_context/rust-codec-measurements.md)
 	- [x] Explain worker wall-time scaling with verified 8 MiB and 32 MiB ordinary-compression and prefix-diff controls, using explicit 8 MiB jobs. (done 2026-10-24 22:55 EDT; context: docs/plan_context/zstd-worker-apply.md)
 	- [x] Compare codec decode and complete difz apply using 24 shuffled blocks and an identical-input control; preserve all 288 paired samples and storage limits. (done 2026-10-24 22:55 EDT; context: docs/plan_context/zstd-worker-apply.md)
 	- [x] Clarify compressed-byte identity and worker support; record Rusty's multi-frame path and difz's unqualified concatenated-frame acceptance. (done 2026-10-24 10:34 EDT; context: docs/plan_context/rust-port.md)
@@ -20,8 +20,8 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 	- [ ] Port the file codec, directory metadata and format, filesystem adapters, C API, and CLI while preserving the declared behavior and platform scope.
 - [ ] Conform the build to the cross-platform-project-build-arch skill, including canonical implementation selection where applicable, PF/VARIANT/profile outputs, safe host publication, the five-platform matrix, and Nix/native agreement.
 	- [x] Move candidate-codec QA into a pinned source-bounded Nix package and sandboxed check; verify compiler-free execution, artifact classification, and source membership. (done 2026-10-24 22:53 EDT; context: docs/plan_context/rust-port.md)
-	- [ ] Move the remaining host-side Zig tests and Rust FFI probes onto Nix-prepared artifacts with qualified preventive filesystem isolation and complete feedback accounting.
-- [x] Document failure containment when difz is a transitive Rust library dependency and distinguish tested Rust zstd candidates from source-reviewed candidates. (done 2026-10-23 14:41 EDT; context: docs/plan_context/rust-port.md)
+	- [x] Move host-side Zig tests and Rust FFI probes onto Nix-prepared artifacts with preventive Linux filesystem isolation and separate preparation/execution timing. (done 2026-10-25 00:46 EDT; context: docs/plan_context/test-preparation.md)
+	- [ ] Qualify native macOS and Windows preventive test boundaries before claiming complete native test execution there. (context: docs/plan_context/test-preparation.md)
 - [ ] Qualify metadata capture and restore on native macOS and Windows hosts; cross-builds establish compilation only. (context: docs/plan_context/metadata-v2.md)
 	- [ ] Resolve native-runner resource policy before scheduling additional remote build waves.
 	- [ ] Add native macOS ACL and sparse-file fixtures with independent OS readback before qualifying those metadata families.

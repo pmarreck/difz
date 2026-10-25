@@ -146,4 +146,9 @@ pub fn build(b: *std.Build) void {
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+
+    const install_tests = b.addInstallFileWithDir(unit_tests.getEmittedBin(), .{ .custom = "libexec" }, "difz-unit-tests");
+    const test_artifacts = b.step("test-artifacts", "Prepare the CLI, library, and unit-test executable");
+    test_artifacts.dependOn(b.getInstallStep());
+    test_artifacts.dependOn(&install_tests.step);
 }

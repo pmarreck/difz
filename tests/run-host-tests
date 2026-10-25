@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# One resource-admitted runtime phase; no compilation or Nix calls inside it.
+set -u
+prefix=${1:-}
+errors=0
+if ! bash tests/integration/test_isolation.bash; then
+	printf 'FAIL preventive boundary qualification; refusing behavioral execution\n' >&2
+	exit 1
+fi
+if ! DIFZ_HOST_TESTS="$prefix" scripts/run-tests-isolated -- bash tests/run-prepared-host; then
+	errors=$((errors + 1))
+fi
+exit "$errors"

@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Run real filesystem adapters using artifacts prepared by one outer nix build.
+set -u
+prefix="${DIFZ_HOST_TESTS:-}"
+[ -n "$prefix" ] || { printf 'FAIL DIFZ_HOST_TESTS is required\n' >&2; exit 1; }
+for executable in bin/difz libexec/difz-unit-tests bin/difz-rust-caller; do
+	if [ ! -f "$prefix/$executable" ] || [ ! -x "$prefix/$executable" ]; then
+		printf 'FAIL Nix-prepared host artifact is missing: %s\n' "$executable" >&2
+		exit 1
+	fi
+done
+errors=0
+tick() {
+	read -r uptime _ < /proc/uptime || return 1
+	fraction="${uptime#*.}00"
+	printf '%s' "$(( ${uptime%.*} * 100 + 10#${fraction:0:2} ))"
+}
+run_suite() {
+	label=$1; shift
+	log="$TMPDIR/difz-$label.log"
+	start=$(tick) || return 1
+	"$@" > "$log" 2>&1
+	status=$?
+	finish=$(tick) || return 1
+	printf '%s execution: %d ms; exit=%d\n' "$label" "$(( (finish - start) * 10 ))" "$status"
+	if [ "$status" -ne 0 ]; then cat "$log" >&2; else tail -2 "$log"; fi
+	return "$status"
+}
+if ! run_suite runner-contract bash tests/integration/test_prepared_runners.bash; then errors=$((errors + 1)); fi
+# shellcheck disable=SC2329
+run_core() {
+	# std.testing.tmpDir creates .zig-cache relative to cwd, not TMPDIR.
+	(cd "$TEST_WORKSPACE" && DIFZ_REQUIRE_XATTR_TESTS=1 "$prefix/libexec/difz-unit-tests")
+}
+if ! run_suite core run_core; then errors=$((errors + 1)); fi
+if ! run_suite cli env -u DIFZ_TEST_DIRECTORY_OMIT DIFZ="$prefix/bin/difz" bash tests/cli/test_cli.bash; then errors=$((errors + 1)); fi
+if ! run_suite rust-ffi env DIFZ_RUST_CALLER="$prefix/bin/difz-rust-caller" bash tests/ffi/test_rust_lib.bash; then errors=$((errors + 1)); fi
+exit "$errors"

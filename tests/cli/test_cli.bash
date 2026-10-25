@@ -37,20 +37,9 @@ trap cleanup EXIT
 printf "difz CLI tests\n"
 printf "===============\n"
 
-# Build locally unless the enclosing Nix check supplied its already-built binary.
-if [ "${DIFZ_PREBUILT:-0}" = "1" ]; then
-	printf "\nUsing prebuilt difz...\n"
-else
-	printf "\nBuilding difz...\n"
-	nix develop -c zig build -Doptimize=Debug 2>&1
-	if [ $? -ne 0 ]; then
-		printf "FATAL: build failed\n"
-		exit 1
-	fi
-fi
-
-if [ ! -x "$DIFZ" ]; then
-	printf "FATAL: difz binary not found at %s\n" "$DIFZ"
+# Preparation belongs to the enclosing Nix derivation or ./test.
+if [ ! -f "$DIFZ" ] || [ ! -x "$DIFZ" ]; then
+	printf "FATAL: Nix-prepared difz binary not found at %s\n" "$DIFZ"
 	exit 1
 fi
 DIFZ_DIR="$(cd "$(dirname "$DIFZ")" && pwd)"
