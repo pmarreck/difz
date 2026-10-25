@@ -25,6 +25,17 @@
 				performancePackage = performance-profiling.packages.${system}.default.overrideAttrs (old: {
 					patches = (old.patches or []) ++ [ ./nix/performance-profile-timeout.patch ];
 				});
+				zigSource = pkgs.lib.fileset.toSource {
+					root = ./.;
+					fileset = pkgs.lib.fileset.unions [
+						./build.zig
+						./build.zig.zon
+						./src
+						./scripts/flatten-static-lib
+						./tests/cli
+						./tests/ffi
+					];
+				};
 
 				# Single hash for the entire Zig dependency tree.
 				# To update: set to "" or pkgs.lib.fakeHash, run `nix build`,
@@ -34,7 +45,7 @@
 				zigDeps = pkgs.stdenv.mkDerivation {
 					pname = "difz-zig-deps";
 					version = "0.1.0";
-					src = ./.;
+					src = zigSource;
 					nativeBuildInputs = with pkgs; [ zig git cacert ];
 					outputHashMode = "recursive";
 					outputHashAlgo = "sha256";
@@ -77,7 +88,7 @@
 				zigBuild = { optimize ? "ReleaseFast", doCheck ? false }: pkgs.stdenv.mkDerivation {
 					pname = "difz";
 					version = "0.1.0";
-					src = ./.;
+					src = zigSource;
 
 					nativeBuildInputs = [ pkgs.zig ];
 				nativeCheckInputs = with pkgs; [ bash coreutils diffutils gnugrep gcc binutils ];
@@ -115,19 +126,60 @@
 			};
 
 			releaseFast = zigBuild {};
+				rustCodecTests = pkgs.rustPlatform.buildRustPackage {
+					pname = "difz-rust-codec-tests";
+					version = "0.0.0";
+					src = pkgs.lib.fileset.toSource {
+						root = ./tests/codec_rust;
+						fileset = pkgs.lib.fileset.unions [
+							./tests/codec_rust/Cargo.toml
+							./tests/codec_rust/Cargo.lock
+							./tests/codec_rust/interop.rs
+						];
+					};
+					cargoLock.lockFile = ./tests/codec_rust/Cargo.lock;
+					strictDeps = true;
+					nativeBuildInputs = [ pkgs.jq ];
+					doCheck = false;
+					buildPhase = ''
+						runHook preBuild
+						CC=false CXX=false AR=false cargo test --locked --offline --release \
+							--lib --no-run --message-format=json > cargo-artifacts.json
+						runHook postBuild
+					'';
+					installPhase = ''
+						runHook preInstall
+						executable=$(jq -er 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null) | .executable' cargo-artifacts.json)
+						test -f "$executable"
+						install -Dm755 "$executable" "$out/bin/difz-codec-check"
+						runHook postInstall
+					'';
+				};
 		in
 			{
 				packages.default = releaseFast;
 				packages.zstd-benchmark = zstdBenchmark;
 				packages.performance-benchmark = performancePackage;
+				packages.rust-codec-tests = rustCodecTests;
 
 				checks = {
 					build = releaseFast;
 					test = zigBuild { optimize = "Debug"; doCheck = true; };
+					rust-codec = pkgs.runCommand "difz-rust-codec-check" {
+						nativeBuildInputs = with pkgs; [ bash coreutils diffutils ];
+					} ''
+						export HOME="$TMPDIR/home"
+						mkdir -p "$HOME"
+						bash ${./tests/codec_rust}/test_runner.bash
+						DIFZ_ORACLE=${releaseFast}/bin/difz \
+							DIFZ_CODEC_TEST=${rustCodecTests}/bin/difz-codec-check \
+							bash ${./tests/codec_rust}/test --test-threads=1
+						touch "$out"
+					'';
 					windows-gnu = pkgs.stdenv.mkDerivation {
 						pname = "difz-windows-gnu";
 						version = "0.1.0";
-						src = ./.;
+						src = zigSource;
 						nativeBuildInputs = [ pkgs.zig pkgs.binutils ];
 						dontConfigure = true;
 						dontInstall = true;

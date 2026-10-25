@@ -19,7 +19,8 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 	- [ ] Port the file codec, directory metadata and format, filesystem adapters, C API, and CLI while preserving the declared behavior and platform scope.
 - [x] Retire CODE_MINIMAP.md after migrating its useful architecture and file-purpose information into dirtree notes. (done 2026-10-23 14:41 EDT)
 - [ ] Conform the build to the cross-platform-project-build-arch skill, including canonical implementation selection where applicable, PF/VARIANT/profile outputs, safe host publication, the five-platform matrix, and Nix/native agreement.
-	- [ ] Move Rust probe preparation into pinned, source-bounded Nix derivations and execute prepared artifacts in preventive isolation, recording queue, setup, compilation, execution, and total feedback time.
+	- [x] Move candidate-codec QA into a pinned source-bounded Nix package and sandboxed check; verify compiler-free execution, artifact classification, and source membership. (done 2026-10-24 22:53 EDT; context: docs/plan_context/rust-port.md)
+	- [ ] Move the remaining host-side Zig tests and Rust FFI probes onto Nix-prepared artifacts with qualified preventive filesystem isolation and complete feedback accounting.
 - [x] Document failure containment when difz is a transitive Rust library dependency and distinguish tested Rust zstd candidates from source-reviewed candidates. (done 2026-10-23 14:41 EDT; context: docs/plan_context/rust-port.md)
 - [ ] Qualify metadata capture and restore on native macOS and Windows hosts; cross-builds establish compilation only. (context: docs/plan_context/metadata-v2.md)
 	- [ ] Resolve native-runner resource policy before scheduling additional remote build waves.

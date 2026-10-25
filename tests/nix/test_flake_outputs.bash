@@ -78,12 +78,16 @@ fi
 
 printf 'PASS benchmark random package inputs: %s\n' "$random_inputs"
 
-random_rev=$(nix eval --impure --raw --expr \
-	"(builtins.getFlake \"$FLAKE_REF\").inputs.random.rev" 2>/dev/null)
+flake_metadata=$(nix flake metadata --json "$FLAKE_REF" 2>/dev/null)
 rc=$?
-
 if [ "$rc" -ne 0 ]; then
 	printf 'FAIL random input revision could not be evaluated\n' >&2
+	exit 1
+fi
+random_rev=$(jq -er '.locks.nodes.random.locked.rev' <<< "$flake_metadata")
+rc=$?
+if [ "$rc" -ne 0 ]; then
+	printf 'FAIL random input revision is missing from flake metadata\n' >&2
 	exit 1
 fi
 
@@ -137,3 +141,35 @@ if [ "$rc" -ne 0 ] || [ "$rust_tools" != '["cargo","rustc"]' ]; then
 	exit 1
 fi
 printf 'PASS Rust interoperability checks have declared cargo and rustc tools\n'
+
+codec_outputs=$(nix eval --json --apply '
+	outputs: builtins.mapAttrs (_: packages:
+		builtins.filter (name: name == "rust-codec-tests") (builtins.attrNames packages)
+	) outputs
+' "$FLAKE_REF#packages" 2>/dev/null)
+rc=$?
+if [ "$rc" -ne 0 ] || [ "$codec_outputs" != '{"aarch64-darwin":["rust-codec-tests"],"aarch64-linux":["rust-codec-tests"],"x86_64-linux":["rust-codec-tests"]}' ]; then
+	printf 'FAIL every supported native system must expose prepared Rust codec tests\n' >&2
+	printf '     actual: %s\n' "$codec_outputs" >&2
+	exit 1
+fi
+if ! nix eval --raw "$FLAKE_REF#checks.${system}.rust-codec.name" >/dev/null 2>&1; then
+	printf 'FAIL the complete Nix checks must exercise the prepared Rust codec tests\n' >&2
+	exit 1
+fi
+printf 'PASS Rust codec test binaries and their runtime check are declared\n'
+
+source_membership=$(nix eval --json --apply 'source:
+	let
+		required = [ "build.zig" "build.zig.zon" "src/lib.zig" "src/difz.c" "src/difz.h" "scripts/flatten-static-lib" "tests/cli/test_cli.bash" "tests/ffi/caller.c" "tests/ffi/test_installed_lib.bash" ];
+		excluded = [ "PLAN.md" "README.md" "flake.nix" "tests/codec_rust/interop.rs" "tests/codec_rust/test_runner.bash" "docs/plan_context/rust-port.md" ];
+		present = path: builtins.pathExists (source + "/${path}");
+	in { required = map present required; excluded = map present excluded; }
+' "$FLAKE_REF#packages.${system}.default.src" 2>/dev/null)
+rc=$?
+if [ "$rc" -ne 0 ] || ! jq -e 'all(.required[]; . == true) and all(.excluded[]; . == false)' <<< "$source_membership" >/dev/null; then
+	printf 'FAIL Zig source closure must include build/runtime inputs and exclude docs and Rust codec QA\n' >&2
+	printf '     actual: %s\n' "$source_membership" >&2
+	exit 1
+fi
+printf 'PASS Zig source membership classifies required and unrelated path sets\n'
