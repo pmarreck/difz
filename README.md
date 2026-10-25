@@ -199,6 +199,12 @@ qualified. See [test preparation](docs/plan_context/test-preparation.md).
 
 ## Running benchmarks
 
+`./bm-parallel-apply` compares actual one/four/eight-worker decoding of ordinary
+and source-prefix streams using 32/64/128 MiB inputs and independent 4 MiB
+frames. Add `repeated-new` to expose the cost of losing references across new
+target chunks. It prepares through Nix and runs under preventive Linux isolation.
+See [the measurements and limits](docs/plan_context/parallel-zstd-apply.md).
+
 ```bash
 nix develop -c bash bm
 ```

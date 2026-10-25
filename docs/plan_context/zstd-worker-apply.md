@@ -1,5 +1,9 @@
 # Worker encoding, ordinary compression, and diff application
 
+Application measurements below use a serial decoder. Actual four/eight-worker
+decoding of independent ordinary and prefix frames is measured in
+[the parallel-application experiment](parallel-zstd-apply.md).
+
 The earlier [worker comparison](zstd-worker-modes.md) measured prefix-diff
 creation. Its result cannot establish that ordinary compression benefits
 little from workers, or that worker-produced diffs apply faster. Follow-up

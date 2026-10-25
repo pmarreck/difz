@@ -179,6 +179,7 @@
 							./tests/codec_rust/interop.rs
 							./tests/codec_rust/codecs.rs
 							./tests/codec_rust/probe.rs
+							./tests/codec_rust/parallel.rs
 						];
 					};
 					cargoLock.lockFile = ./tests/codec_rust/Cargo.lock;
@@ -187,11 +188,12 @@
 					doCheck = false;
 					buildPhase = ''
 						runHook preBuild
-						bindgen ${zstdBenchmark}/include/zstd.h \
-							--allowlist-function 'ZSTD_(getCParams|isError|compressBound|createCCtx|freeCCtx|CCtx_setParameter|CCtx_refPrefix|compress2|createDCtx|freeDCtx|DCtx_setMaxWindowSize|DCtx_refPrefix|decompressDCtx)' \
-							--allowlist-var 'ZSTD_(c_.*|btlazy2)' \
+						printf '#include <zstd.h>\n#include <time.h>\n' > probe_bindings.h
+						bindgen probe_bindings.h \
+							--allowlist-function 'ZSTD_(getCParams|isError|compressBound|createCCtx|freeCCtx|CCtx_setParameter|CCtx_refPrefix|compress2|createDCtx|freeDCtx|DCtx_setMaxWindowSize|DCtx_refPrefix|decompressDCtx|findFrameCompressedSize|getFrameContentSize)|clock_gettime' \
+							--allowlist-var 'ZSTD_(c_.*|btlazy2|CONTENTSIZE_.*)|CLOCK_PROCESS_CPUTIME_ID' \
 							--no-prepend-enum-name --no-layout-tests --formatter none \
-							-- -DZSTD_STATIC_LINKING_ONLY > zstd_bindings.rs
+							-- -I${zstdBenchmark}/include -DZSTD_STATIC_LINKING_ONLY > zstd_bindings.rs
 						export DIFZ_ZSTD_BINDINGS="$PWD/zstd_bindings.rs"
 						CC=false CXX=false AR=false cargo test --locked --offline --release \
 							--lib --no-run --message-format=json > cargo-artifacts.json
@@ -228,7 +230,7 @@
 						touch "$out"
 					'';
 					rust-codec = pkgs.runCommand "difz-rust-codec-check" {
-						nativeBuildInputs = with pkgs; [ bash coreutils diffutils jq ];
+						nativeBuildInputs = with pkgs; [ bash coreutils diffutils jq luajit ];
 					} ''
 						export HOME="$TMPDIR/home"
 						mkdir -p "$HOME"
@@ -238,6 +240,7 @@
 							DIFZ_CODEC_TEST=${rustCodecTests}/bin/difz-codec-check \
 							bash ${./tests/codec_rust}/test --test-threads=1
 						DIFZ_CODEC_PROBE=${rustCodecTests}/bin/difz-codec-probe \
+							DIFZ_SPLIT_ZSTD=${./tests/benchmark/parallel_apply/split_zstd.lua} \
 							ZSTD_CLI=${zstdBenchmark}/bin/zstd \
 							bash ${./tests/codec_rust}/test_probe.bash
 						touch "$out"

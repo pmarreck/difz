@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -u
+if [ "${1:-}" = prepare ]; then
+	rm -f -- "${PAR_OUTPUT:?}" "${PAR_WORK:?}/kernel.json"
+	exit $?
+fi
+cmp -s "${PAR_TARGET:?}" "${PAR_OUTPUT:?}" || exit 1
+expected_frames=1
+if [ "$PAR_LAYOUT" = chunks ]; then expected_frames=$((PAR_SIZE / PAR_CHUNK)); fi
+jq -e --argjson frames "$expected_frames" --argjson workers "$PAR_WORKERS" --argjson size "$PAR_SIZE" \
+	'.frames == $frames and .workers_used == $workers and .output_bytes == $size and .wall_ns > 0 and .cpu_ns > 0' \
+	"$PAR_WORK/kernel.json" >/dev/null || exit 1
+jq -c . "$PAR_WORK/kernel.json" >> "$PAR_WORK/kernels.ndjson" || exit 1

@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -u
+script_root=$(cd "$(dirname "$0")" && pwd) || exit 1
+export PAR_PROBE=${1:?prepared probe} PAR_CHUNK=4194304
+workload=${2:-mixed}
+case "$workload" in mixed|repeated-new) :;; *) printf 'Unknown workload\n' >&2; exit 2;; esac
+tick() {
+	read -r uptime _ < /proc/uptime || return 1
+	fraction="${uptime#*.}00"
+	printf '%s' "$(( ${uptime%.*} * 100 + 10#${fraction:0:2} ))"
+}
+start=$(tick) || exit 1
+mkdir -p "$TEST_WORKSPACE/project" "$TEST_WORKSPACE/fixtures" "$TEST_WORKSPACE/history" || exit 1
+export PAR_FIXTURES="$TEST_WORKSPACE/fixtures"
+if (printf forbidden > "$script_root/write-canary") 2> "$TEST_WORKSPACE/denied"; then
+	printf 'Read-only boundary failed\n' >&2; exit 1
+fi
+for file in adapter verify fixture.lua split_zstd.lua; do cp "$script_root/$file" "$TEST_WORKSPACE/project/$file" || exit 1; done
+cd "$TEST_WORKSPACE/project" || exit 1
+printf 'Generating 128 MiB %s binary source/target, seeds 42/43...\n' "$workload" >&2
+random --seed 42 -b -c 67108864 > "$PAR_FIXTURES/random" 2> "$TEST_WORKSPACE/random.stderr" || exit 1
+edit_bytes=8388608; [ "$workload" != repeated-new ] || edit_bytes=2097152
+random --seed 43 -b -c "$edit_bytes" > "$PAR_FIXTURES/edits" 2> "$TEST_WORKSPACE/random.stderr" || exit 1
+luajit fixture.lua "$PAR_FIXTURES" "$workload" || exit 1
+: > "$PAR_FIXTURES/empty"
+fixtures='[]'
+for size in 33554432 67108864 134217728; do
+	for name in source target; do head -c "$size" "$PAR_FIXTURES/$name" > "$PAR_FIXTURES/$name-$size" || exit 1; done
+	for kind in ordinary prefix; do
+		source="$PAR_FIXTURES/empty"; [ "$kind" != prefix ] || source="$PAR_FIXTURES/source-$size"
+		target="$PAR_FIXTURES/target-$size"
+		"$PAR_PROBE" encode c "$source" "$target" "$PAR_FIXTURES/$kind-mono-$size" > "$TEST_WORKSPACE/mono.json" || exit 1
+		"$PAR_PROBE" encode c-chunks "$source" "$target" "$PAR_FIXTURES/$kind-chunks-$size" "$PAR_CHUNK" 8 > "$TEST_WORKSPACE/chunks.json" || exit 1
+		prefix=(); [ "$kind" != prefix ] || prefix=(--patch-from="$source")
+		for layout in mono chunks; do
+			parts=$(mktemp -d "$TMPDIR/parallel-verify.XXXXXXXX") || exit 1
+			luajit split_zstd.lua "$PAR_FIXTURES/$kind-$layout-$size" "$parts" > "$parts/list" || exit 1
+			: > "$TEST_WORKSPACE/rebuilt"
+			while IFS= read -r part; do
+				zstd -q -f -d --long=31 "${prefix[@]}" "$parts/$part" -o "$parts/decoded" || exit 1
+				cat "$parts/decoded" >> "$TEST_WORKSPACE/rebuilt" || exit 1
+			done < "$parts/list"
+			cmp -s "$target" "$TEST_WORKSPACE/rebuilt" || exit 1
+			rm -rf -- "$parts"
+		done
+		source_sha=$(sha256sum "$source" | cut -d' ' -f1)
+		target_sha=$(sha256sum "$target" | cut -d' ' -f1)
+		mono_sha=$(sha256sum "$PAR_FIXTURES/$kind-mono-$size" | cut -d' ' -f1)
+		chunks_sha=$(sha256sum "$PAR_FIXTURES/$kind-chunks-$size" | cut -d' ' -f1)
+		mono_bytes=$(stat -c %s "$PAR_FIXTURES/$kind-mono-$size")
+		chunks_bytes=$(stat -c %s "$PAR_FIXTURES/$kind-chunks-$size")
+		fixtures=$(jq --arg kind "$kind" --argjson size "$size" --arg source "$source_sha" --arg target "$target_sha" \
+			--arg mono "$mono_sha" --arg chunks "$chunks_sha" --argjson mb "$mono_bytes" --argjson cb "$chunks_bytes" \
+			'. + [{kind:$kind,size:$size,source_sha256:$source,target_sha256:$target,mono_sha256:$mono,chunks_sha256:$chunks,mono_bytes:$mb,chunks_bytes:$cb}]' <<< "$fixtures") || exit 1
+		printf 'Verified %s %s MiB: one frame versus %s independent frames.\n' "$kind" "$((size/1048576))" "$((size/PAR_CHUNK))" >&2
+	done
+done
+jq -n --arg history "file://$TEST_WORKSPACE/history" --arg workload "$workload" '{schema:"performance-project/v1",project:("difz_parallel_apply_"+$workload),history_url:$history,
+	identity:{runtime:"rust-1.94.1-and-zstdz-abaedb3e-native-ffi",build_mode:"ReleaseFast",concurrency:1,sample_processes:1,worker_counts:[1,4,8]},
+	cases:[(1,4,8) as $cores | (33554432,67108864,134217728) as $size | ("ordinary","prefix") as $kind |
+		("mono","chunks") as $layout | (if $layout == "mono" then 1 else (1,4,8) end) as $workers | select($workers <= $cores) |
+		{name:($kind+"-"+$layout+"-w"+($workers|tostring)+"-c"+($cores|tostring)+"-"+($size|tostring)),
+		definition:("independent-4MiB-frames-full-source-prefix-"+$workload+"-v1"),cores:$cores,mode:"bm",metric:"wall_ns",comparison:"absolute",
+		bounds:[1,120000000000],sizes:[$size],timeout_ms:120000,command:["bash","adapter",$kind,$layout,($workers|tostring),"{sizes}"]}]}' > base.json || exit 1
+jq -c '.cases[]' base.json | random --seed 44 --shuffle > order.ndjson 2> "$TEST_WORKSPACE/shuffle.stderr" || exit 1
+jq --slurpfile cases order.ndjson '.cases=$cases' base.json > profiling.json || exit 1
+git init -q || exit 1
+git add adapter verify fixture.lua order.ndjson profiling.json base.json || exit 1
+git -c user.name=Benchmark -c user.email=benchmark@example.invalid commit -qm 'Freeze parallel apply experiment' || exit 1
+ready=$(tick) || exit 1
+printf 'Starting 54 decode cases, five fresh processes each; thread coordination is timed.\n' >&2
+performance-profile run --config profiling.json --mode bm --seed 42 > "$TEST_WORKSPACE/records.json" 2> "$TEST_WORKSPACE/profiler.stderr"
+status=$?
+cat "$TEST_WORKSPACE/profiler.stderr" >&2
+[ "$status" -eq 0 ] || [ "$status" -eq 1 ] || [ "$status" -eq 3 ] || exit "$status"
+finish=$(tick) || exit 1
+sha=$(sha256sum "$PAR_PROBE" | cut -d' ' -f1)
+jq -n --slurpfile records "$TEST_WORKSPACE/records.json" --argjson fixtures "$fixtures" --arg sha "$sha" --arg workload "$workload" \
+	--arg quota "$PAR_CPU_QUOTA" --argjson setup "$(((ready-start)*10))" --argjson elapsed "$(((finish-start)*10))" \
+	--argjson status "$status" '{records:$records[0],fixtures:$fixtures,probe_sha256:$sha,workload:$workload,cpu_quota_millicpus:$quota,
+		setup_ms:$setup,isolated_elapsed_ms:$elapsed,profiler_exit:$status}' || exit 1
+exit "$status"

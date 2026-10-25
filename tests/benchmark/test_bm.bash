@@ -456,5 +456,11 @@ else
 	fail "profiler honors case deadlines and kills the complete workload group"
 fi
 
+if bash "$ROOT_DIR/tests/benchmark/parallel_apply/test_contract.bash" > "$TEST_DIR/parallel.stdout" 2> "$TEST_DIR/parallel.stderr"; then
+	pass "parallel decoder sample verification rejects missing stale corrupt and falsely reported work"
+else
+	fail "parallel decoder sample verification rejects missing stale corrupt and falsely reported work" "$(cat "$TEST_DIR/parallel.stderr")"
+fi
+
 printf "\n%d tests, %d failures\n" "$TESTS" "$ERRORS"
 exit "$ERRORS"

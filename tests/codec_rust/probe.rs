@@ -5,6 +5,7 @@ use difz_rust_codec_check::codecs;
 use std::ffi::{c_void, OsString};
 use std::ptr::NonNull;
 use std::time::Instant;
+mod parallel;
 
 #[allow(
 	non_camel_case_types,
@@ -40,6 +41,19 @@ fn checked(result: usize) -> usize {
 		"zstd status {result}"
 	);
 	result
+}
+fn process_cpu_ns() -> u128 {
+	let mut stamp = std::mem::MaybeUninit::<native::timespec>::uninit();
+	// Bindings use this host's time.h; success initializes both timespec fields.
+	assert_eq!(
+		unsafe { native::clock_gettime(native::CLOCK_PROCESS_CPUTIME_ID as _, stamp.as_mut_ptr()) },
+		0
+	);
+	let stamp = unsafe { stamp.assume_init() };
+	let seconds = u128::try_from(stamp.tv_sec).unwrap();
+	let nanos = u128::try_from(stamp.tv_nsec).unwrap();
+	assert!(nanos < 1_000_000_000);
+	seconds * 1_000_000_000 + nanos
 }
 fn native_encode(source: &[u8], target: &[u8]) -> Vec<u8> {
 	// The returned context owns its state and is freed by Encoder.
@@ -97,17 +111,19 @@ fn native_encode(source: &[u8], target: &[u8]) -> Vec<u8> {
 	unsafe { output.set_len(written) };
 	output
 }
-fn native_decode(source: &[u8], frame: &[u8], expected: usize) -> Vec<u8> {
+fn decoder() -> Decoder {
 	let context =
 		Decoder(NonNull::new(unsafe { native::ZSTD_createDCtx() }).expect("zstd context"));
 	checked(unsafe { native::ZSTD_DCtx_setMaxWindowSize(context.0.as_ptr(), 1 << 31) });
+	context
+}
+fn native_decode_into(context: &Decoder, source: &[u8], frame: &[u8], output: &mut [u8]) {
 	if !source.is_empty() {
 		// Prefix storage remains immutable and live through this synchronous decode.
 		checked(unsafe {
 			native::ZSTD_DCtx_refPrefix(context.0.as_ptr(), source.as_ptr().cast(), source.len())
 		});
 	}
-	let mut output = vec![0; expected];
 	let destination = if output.is_empty() {
 		std::ptr::null_mut()
 	} else {
@@ -123,22 +139,37 @@ fn native_decode(source: &[u8], frame: &[u8], expected: usize) -> Vec<u8> {
 			frame.len(),
 		)
 	});
-	assert_eq!(written, expected);
+	assert_eq!(written, output.len());
+}
+fn native_decode(source: &[u8], frame: &[u8], expected: usize) -> Vec<u8> {
+	let context = decoder();
+	let mut output = vec![0; expected];
+	native_decode_into(&context, source, frame, &mut output);
 	output
 }
 fn run(arguments: &[OsString]) -> Result<(), String> {
 	if arguments.len() < 6 {
-		return Err("usage: difz-codec-probe encode|decode c|rusty|structured|structured-owned SOURCE INPUT OUTPUT [OUTPUT_BYTES]".into());
+		return Err("usage: difz-codec-probe encode|decode CODEC SOURCE INPUT OUTPUT [OUTPUT_BYTES]; c-chunks encode appends CHUNK_BYTES WORKERS, decode appends OUTPUT_BYTES WORKERS".into());
 	}
 	let operation = arguments[1].to_str().ok_or("invalid operation")?;
 	let codec = arguments[2].to_str().ok_or("invalid codec")?;
-	if !matches!(codec, "c" | "rusty" | "structured" | "structured-owned") {
+	if !matches!(
+		codec,
+		"c" | "c-chunks" | "rusty" | "structured" | "structured-owned"
+	) {
 		return Err("unknown codec".into());
 	}
 	if !matches!(operation, "encode" | "decode") {
 		return Err("unknown operation".into());
 	}
-	if arguments.len() != if operation == "encode" { 6 } else { 7 } {
+	let expected_arguments = if codec == "c-chunks" {
+		8
+	} else if operation == "encode" {
+		6
+	} else {
+		7
+	};
+	if arguments.len() != expected_arguments {
 		return Err("incorrect argument count".into());
 	}
 	let source = std::fs::read(&arguments[3]).map_err(|error| error.to_string())?;
@@ -152,22 +183,64 @@ fn run(arguments: &[OsString]) -> Result<(), String> {
 	} else {
 		0
 	};
+	let workers = if codec == "c-chunks" {
+		arguments[7]
+			.to_str()
+			.ok_or("invalid workers")?
+			.parse::<usize>()
+			.map_err(|error| error.to_string())?
+	} else {
+		1
+	};
+	if !(1..=64).contains(&workers) {
+		return Err("workers must be in 1..=64".into());
+	}
+	let chunk_bytes = if codec == "c-chunks" && operation == "encode" {
+		arguments[6]
+			.to_str()
+			.ok_or("invalid chunk size")?
+			.parse::<usize>()
+			.map_err(|error| error.to_string())?
+	} else {
+		1
+	};
+	if chunk_bytes == 0 {
+		return Err("chunk size must be positive".into());
+	}
+	let cpu_start = process_cpu_ns();
 	let start = Instant::now();
+	let mut frames = 1;
+	let mut workers_used = 1;
 	let output = match (operation, codec) {
 		("encode", "c") => native_encode(&source, &input),
+		("encode", "c-chunks") => {
+			let result = parallel::encode(&source, &input, chunk_bytes, workers);
+			frames = result.1;
+			workers_used = result.2;
+			result.0
+		}
 		("encode", "rusty") => codecs::rust_frame(&source, &input, None),
 		("encode", "structured") => codecs::structured_frame(&source, &input, None),
 		("encode", "structured-owned") => codecs::structured_frame_owned(source, &input, None),
 		("decode", "c") => native_decode(&source, &input, expected),
+		("decode", "c-chunks") => {
+			let result = parallel::decode(&source, &input, expected, workers);
+			frames = result.1;
+			workers_used = result.2;
+			result.0
+		}
 		("decode", "rusty") => codecs::rust_decode(&input, &source, expected),
 		("decode", "structured") => codecs::structured_decode(&input, &source, expected),
 		("decode", "structured-owned") => codecs::structured_decode_owned(&input, source, expected),
 		_ => unreachable!(),
 	};
 	let wall_ns = start.elapsed().as_nanos();
+	let cpu_ns = process_cpu_ns()
+		.checked_sub(cpu_start)
+		.expect("monotonic process CPU clock");
 	std::fs::write(&arguments[5], &output).map_err(|error| error.to_string())?;
 	println!(
-		"{{\"wall_ns\":{wall_ns},\"output_bytes\":{}}}",
+		"{{\"wall_ns\":{wall_ns},\"cpu_ns\":{cpu_ns},\"output_bytes\":{},\"frames\":{frames},\"workers_used\":{workers_used}}}",
 		output.len()
 	);
 	Ok(())

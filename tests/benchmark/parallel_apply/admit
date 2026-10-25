@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Read CPU limits before entering a private cgroup namespace; never change them.
+set -u
+[ "$(uname -s)" = Linux ] || { printf 'Linux confinement is required\n' >&2; exit 69; }
+group=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
+cursor="/sys/fs/cgroup$group"
+quota=unlimited
+seen=0
+while [ "$cursor" != /sys/fs ]; do
+	if [ -r "$cursor/cpu.max" ]; then
+		read -r amount period < "$cursor/cpu.max" || exit 1
+		seen=1
+		if [ "$amount" != max ]; then
+			millicpus=$((amount * 1000 / period))
+			if [ "$quota" = unlimited ] || [ "$millicpus" -lt "$quota" ]; then quota=$millicpus; fi
+		fi
+	fi
+	cursor=${cursor%/*}
+done
+[ "$seen" -eq 1 ] || { printf 'Cannot verify CPU quota\n' >&2; exit 1; }
+if [ "$quota" != unlimited ] && [ "$quota" -lt 8000 ]; then
+	printf 'Eight-core measurement unavailable under the current CPU quota\n' >&2; exit 1
+fi
+export PAR_CPU_QUOTA="$quota"
+exec scripts/run-tests-isolated -- bash tests/benchmark/parallel_apply/run "${1:?prepared probe}" "${2:-mixed}"

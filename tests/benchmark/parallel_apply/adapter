@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -u
+kind=${1:?ordinary or prefix}; layout=${2:?mono or chunks}; workers=${3:?workers}; size=${4:?size}
+work=$(mktemp -d "$TMPDIR/parallel-sample.XXXXXXXX") || exit 1
+trap 'rm -rf -- "$work"' EXIT
+export PAR_WORK="$work" PAR_OUTPUT="$work/output" PAR_TARGET="$PAR_FIXTURES/target-$size"
+export PAR_SIZE="$size" PAR_LAYOUT="$layout" PAR_WORKERS="$workers"
+source="$PAR_FIXTURES/empty"
+[ "$kind" != prefix ] || source="$PAR_FIXTURES/source-$size"
+frame="$PAR_FIXTURES/$kind-$layout-$size"
+codec=c; [ "$layout" != chunks ] || codec=c-chunks
+command=("$PAR_PROBE" decode "$codec" "$source" "$frame" "$PAR_OUTPUT" "$size")
+[ "$layout" != chunks ] || command+=("$workers")
+"${command[@]}" > "$work/kernel.json" 2> "$work/warm.stderr" || { cat "$work/warm.stderr" >&2; exit 1; }
+bash ./verify || exit 1
+: > "$work/kernels.ndjson"
+time_bin=$(type -P time) || exit 1
+printf -v timed '%q ' "$time_bin" -a -o "$work/resources" -f '%U %S %M %x' "${command[@]}"
+printf -v kernel '%q' "$work/kernel.json"
+printf -v prepare '%q ' bash ./verify prepare
+printf -v verify '%q ' bash ./verify
+if ! hyperfine --shell bash --warmup 0 --runs 5 --style none --export-json "$work/hyperfine.json" \
+	--prepare "$prepare" --conclude "$verify" "$timed > $kernel" > "$work/hyperfine.stdout" 2> "$work/hyperfine.stderr"; then
+	cat "$work/hyperfine.stderr" >&2; exit 1
+fi
+resources=$(jq -Rn '[inputs | split(" ") | map(tonumber) | {user_s:.[0],system_s:.[1],peak_bytes:(.[2]*1024),exit:.[3]}]' < "$work/resources") || exit 1
+jq -e 'length == 5 and all(.[]; .exit == 0 and .peak_bytes > 0)' <<< "$resources" >/dev/null || exit 1
+bytes=$(stat -c %s "$frame") || exit 1
+jq --arg kind "$kind" --arg layout "$layout" --argjson workers "$workers" --argjson size "$size" \
+	--argjson resources "$resources" --argjson bytes "$bytes" --slurpfile kernels "$work/kernels.ndjson" '{
+	schema:"performance-measurement/v1",correct:true,build_mode:"ReleaseFast",kind:$kind,layout:$layout,workers:$workers,
+	rows:[{size:$size,compressed_bytes:$bytes,samples:{wall_ns:($kernels|map(.wall_ns)),cpu_ns:($kernels|map(.cpu_ns)),
+		user_s:($resources|map(.user_s)),system_s:($resources|map(.system_s)),peak_bytes:($resources|map(.peak_bytes))},
+		frames:$kernels[0].frames,workers_used:$kernels[0].workers_used,
+		whole_process_wall_ns:(.results[0].times|map(.*1000000000))}],
+	measurement:"fresh process/context; codec wall/process CPU include frame scanning, output allocation, thread setup/join and context cleanup; separate whole-process wall/CPU/RSS include warm RAM file I/O; byte verification outside timing"
+}' "$work/hyperfine.json" || exit 1

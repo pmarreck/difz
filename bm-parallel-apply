@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Extended, verified parallel-decode experiment; JSON results go to stdout.
+set -u
+cd "$(dirname "$0")" || exit 1
+prefix=$(nix build --no-update-lock-file --no-link --print-out-paths .#rust-codec-tests) || exit 1
+command=(nix develop --no-update-lock-file -c bash tests/benchmark/parallel_apply/admit "$prefix/bin/difz-codec-probe" "${1:-mixed}")
+if command -v build-budget >/dev/null 2>&1; then
+	exec build-budget --project difz -- "${command[@]}"
+fi
+exec "${command[@]}"
