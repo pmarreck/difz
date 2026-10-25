@@ -22,9 +22,9 @@ elapsed() {
 }
 started=$(clock_tick)
 printf 'Checking flake contracts and preparing all test artifacts through Nix...\n'
-if ! nix develop -c bash tests/nix/test_flake_outputs.bash; then errors=$((errors + 1)); fi
+if ! nix develop --no-update-lock-file -c bash tests/nix/test_flake_outputs.bash; then errors=$((errors + 1)); fi
 system=$(nix eval --impure --raw --expr builtins.currentSystem) || exit 1
-if nix build --no-link --json -L \
+if nix build --no-update-lock-file --no-link --json -L \
 	".#packages.${system}.host-tests" \
 	".#checks.${system}.test" \
 	".#checks.${system}.benchmark-contract" \
@@ -38,16 +38,16 @@ fi
 prepared_at=$(clock_tick)
 printf 'Nix preparation and sandbox checks: %s (evaluation, builds, and cached/fresh checks combined).\n' "$(elapsed "$started" "$prepared_at")"
 if [ "$prepared" -eq 1 ]; then
-	prefix=$(nix develop -c jq -er '
+	prefix=$(nix develop --no-update-lock-file -c jq -er '
 		[ .[] | .outputs.out | select(endswith("-difz-host-tests")) ] |
 		if length == 1 then .[0] else error("expected one prepared host-test output") end
 	' "$manifest") || exit 1
 	printf 'Running prepared host tests within the verified filesystem boundary...\n'
 	if [ "$(uname -s)" = Linux ] && command -v build-budget >/dev/null 2>&1; then
-		build-budget --project difz -- nix develop -c bash tests/run-host-tests "$prefix"
+		build-budget --project difz -- nix develop --no-update-lock-file -c bash tests/run-host-tests "$prefix"
 		status=$?
 	else
-		nix develop -c bash tests/run-host-tests "$prefix"
+		nix develop --no-update-lock-file -c bash tests/run-host-tests "$prefix"
 		status=$?
 	fi
 	[ "$status" -eq 0 ] || errors=$((errors + 1))

@@ -12,7 +12,6 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 	- [x] Characterize four-job prefix reach, deterministic output, frame counts, current native acceptance, and advertised-window limits for Rusty_zstd and zstdz. (done 2026-10-24 23:06 EDT; context: docs/plan_context/rust-port.md)
 	- [ ] Qualify bounded hostile-prefix decoding and complete output/window resource contracts before adopting a Rust codec or multi-frame encoding.
 	- [x] Measure zstdz level-9 single-thread versus worker modes on partially compressible seeded-random prefix deltas; preserve all 72 verified samples and source-derived multi-job coverage. (done 2026-10-24 11:29 EDT; context: docs/plan_context/zstd-worker-modes.md)
-	- [x] Investigate structured-zstd's design intent, raw-prefix APIs, history limits, and upstream-reported performance; preserve all seven level-9 scenarios. (done 2026-10-24 10:16 EDT; context: docs/plan_context/rust-port.md)
 	- [x] Qualify Structured-zstd prefix cross-apply, caller-output bounds, checksum verification, and window behavior in Nix; retain complete hostile-input qualification as an adoption gate. (done 2026-10-25 00:28 EDT; context: docs/plan_context/rust-codec-measurements.md)
 	- [x] Compare optimized zstdz, Rusty, and Structured codecs on verified 4/16/64 MiB prefix deltas, including source-ownership controls and all 258 timed samples. (done 2026-10-25 00:28 EDT; context: docs/plan_context/rust-codec-measurements.md)
 	- [ ] Establish product-wide differential acceptance tests before replacing any production entry point; qualify codec output limits and performance separately.
@@ -21,6 +20,7 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 - [ ] Conform the build to the cross-platform-project-build-arch skill, including canonical implementation selection where applicable, PF/VARIANT/profile outputs, safe host publication, the five-platform matrix, and Nix/native agreement.
 	- [x] Move candidate-codec QA into a pinned source-bounded Nix package and sandboxed check; verify compiler-free execution, artifact classification, and source membership. (done 2026-10-24 22:53 EDT; context: docs/plan_context/rust-port.md)
 	- [x] Move host-side Zig tests and Rust FFI probes onto Nix-prepared artifacts with preventive Linux filesystem isolation and separate preparation/execution timing. (done 2026-10-25 00:46 EDT; context: docs/plan_context/test-preparation.md)
+	- [x] Batch flake-contract evaluation and bound benchmark sources; preserve fresh/cached feedback measurements and verify planning edits leave the benchmark derivation unchanged. (done 2026-10-25 01:04 EDT; context: docs/plan_context/test-preparation.md)
 	- [ ] Qualify native macOS and Windows preventive test boundaries before claiming complete native test execution there. (context: docs/plan_context/test-preparation.md)
 - [ ] Qualify metadata capture and restore on native macOS and Windows hosts; cross-builds establish compilation only. (context: docs/plan_context/metadata-v2.md)
 	- [ ] Resolve native-runner resource policy before scheduling additional remote build waves.

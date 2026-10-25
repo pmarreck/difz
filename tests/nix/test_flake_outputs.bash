@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-
-# Contract test for difz's supported native flake outputs.
-
+# Contract test for supported outputs, using one immutable flake evaluation.
 set -u
-
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 FLAKE_REF="${FLAKE_REF:-$ROOT_DIR}"
 EXPECTED='["aarch64-darwin","aarch64-linux","x86_64-linux"]'
@@ -11,180 +8,66 @@ EXPECTED_RANDOM_INPUTS='["random-luajit"]'
 EXPECTED_RANDOM_REV='a758c902143f8f1dc08c3f33964b8fde7e4a2218'
 EXPECTED_CI_TEST_COMMAND='./test'
 EXPECTED_CI_BADGE='[![CI](https://github.com/pmarreck/difz/actions/workflows/ci.yml/badge.svg?branch=yolo)](https://github.com/pmarreck/difz/actions/workflows/ci.yml)'
-
 if ! grep -Fqx -- "$EXPECTED_CI_BADGE" "$ROOT_DIR/README.md"; then
-	printf 'FAIL README GitHub CI badge\n' >&2
-	printf '     expected: %s\n' "$EXPECTED_CI_BADGE" >&2
-	exit 1
+	printf 'FAIL README GitHub CI badge\n' >&2; exit 1
 fi
-
 printf 'PASS README GitHub CI badge targets ci.yml on yolo\n'
-
 ci_test_command=$(awk '
-	/^[[:space:]]*-[[:space:]]+name:[[:space:]]+Test[[:space:]]*$/ {
-		in_test_step = 1
-		next
-	}
+	/^[[:space:]]*-[[:space:]]+name:[[:space:]]+Test[[:space:]]*$/ { in_test_step = 1; next }
 	in_test_step && /^[[:space:]]+run:[[:space:]]*/ {
-		sub(/^[[:space:]]+run:[[:space:]]*/, "")
-		print
-		exit
+		sub(/^[[:space:]]+run:[[:space:]]*/, ""); print; exit
 	}
 ' "$ROOT_DIR/.github/workflows/ci.yml")
-
 if [ "$ci_test_command" != "$EXPECTED_CI_TEST_COMMAND" ]; then
-	printf 'FAIL GitHub CI Test command\n' >&2
-	printf '     expected: %s\n' "$EXPECTED_CI_TEST_COMMAND" >&2
-	printf '     actual:   %s\n' "$ci_test_command" >&2
-	exit 1
+	printf 'FAIL GitHub CI Test command\n' >&2; exit 1
 fi
-
 printf 'PASS GitHub CI Test command: %s\n' "$ci_test_command"
 
-actual=$(nix eval --json --apply 'outputs: builtins.attrNames outputs' "$FLAKE_REF#packages" 2>/dev/null)
-rc=$?
-
-if [ "$rc" -ne 0 ]; then
-	printf 'FAIL flake package systems could not be evaluated\n' >&2
-	exit 1
-fi
-
-if [ "$actual" != "$EXPECTED" ]; then
-	printf 'FAIL flake package systems\n' >&2
-	printf '     expected: %s\n' "$EXPECTED" >&2
-	printf '     actual:   %s\n' "$actual" >&2
-	exit 1
-fi
-
-printf 'PASS flake package systems: %s\n' "$actual"
-
-system="$(nix eval --impure --raw --expr builtins.currentSystem)"
-random_inputs=$(nix eval --json \
-	--apply 'drv: builtins.filter (name: builtins.match "^random($|-).*" name != null) (map (input: input.pname or input.name or "") drv.nativeBuildInputs)' \
-	"$FLAKE_REF#checks.${system}.benchmark-contract" 2>/dev/null)
-rc=$?
-
-if [ "$rc" -ne 0 ]; then
-	printf 'FAIL benchmark random package could not be evaluated\n' >&2
-	exit 1
-fi
-
-if [ "$random_inputs" != "$EXPECTED_RANDOM_INPUTS" ]; then
-	printf 'FAIL benchmark random package\n' >&2
-	printf '     expected inputs: %s\n' "$EXPECTED_RANDOM_INPUTS" >&2
-	printf '     actual inputs:   %s\n' "$random_inputs" >&2
-	exit 1
-fi
-
-printf 'PASS benchmark random package inputs: %s\n' "$random_inputs"
-
-flake_metadata=$(nix flake metadata --json "$FLAKE_REF" 2>/dev/null)
-rc=$?
-if [ "$rc" -ne 0 ]; then
-	printf 'FAIL random input revision could not be evaluated\n' >&2
-	exit 1
-fi
-random_rev=$(jq -er '.locks.nodes.random.locked.rev' <<< "$flake_metadata")
-rc=$?
-if [ "$rc" -ne 0 ]; then
-	printf 'FAIL random input revision is missing from flake metadata\n' >&2
-	exit 1
-fi
-
+# Resolve through Git-aware Nix metadata so ignored build caches never enter
+# the source snapshot. Evaluating a plain working-directory path would copy them.
+flake_metadata=$(nix flake metadata --json --no-update-lock-file "$FLAKE_REF" 2>/dev/null) || {
+	printf 'FAIL flake metadata could not be evaluated without updating the lock\n' >&2; exit 1;
+}
+source_path=$(jq -er '.path | select(type == "string" and startswith("/nix/store/"))' <<< "$flake_metadata") || exit 1
+contract=$(DIFZ_FLAKE_SNAPSHOT="$source_path" nix eval --impure --json --no-update-lock-file \
+	--file "$ROOT_DIR/tests/nix/flake_contracts.nix" \
+	--apply 'query: query { source = builtins.getEnv "DIFZ_FLAKE_SNAPSHOT"; }' 2>/dev/null) || {
+	printf 'FAIL flake contract snapshot could not be evaluated\n' >&2; exit 1;
+}
+expect_json() {
+	actual=$(jq -c "$1" <<< "$contract") || { printf 'FAIL invalid contract query\n' >&2; exit 1; }
+	if [ "$actual" != "$2" ]; then
+		printf 'FAIL %s\n     actual: %s\n' "$3" "$actual" >&2; exit 1
+	fi
+	printf 'PASS %s\n' "$3"
+}
+require_json() {
+	if ! jq -e "$1" <<< "$contract" >/dev/null; then
+		printf 'FAIL %s\n' "$2" >&2; exit 1
+	fi
+	printf 'PASS %s\n' "$2"
+}
+expect_json '.systems' "$EXPECTED" "flake package systems: $EXPECTED"
+expect_json '.randomInputs' "$EXPECTED_RANDOM_INPUTS" "benchmark random package inputs: $EXPECTED_RANDOM_INPUTS"
+random_rev=$(jq -er '.locks.nodes.random.locked.rev' <<< "$flake_metadata") || exit 1
 if [ "$random_rev" != "$EXPECTED_RANDOM_REV" ]; then
-	printf 'FAIL random input revision\n' >&2
-	printf '     expected: %s\n' "$EXPECTED_RANDOM_REV" >&2
-	printf '     actual:   %s\n' "$random_rev" >&2
-	exit 1
+	printf 'FAIL random input revision\n' >&2; exit 1
 fi
-
 printf 'PASS random input revision: %s\n' "$random_rev"
-
-# Read the library pin independently of the flake's benchmark packaging.
 zstd_url=$(awk '/\.zstdz = / { in_zstd = 1 } in_zstd && /\.url = / { split($0, fields, "\""); print fields[2]; exit }' "$ROOT_DIR/build.zig.zon")
-shell_zstd_url=$(nix eval --raw \
-	--apply 'shell: (builtins.head (builtins.filter (input: (input.pname or "") == "zstd") shell.nativeBuildInputs)).src.url' \
-	"$FLAKE_REF#devShells.${system}.default" 2>/dev/null)
-rc=$?
-if [ "$rc" -ne 0 ] || [ -z "$zstd_url" ] || [ "$shell_zstd_url" != "$zstd_url" ]; then
-	printf 'FAIL benchmark CLI must use the zstdz library source pin\n' >&2
-	printf '     expected: %s\n     actual:   %s\n' "$zstd_url" "$shell_zstd_url" >&2
-	exit 1
+shell_zstd_url=$(jq -er '.zstdUrl' <<< "$contract") || exit 1
+if [ -z "$zstd_url" ] || [ "$shell_zstd_url" != "$zstd_url" ]; then
+	printf 'FAIL benchmark CLI must use the zstdz library source pin\n' >&2; exit 1
 fi
 printf 'PASS benchmark CLI shares the zstdz library source pin\n'
-
-if ! nix eval --raw "$FLAKE_REF#checks.${system}.windows-gnu.name" >/dev/null 2>&1; then
-	printf 'FAIL windows-gnu cross check is missing\n' >&2
-	exit 1
-fi
-printf 'PASS windows-gnu cross check is declared\n'
-
-if ! nix eval --raw "$FLAKE_REF#packages.aarch64-linux.default.name" >/dev/null 2>&1; then
-	printf 'FAIL aarch64-linux package does not evaluate\n' >&2
-	exit 1
-fi
-printf 'PASS aarch64-linux package evaluates\n'
-
-if [ ! -x "$ROOT_DIR/fuzz" ]; then
-	printf 'FAIL ./fuzz is not an executable fuzzing suite\n' >&2
-	exit 1
-fi
+require_json '.windowsCheck | type == "string" and length > 0' 'windows-gnu cross check is declared'
+require_json '.armPackage | type == "string" and length > 0' 'aarch64-linux package evaluates'
+if [ ! -x "$ROOT_DIR/fuzz" ]; then printf 'FAIL ./fuzz is not an executable fuzzing suite\n' >&2; exit 1; fi
 printf 'PASS ./fuzz is executable\n'
-
-rust_tools=$(nix eval --json \
-	--apply 'shell: builtins.sort builtins.lessThan (builtins.filter (name: builtins.elem name [ "cargo" "rustc" ]) (map (input: input.pname or input.name or "") shell.nativeBuildInputs))' \
-	"$FLAKE_REF#devShells.${system}.default" 2>/dev/null)
-rc=$?
-if [ "$rc" -ne 0 ] || [ "$rust_tools" != '["cargo","rustc"]' ]; then
-	printf 'FAIL Rust interoperability checks require declared cargo and rustc tools\n' >&2
-	printf '     actual: %s\n' "$rust_tools" >&2
-	exit 1
-fi
-printf 'PASS Rust interoperability checks have declared cargo and rustc tools\n'
-
-codec_outputs=$(nix eval --json --apply '
-	outputs: builtins.mapAttrs (_: packages:
-		builtins.filter (name: name == "rust-codec-tests") (builtins.attrNames packages)
-	) outputs
-' "$FLAKE_REF#packages" 2>/dev/null)
-rc=$?
-if [ "$rc" -ne 0 ] || [ "$codec_outputs" != '{"aarch64-darwin":["rust-codec-tests"],"aarch64-linux":["rust-codec-tests"],"x86_64-linux":["rust-codec-tests"]}' ]; then
-	printf 'FAIL every supported native system must expose prepared Rust codec tests\n' >&2
-	printf '     actual: %s\n' "$codec_outputs" >&2
-	exit 1
-fi
-if ! nix eval --raw "$FLAKE_REF#checks.${system}.rust-codec.name" >/dev/null 2>&1; then
-	printf 'FAIL the complete Nix checks must exercise the prepared Rust codec tests\n' >&2
-	exit 1
-fi
-printf 'PASS Rust codec test binaries and their runtime check are declared\n'
-
-prepared_outputs=$(nix eval --json --apply '
-	outputs: builtins.mapAttrs (_: packages: builtins.hasAttr "host-tests" packages) outputs
-' "$FLAKE_REF#packages" 2>/dev/null)
-rc=$?
-if [ "$rc" -ne 0 ] || ! jq -e 'length == 3 and all(.[]; . == true)' <<< "$prepared_outputs" >/dev/null; then
-	printf 'FAIL every native system must expose Nix-prepared host tests\n' >&2
-	exit 1
-fi
-printf 'PASS native host test artifacts have declared Nix outputs\n'
-if ! nix eval --raw "$FLAKE_REF#checks.${system}.rust-ffi.name" >/dev/null 2>&1; then
-	printf 'FAIL the installed Rust consumer must have a Nix runtime check\n' >&2
-	exit 1
-fi
-printf 'PASS installed Rust consumer runtime has a declared Nix check\n'
-
-source_membership=$(nix eval --json --apply 'source:
-	let
-		required = [ "build.zig" "build.zig.zon" "src/lib.zig" "src/difz.c" "src/difz.h" "scripts/flatten-static-lib" "tests/cli/test_cli.bash" "tests/ffi/caller.c" "tests/ffi/rust_caller.rs" "tests/ffi/test_installed_lib.bash" ];
-		excluded = [ "PLAN.md" "README.md" "flake.nix" "scripts/run-tests-isolated" "tests/run-prepared-host" "tests/codec_rust/interop.rs" "tests/codec_rust/test_runner.bash" "docs/plan_context/rust-port.md" ];
-		present = path: builtins.pathExists (source + "/${path}");
-	in { required = map present required; excluded = map present excluded; }
-' "$FLAKE_REF#packages.${system}.default.src" 2>/dev/null)
-rc=$?
-if [ "$rc" -ne 0 ] || ! jq -e 'all(.required[]; . == true) and all(.excluded[]; . == false)' <<< "$source_membership" >/dev/null; then
-	printf 'FAIL Zig source closure must include build/runtime inputs and exclude docs and Rust codec QA\n' >&2
-	printf '     actual: %s\n' "$source_membership" >&2
-	exit 1
-fi
-printf 'PASS Zig source membership classifies required and unrelated path sets\n'
+expect_json '.rustTools' '["cargo","rustc"]' 'Rust interoperability checks have declared cargo and rustc tools'
+expect_json '.codecOutputs' '{"aarch64-darwin":["rust-codec-tests"],"aarch64-linux":["rust-codec-tests"],"x86_64-linux":["rust-codec-tests"]}' 'Rust codec packages are declared for every native system'
+require_json '.codecCheck | type == "string" and length > 0' 'Rust codec runtime check is declared'
+require_json '.hostOutputs | length == 3 and all(.[]; . == true)' 'native host test artifacts have declared Nix outputs'
+require_json '.rustFfiCheck | type == "string" and length > 0' 'installed Rust consumer runtime has a declared Nix check'
+require_json '(.zigSource.required | length == 10 and all(.[]; . == true)) and (.zigSource.excluded | length == 8 and all(.[]; . == false))' 'Zig source membership classifies required and unrelated path sets'
+require_json '(.benchmarkSource.required | length == 11 and all(.[]; . == true)) and (.benchmarkSource.excluded | length == 8 and all(.[]; . == false))' 'benchmark source membership classifies required and unrelated path sets'

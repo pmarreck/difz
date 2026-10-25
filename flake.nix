@@ -36,6 +36,10 @@
 						./tests/ffi
 					];
 				};
+				benchmarkSource = pkgs.lib.fileset.toSource {
+					root = ./.;
+					fileset = pkgs.lib.fileset.unions [ ./bm ./profiling.json ./README.md ./tests/benchmark ];
+				};
 
 				# Single hash for the entire Zig dependency tree.
 				# To update: set to "" or pkgs.lib.fakeHash, run `nix build`,
@@ -261,12 +265,13 @@
 					};
 					benchmark-contract = pkgs.runCommand "difz-benchmark-contract"
 						{
+							src = benchmarkSource;
 							nativeBuildInputs = with pkgs; [
 								bash coreutils file gnugrep gnused gawk time jq hyperfine luajit randomPackage zstdBenchmark
 							];
 							PERFORMANCE_PROCESS_MODULE = "${performancePackage}/share/performance-profile/src/process.lua";
 						} ''
-							cp -r ${./.} work
+							cp -r "$src" work
 							chmod -R u+w work
 							cd work
 							DIFZ=${releaseFast}/bin/difz \

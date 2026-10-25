@@ -4,7 +4,8 @@ The complete `./test` prepares all executables through one `nix build`
 invocation. Its output manifest identifies the exact host-test artifact;
 execution does not reevaluate a potentially changed source tree to choose
 another output. No host-side Zig, Cargo, or Rust compiler fallback remains
-in the complete test entry point.
+in the complete test entry point. Preparation refuses lock updates rather than
+rewriting the checkout during a test run.
 
 `packages.<system>.host-tests` joins the Debug CLI and unit-test executable
 with the Rust C-ABI consumer. The Zig build's `test-artifacts` step installs
@@ -66,7 +67,8 @@ their fixed IDs. No production ACL behavior changed or required test was skipped
 
 ## Validation, 2026-10-25
 
-The final complete Linux x86_64 entry point passed with these fresh host results:
+The complete Linux x86_64 entry point passed with these fresh host results
+before the feedback optimization below:
 
 | Suite | Result | Execution |
 | --- | --- | ---: |
@@ -75,7 +77,7 @@ The final complete Linux x86_64 entry point passed with these fresh host results
 | Debug CLI, default metadata and real PTY | 92 passed, zero failed | 540 ms |
 | Rust C-ABI consumer | Buffer ownership, limits, directory behavior, static codec linkage passed | 20 ms |
 
-The final host phase, including confinement qualification, environment
+That host phase, including confinement qualification, environment
 setup, resource admission and result delivery, took 4.71 seconds. Nix
 evaluation/preparation/sandbox checks took 12.46 seconds; the total was
 17.17 seconds. Executables were reused; the benchmark-contract check rebuilt
@@ -89,7 +91,7 @@ reported 52 seconds in its build phase; several Zig targets also rebuilt.
 The confined host phase meets the five-second execution budget on this run;
 total fresh execution across the mixed Nix phase is not separately measured,
 so full-suite latency conformance is not claimed. Repeated Nix evaluation and
-the benchmark check's broad source closure remain feedback costs to investigate.
+the benchmark check's broad source closure were investigated below.
 
 The earlier failed full run took 105.29 seconds, including 97.50 seconds
 of Nix work and 7.79 seconds in the phase that hit the working-directory
@@ -108,3 +110,40 @@ The broader build migration still needs PF/VARIANT publication, canonical
 implementation selection where appropriate, and native agreement across the
 five supported platforms. Native-runner policy and the production Rust codec
 choice remain separate dependencies.
+
+## Feedback investigation
+
+The original preflight used thirteen Nix commands and took 5.23 seconds in
+one warm observation. Adding the benchmark-source classifier brought that
+to fourteen commands and 5.79 seconds. A single snapshot query now reads all
+flake fields from the immutable Git-filtered store path returned by
+`nix flake metadata`. This avoids copying ignored working-tree caches while
+keeping related field reads on the same source snapshot. The Bash assertions
+retain the package, pin, tool, runtime-check and source-membership expectations.
+Required/excluded path sets also have explicit expected counts.
+
+The consolidated preflight uses two Nix commands and took 1.11 seconds in
+one observation. These individual GNU-time measurements exclude the enclosing
+`nix develop` setup. They explain an observed feedback cost; they are not an
+approved performance baseline or a general speed multiplier.
+
+The benchmark check's source closure now contains only `bm`, `profiling.json`,
+the README's tested performance claims, and `tests/benchmark`. Eleven required
+paths and eight exclusions are checked as sets. The new assertion failed
+against the original broad input and passed after narrowing it. All 25 actual
+benchmark-contract assertions still execute. Planning notes, unrelated codec
+QA, and product-source edits no longer invalidate this source closure; a
+product change can still invalidate the separately linked difz oracle.
+
+The first complete run with these changes passed in 13.60 seconds: 8.91 seconds
+for Nix work, including a fresh benchmark check, and 4.69 seconds in the host
+phase. Fresh host core/CLI/Rust-FFI execution took 410/510/20 ms; the exhaustive
+artifact-set classifier took 510 ms. No executable compilation was needed.
+
+After changing only these planning notes, the benchmark derivation path
+remained byte-identical. A subsequent complete run reused all five Nix check
+results and passed in 7.44 seconds: 4.50 seconds for preflight/preparation and
+2.94 seconds for the fresh confined host phase. The classifier/core/CLI/Rust
+consumer took 520/430/530/20 ms. These observations retain the earlier
+17.17-second result and distinguish cached checks from fresh execution;
+they do not establish full-suite fresh-execution latency conformance.
