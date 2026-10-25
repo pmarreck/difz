@@ -13,12 +13,11 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 	- [ ] Qualify bounded hostile-prefix decoding and complete output/window resource contracts before adopting a Rust codec or multi-frame encoding.
 	- [x] Measure zstdz level-9 single-thread versus worker modes on partially compressible seeded-random prefix deltas; preserve all 72 verified samples and source-derived multi-job coverage. (done 2026-10-24 11:29 EDT; context: docs/plan_context/zstd-worker-modes.md)
 	- [x] Investigate structured-zstd's design intent, raw-prefix APIs, history limits, and upstream-reported performance; preserve all seven level-9 scenarios. (done 2026-10-24 10:16 EDT; context: docs/plan_context/rust-port.md)
-	- [ ] Qualify structured-zstd with isolated Nix-built prefix cross-apply and resource-limit tests, then compare optimized codecs on the same verified binary delta cases.
-	- [x] Preserve the Zig reference and cross-apply Rusty_zstd and zstdz frames, including distant raw-prefix references and a 2 GiB advertised window. (done 2026-10-23 09:11 EDT)
+	- [x] Qualify Structured-zstd prefix cross-apply, caller-output bounds, checksum verification, and window behavior in Nix; retain complete hostile-input qualification as an adoption gate. (done 2026-10-25 00:28 EDT; context: docs/plan_context/rust-codec-measurements.md)
+	- [x] Compare optimized zstdz, Rusty, and Structured codecs on verified 4/16/64 MiB prefix deltas, including source-ownership controls and all 258 timed samples. (done 2026-10-25 00:28 EDT; context: docs/plan_context/rust-codec-measurements.md)
 	- [ ] Establish product-wide differential acceptance tests before replacing any production entry point; qualify codec output limits and performance separately.
 	- [ ] If the hybrid route is selected, qualify transitive Cargo linking, foreign-buffer ownership, and concurrent/reentrant callback behavior before publishing a Rust library.
 	- [ ] Port the file codec, directory metadata and format, filesystem adapters, C API, and CLI while preserving the declared behavior and platform scope.
-- [x] Retire CODE_MINIMAP.md after migrating its useful architecture and file-purpose information into dirtree notes. (done 2026-10-23 14:41 EDT)
 - [ ] Conform the build to the cross-platform-project-build-arch skill, including canonical implementation selection where applicable, PF/VARIANT/profile outputs, safe host publication, the five-platform matrix, and Nix/native agreement.
 	- [x] Move candidate-codec QA into a pinned source-bounded Nix package and sandboxed check; verify compiler-free execution, artifact classification, and source membership. (done 2026-10-24 22:53 EDT; context: docs/plan_context/rust-port.md)
 	- [ ] Move the remaining host-side Zig tests and Rust FFI probes onto Nix-prepared artifacts with qualified preventive filesystem isolation and complete feedback accounting.

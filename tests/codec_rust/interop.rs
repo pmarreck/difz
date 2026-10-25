@@ -1,8 +1,14 @@
 //! Candidate codec checks only; the shipped difz implementation is unchanged.
 #![forbid(unsafe_code)]
 
+pub mod codecs;
+
 #[cfg(test)]
 mod tests {
+	use crate::codecs::{
+		rust_decode, rust_frame, rust_frame_options, structured_decode, structured_decode_into,
+		structured_frame,
+	};
 	use std::path::{Path, PathBuf};
 	use std::process::{Command, Output};
 	use std::sync::atomic::{AtomicUsize, Ordering};
@@ -64,32 +70,6 @@ mod tests {
 			.collect()
 	}
 
-	fn rust_frame(source: &[u8], target: &[u8], window_override: Option<u32>) -> Vec<u8> {
-		rust_frame_options(
-			source,
-			target,
-			window_override,
-			rusty_zstd::AdvancedOptions {
-				ldm: rusty_zstd::LdmParams::enabled(),
-				..Default::default()
-			},
-		)
-	}
-
-	fn rust_frame_options(
-		source: &[u8],
-		target: &[u8],
-		window_override: Option<u32>,
-		options: rusty_zstd::AdvancedOptions,
-	) -> Vec<u8> {
-		let span = source.len().max(target.len()) as u64;
-		let window = (64 - span.leading_zeros()).clamp(10, 31);
-		let mut parameters = rusty_zstd::compression_params(9, Some(target.len() as u64)).unwrap();
-		parameters.window_log = window_override.unwrap_or(window);
-		rusty_zstd::compress_with_advanced(target, parameters, false, None, source, false, options)
-			.unwrap()
-	}
-
 	fn apply_native(fixture: &Fixture, source: &Path, patch: &[u8], name: &str) -> PathBuf {
 		let patch_path = fixture.path(&format!("{name}.zdif"));
 		let output = fixture.path(&format!("{name}.out"));
@@ -105,6 +85,16 @@ mod tests {
 	}
 
 	fn cross_apply(source: &[u8], target: &[u8], window: Option<u32>) -> Vec<u8> {
+		cross_apply_codec(source, target, window, rust_frame, rust_decode)
+	}
+
+	fn cross_apply_codec(
+		source: &[u8],
+		target: &[u8],
+		window: Option<u32>,
+		encode: fn(&[u8], &[u8], Option<u32>) -> Vec<u8>,
+		decode: fn(&[u8], &[u8], usize) -> Vec<u8>,
+	) -> Vec<u8> {
 		let fixture = Fixture::new();
 		let source_path = fixture.path("source-δ.bin");
 		let target_path = fixture.path("target with spaces.bin");
@@ -119,18 +109,10 @@ mod tests {
 		]));
 		let native = std::fs::read(&native_path).unwrap();
 		assert_eq!(&native[..5], b"ZDIF\x04");
-		let restored = rusty_zstd::decompress_using_prefix_with(
-			&native[HEADER_LEN..],
-			source,
-			rusty_zstd::DecompressOptions {
-				window_max: 1 << 31,
-				force_ignore_checksum: false,
-			},
-		)
-		.unwrap();
+		let restored = decode(&native[HEADER_LEN..], source, target.len());
 		assert_eq!(restored, target, "Rust must decode the native prefix frame");
 
-		let frame = rust_frame(source, target, window);
+		let frame = encode(source, target, window);
 		let header = match rusty_zstd::get_frame_header(&frame).unwrap() {
 			rusty_zstd::FrameKind::Zstd(header) => header,
 			_ => panic!("encoder did not produce a Zstandard frame"),
@@ -150,15 +132,7 @@ mod tests {
 			target,
 			"native difz must decode the Rust prefix frame"
 		);
-		let restored = rusty_zstd::decompress_using_prefix_with(
-			&frame,
-			source,
-			rusty_zstd::DecompressOptions {
-				window_max: 1 << 31,
-				force_ignore_checksum: false,
-			},
-		)
-		.unwrap();
+		let restored = decode(&frame, source, target.len());
 		assert_eq!(
 			restored, target,
 			"Rust must decode the independently accepted frame"
@@ -201,6 +175,13 @@ mod tests {
 
 	#[test]
 	fn both_implementations_cross_apply_empty_binary_and_changed_inputs() {
+		basic_cross_apply(rust_frame, rust_decode);
+	}
+
+	fn basic_cross_apply(
+		encode: fn(&[u8], &[u8], Option<u32>) -> Vec<u8>,
+		decode: fn(&[u8], &[u8], usize) -> Vec<u8>,
+	) {
 		let all: Vec<u8> = (0..=255).collect();
 		for (source, target) in [
 			(&[][..], &[][..]),
@@ -208,17 +189,128 @@ mod tests {
 			(&all, &[][..]),
 			(&b"alpha\0beta\xff"[..], &b"alpha\0BETA\x80\0"[..]),
 		] {
-			cross_apply(source, target, None);
+			cross_apply_codec(source, target, None, encode, decode);
 		}
 		let source = random_bytes(1 << 20);
 		let mut scattered = source.clone();
 		for byte in scattered.iter_mut().step_by(4093) {
 			*byte ^= 1;
 		}
-		cross_apply(&source, &scattered, None);
+		cross_apply_codec(&source, &scattered, None, encode, decode);
 		let mut moved = source.clone();
 		moved.rotate_left(source.len() / 4);
-		cross_apply(&source, &moved, None);
+		cross_apply_codec(&source, &moved, None, encode, decode);
+	}
+
+	#[test]
+	fn structured_cross_applies_empty_binary_and_changed_inputs() {
+		basic_cross_apply(structured_frame, structured_decode);
+	}
+
+	#[test]
+	fn structured_reaches_distant_raw_prefix_bytes_even_with_dictionary_magic() {
+		let mut source = random_bytes(2 << 20);
+		source[..4].copy_from_slice(&[0x37, 0xa4, 0x30, 0xec]);
+		let target = &source[..65536];
+		let frame = cross_apply_codec(&source, target, None, structured_frame, structured_decode);
+		assert!(frame.len() < target.len() / 8);
+		assert!(structured_frame(&[], target, None).len() >= target.len() / 8);
+		let mut output = vec![0; target.len()];
+		assert!(structured_decode_into(&frame, &[], &mut output, 1 << 22).is_err());
+	}
+
+	#[test]
+	fn structured_prefix_decode_obeys_output_slices_and_verifies_checksums() {
+		use structured_zstd::decoding::{Dictionary, DictionaryHandle, FrameDecoder};
+		const GUARD: usize = 32;
+		let source = random_bytes(65536);
+		let mut target = source.clone();
+		target[100] ^= 1;
+		let mut parameters = rusty_zstd::compression_params(9, Some(target.len() as u64)).unwrap();
+		parameters.window_log = 17;
+		let frame = rusty_zstd::compress_with_advanced(
+			&target,
+			parameters,
+			true,
+			None,
+			&source,
+			false,
+			rusty_zstd::AdvancedOptions::default(),
+		)
+		.unwrap();
+		for limit in [0, 1, target.len() - 1, target.len(), target.len() + 16] {
+			let mut guarded = vec![0xa5; limit + 2 * GUARD];
+			let result = structured_decode_into(
+				&frame,
+				&source,
+				&mut guarded[GUARD..GUARD + limit],
+				1 << 22,
+			);
+			assert!(guarded[..GUARD].iter().all(|&byte| byte == 0xa5));
+			assert!(guarded[GUARD + limit..].iter().all(|&byte| byte == 0xa5));
+			if limit < target.len() {
+				assert!(result.is_err(), "insufficient output must fail");
+			} else {
+				assert_eq!(result.unwrap(), target.len());
+				assert_eq!(&guarded[GUARD..GUARD + target.len()], target);
+				assert!(guarded[GUARD + target.len()..]
+					.iter()
+					.all(|&byte| byte == 0xa5));
+			}
+		}
+		let mut corrupt = frame;
+		*corrupt.last_mut().unwrap() ^= 1;
+		let mut output = vec![0; target.len()];
+		assert!(structured_decode_into(&corrupt, &source, &mut output, 1 << 22).is_err());
+		// The default computes but does not enforce the checksum. Prove the
+		// explicit Verify setting above changes the outcome for the same bytes.
+		let mut default_decoder = FrameDecoder::new();
+		let dictionary =
+			DictionaryHandle::from_dictionary(Dictionary::from_raw_content(0, source).unwrap());
+		assert_eq!(
+			default_decoder
+				.decode_all_with_dict_handle(&corrupt, &mut output, &dictionary)
+				.unwrap(),
+			target.len()
+		);
+		assert_eq!(output, target);
+	}
+
+	#[test]
+	fn structured_encoder_and_decoder_have_distinct_window_limits() {
+		use structured_zstd::decoding::{Dictionary, DictionaryHandle, FrameDecoder};
+		use structured_zstd::encoding::{CompressionLevel, CompressionParameters};
+		assert!(CompressionParameters::builder(CompressionLevel::Level(9))
+			.window_log(30)
+			.build()
+			.is_ok());
+		assert!(CompressionParameters::builder(CompressionLevel::Level(9))
+			.window_log(31)
+			.build()
+			.is_err());
+		let source = random_bytes(65536);
+		let target = &source[..4096];
+		let frame = rust_frame(&source, target, Some(31));
+		let mut decoder = FrameDecoder::new();
+		decoder.set_max_window_size(1 << 20).unwrap();
+		let dictionary = DictionaryHandle::from_dictionary(
+			Dictionary::from_raw_content(0, source.clone()).unwrap(),
+		);
+		let mut output = vec![0; target.len()];
+		assert_eq!(
+			decoder
+				.decode_all_with_dict_handle(&frame, &mut output, &dictionary)
+				.unwrap(),
+			target.len()
+		);
+		assert_eq!(output, target);
+		assert!(
+			decoder.workspace_size() < 16 << 20,
+			"caller-owned output must not reserve the advertised 2 GiB window"
+		);
+		// The retained-window streaming path does enforce this same ceiling.
+		let mut input = frame.as_slice();
+		assert!(decoder.reset(&mut input).is_err());
 	}
 
 	#[test]

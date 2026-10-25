@@ -2,11 +2,16 @@
 name = "difz-rust-codec-check"
 version = "0.0.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.92"
 publish = false
 
 [lib]
 path = "interop.rs"
 
-[dev-dependencies]
+[[bin]]
+name = "difz-codec-probe"
+path = "probe.rs"
+
+[dependencies]
 rusty_zstd = "=0.4.1"
+structured-zstd = { version = "=0.2.5", default-features = false, features = ["std", "hash", "ldm", "kernel-scalar", "kernel-sse", "kernel-bmi2", "kernel-avx2", "kernel-neon", "kernel-sve", "kernel-simd128"] }

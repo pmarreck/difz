@@ -7,6 +7,7 @@ name = "difz-rust-codec-check"
 version = "0.0.0"
 dependencies = [
  "rusty_zstd",
+ "structured-zstd",
 ]
 
 [[package]]
@@ -14,3 +15,18 @@ name = "rusty_zstd"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "145055be9e2940b6b6ad3e5d5bcb09083db51f0112837a89658fd44ca2bf0c40"
+
+[[package]]
+name = "structured-zstd"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "096c39fadb89b2a367a97308d59bcfabb268f9263e9d84a049b5ce14f1457ba6"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
+name = "twox-hash"
+version = "2.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86a801b3cea342a06d468c8710662aa29e5e05e4f5c0d62f00bbb7f2ad7941c2"

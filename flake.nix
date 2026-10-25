@@ -78,9 +78,15 @@
 					enableParallelBuilding = true;
 					makeFlags = [ "-C" "programs" "zstd" "ZSTD_LEGACY_SUPPORT=0"
 						"HAVE_ZLIB=0" "HAVE_LZMA=0" "HAVE_LZ4=0" ];
+					postBuild = ''
+						make -C lib libzstd.a ZSTD_LEGACY_SUPPORT=0 CPPFLAGS_STATICLIB=-DZSTD_MULTITHREAD
+					'';
 					installPhase = ''
 						runHook preInstall
 						install -Dm755 programs/zstd $out/bin/zstd
+						install -Dm644 lib/libzstd.a $out/lib/libzstd.a
+						install -Dm644 lib/zstd.h $out/include/zstd.h
+						install -Dm644 lib/zstd_errors.h $out/include/zstd_errors.h
 						runHook postInstall
 					'';
 				};
@@ -135,16 +141,27 @@
 							./tests/codec_rust/Cargo.toml
 							./tests/codec_rust/Cargo.lock
 							./tests/codec_rust/interop.rs
+							./tests/codec_rust/codecs.rs
+							./tests/codec_rust/probe.rs
 						];
 					};
 					cargoLock.lockFile = ./tests/codec_rust/Cargo.lock;
 					strictDeps = true;
-					nativeBuildInputs = [ pkgs.jq ];
+					nativeBuildInputs = [ pkgs.jq pkgs.rust-bindgen pkgs.rustPlatform.bindgenHook ];
 					doCheck = false;
 					buildPhase = ''
 						runHook preBuild
+						bindgen ${zstdBenchmark}/include/zstd.h \
+							--allowlist-function 'ZSTD_(getCParams|isError|compressBound|createCCtx|freeCCtx|CCtx_setParameter|CCtx_refPrefix|compress2|createDCtx|freeDCtx|DCtx_setMaxWindowSize|DCtx_refPrefix|decompressDCtx)' \
+							--allowlist-var 'ZSTD_(c_.*|btlazy2)' \
+							--no-prepend-enum-name --no-layout-tests --formatter none \
+							-- -DZSTD_STATIC_LINKING_ONLY > zstd_bindings.rs
+						export DIFZ_ZSTD_BINDINGS="$PWD/zstd_bindings.rs"
 						CC=false CXX=false AR=false cargo test --locked --offline --release \
 							--lib --no-run --message-format=json > cargo-artifacts.json
+						CC=false CXX=false AR=false cargo rustc --locked --offline --release \
+							--bin difz-codec-probe --message-format=json -- \
+							-L native=${zstdBenchmark}/lib -C link-arg=-pthread > probe-artifacts.json
 						runHook postBuild
 					'';
 					installPhase = ''
@@ -152,6 +169,8 @@
 						executable=$(jq -er 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null) | .executable' cargo-artifacts.json)
 						test -f "$executable"
 						install -Dm755 "$executable" "$out/bin/difz-codec-check"
+						probe=$(jq -er 'select(.reason == "compiler-artifact" and .target.name == "difz-codec-probe" and .executable != null) | .executable' probe-artifacts.json)
+						install -Dm755 "$probe" "$out/bin/difz-codec-probe"
 						runHook postInstall
 					'';
 				};
@@ -166,7 +185,7 @@
 					build = releaseFast;
 					test = zigBuild { optimize = "Debug"; doCheck = true; };
 					rust-codec = pkgs.runCommand "difz-rust-codec-check" {
-						nativeBuildInputs = with pkgs; [ bash coreutils diffutils ];
+						nativeBuildInputs = with pkgs; [ bash coreutils diffutils jq ];
 					} ''
 						export HOME="$TMPDIR/home"
 						mkdir -p "$HOME"
@@ -175,6 +194,9 @@
 							ZSTD_CLI=${zstdBenchmark}/bin/zstd \
 							DIFZ_CODEC_TEST=${rustCodecTests}/bin/difz-codec-check \
 							bash ${./tests/codec_rust}/test --test-threads=1
+						DIFZ_CODEC_PROBE=${rustCodecTests}/bin/difz-codec-probe \
+							ZSTD_CLI=${zstdBenchmark}/bin/zstd \
+							bash ${./tests/codec_rust}/test_probe.bash
 						touch "$out"
 					'';
 					windows-gnu = pkgs.stdenv.mkDerivation {

@@ -147,3 +147,8 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 
 - [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Prove that a Rust executable statically links the installed Zig/libdifz archive and passes binary buffers through the existing C ABI on Linux x86_64. (done 2026-10-23 09:11 EDT)
 - [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Compare Rust zstd candidates' raw-prefix APIs, encoder windows, long-distance matching, toolchain requirements, and native dependencies. (done 2026-10-23 09:11 EDT)
+
+## Retired 2026-10-25
+
+- [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Preserve the Zig reference and cross-apply Rusty_zstd and zstdz frames, including distant raw-prefix references and a 2 GiB advertised window. (done 2026-10-23 09:11 EDT)
+- [x] [Active] Retire CODE_MINIMAP.md after migrating its useful architecture and file-purpose information into dirtree notes. (done 2026-10-23 14:41 EDT)
