@@ -1,5 +1,10 @@
 # Mecha delta contract (difz-owned slice)
 
+The [cross-platform updater guide](../cross-platform-application-updates.md)
+consolidates the October 26 discussion, including Windows/Linux caveats and
+the limits of the Mac experiments. Historical measurements and decisions below
+remain dated evidence; the guide does not silently replace the signing policy.
+
 Canonical sources: `MECHA_RELEASE_PLAN.md` (Sep23 amendment),
 `validate_gui/docs/MECHA_VALIDATE_RELEASE_RUNBOOK.md`,
 `EXECUTION_CONTEXT_TRUST.md` (2026-09-23), Sigil `fa49dfb`.

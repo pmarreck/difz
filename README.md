@@ -6,6 +6,14 @@
 
 A fast binary differ for files and directory trees. Each file patch is one zstd level 9 prefix frame bound to BLAKE3 identities for both files. Apply rejects a wrong source before reconstruction and verifies the completed target. Directory patches add a canonical manifest, ordered path filters, and a whole-patch identity. Directory apply writes a new sibling stage and commits it only after an independent filesystem re-snapshot matches the target identity.
 
+## Application updates
+
+See [cross-platform application updates](docs/cross-platform-application-updates.md)
+for Windows/macOS/Linux signing, staged replacement, rollback, package-manager
+ownership, full-download fallback, measured packaging effects and remaining
+qualification work. Difz reconstructs artifacts; the consuming updater owns
+authentication and safe installation.
+
 ## Performance
 
 The [2026-10-08 CDC-versus-zstd comparison](docs/plan_context/engine-comparison.md) covers 108 verified cases from 1 to 256 MiB, three edit patterns, and one or 12 allowed CPUs. On one CPU, the zstd engine creates patches 1.9–14.3× faster and uses less peak memory across that sweep. Scattered-edit patches are 42–50% smaller. CDC saves 4,756 bytes on the largest moved-content patch and 6,050 bytes on the largest full replacement. The report includes every sample and the shared-machine timing limits.

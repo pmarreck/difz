@@ -4,6 +4,8 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 
 ## Active
 
+- [x] Preserve cross-platform updater caveats, signing evidence, packaging measurements and integration qualification checklist in a linked guide; implementation remains separate from this documentation task. (done 2026-10-27 19:30 EDT; context: docs/cross-platform-application-updates.md)
+
 - [ ] Deliver a Rust implementation of difz, using the existing tests and executable as independent oracles. (context: docs/plan_context/rust-port.md)
 	- [x] Retain single-threaded production encoding and application after reviewing the parallel experiment; preserve the prototype and measurements for future review. (done 2026-10-25 16:53 EDT; context: docs/plan_context/parallel-zstd-apply.md)
 	- [x] Measure actual 1/4/8-worker zstdz decode against monolithic streams on mixed and repeated-new inputs; preserve all 540 samples, size/CPU/RSS/I/O costs, and transfer break-even calculations. (done 2026-10-25 11:23 EDT; context: docs/plan_context/parallel-zstd-apply.md)
