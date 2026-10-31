@@ -156,3 +156,9 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 - [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Investigate structured-zstd's design intent, raw-prefix APIs, history limits, and upstream-reported performance; preserve all seven level-9 scenarios. (done 2026-10-24 10:16 EDT; context: docs/plan_context/rust-port.md)
 - [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Clarify compressed-byte identity and worker support; record Rusty's multi-frame path and difz's unqualified concatenated-frame acceptance. (done 2026-10-24 10:34 EDT; context: docs/plan_context/rust-port.md)
 - [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Measure zstdz level-9 single-thread versus worker modes on partially compressible seeded-random prefix deltas; preserve all 72 verified samples and source-derived multi-job coverage. (done 2026-10-24 11:29 EDT; context: docs/plan_context/zstd-worker-modes.md)
+
+## Retired 2026-10-31
+
+- [x] [Active › Conform the build to the cross-platform-project-build-arch s…] Move candidate-codec QA into a pinned source-bounded Nix package and sandboxed check; verify compiler-free execution, artifact classification, and source membership. (done 2026-10-24 22:53 EDT; context: docs/plan_context/rust-port.md)
+- [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Explain worker wall-time scaling with verified 8 MiB and 32 MiB ordinary-compression and prefix-diff controls, using explicit 8 MiB jobs. (done 2026-10-24 22:55 EDT; context: docs/plan_context/zstd-worker-apply.md)
+- [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Compare codec decode and complete difz apply using 24 shuffled blocks and an identical-input control; preserve all 288 paired samples and storage limits. (done 2026-10-24 22:55 EDT; context: docs/plan_context/zstd-worker-apply.md)

@@ -65,6 +65,26 @@ ACE and verifies exact access/default ACL bytes through independent kernel
 readback after staged reconstruction. Pure numeric-principal parser tests retain
 their fixed IDs. No production ACL behavior changed or required test was skipped.
 
+A fresh run on 2026-10-31 exposed inherited Bash functions that wrapped `cp`
+and `find` through `$HOME/bin`. Changing HOME for isolation made those wrappers
+refer to nonexistent private paths. The sandboxed Nix checks passed, while three
+host CLI assertions failed. The isolation contract now exports failing `cp`,
+`find`, `mkdir`, and arbitrary helper functions, verifies that an ordinary child
+imports them, and requires an isolated child to have no functions and execute
+real filesystem tools successfully. The runner clears inherited function
+definitions before invoking tools or starting the private shell.
+
+The first complete attempt took 220.57 seconds: 207.58 seconds for Nix
+preparation and sandbox checks, followed by a 12.99-second host phase that
+exposed the three CLI failures. After the regression failed against the old
+runner and the function-clearing fix was applied, the complete suite passed
+in 12.01 seconds with prepared artifacts: 7.05 seconds for Nix preparation
+and cached checks, then 4.96 seconds for fresh host execution including
+environment setup and admission. Core/CLI execution took 460/550 ms, with
+95 core passes, one platform-specific skip, and all 92 CLI assertions passing.
+The focused regression also waited roughly eight minutes for a shared test
+slot before executing; queue waiting is separate from test execution.
+
 ## Validation, 2026-10-25
 
 The complete Linux x86_64 entry point passed with these fresh host results

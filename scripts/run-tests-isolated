@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Linux filesystem write isolation for already-prepared tests, not build scheduling.
 set -u
+# Exported host helpers can depend on the original HOME or override test tools.
+while IFS= read -r inherited_function; do
+	unset -f -- "$inherited_function" || exit 1
+done < <(compgen -A function)
 if [ "${1:-}" = --help ] || [ "${1:-}" = -h ]; then
 	printf 'Usage: run-isolated -- COMMAND [ARG...]\nRead-only host view; private HOME, XDG directories and TEST_WORKSPACE. Linux only.\n'
 	exit 0

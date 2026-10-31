@@ -85,4 +85,34 @@ fi
 "$boundary" -- bash -c 'exit 23'
 status=$?
 [ "$status" -eq 23 ] || { printf 'FAIL boundary exit status\n' >&2; exit 1; }
-printf 'PASS isolation: eight forbidden-write paths, writable private state, independent invocations, exit status\n'
+# Exported decoys run only in child shells.
+# shellcheck disable=SC2329
+(
+	cp() { return 86; }
+	find() { return 86; }
+	mkdir() { return 86; }
+	difz_inherited_helper() { return 86; }
+	export -f cp find mkdir difz_inherited_helper
+	# Prove the exported function set reaches an ordinary child shell.
+	bash -c '
+		for name in cp find mkdir difz_inherited_helper; do
+			[ "$(type -t "$name")" = function ] || exit 1
+		done
+	' || exit 1
+	# Private paths expand in the child namespace.
+	# shellcheck disable=SC2016
+	"$boundary" -- bash -c '
+		[ -z "$(compgen -A function)" ] || exit 1
+		mkdir -p "$TEST_WORKSPACE/tool check" || exit 1
+		printf original > "$TEST_WORKSPACE/tool check/source" || exit 1
+		cp "$TEST_WORKSPACE/tool check/source" "$TEST_WORKSPACE/tool check/copy" || exit 1
+		cmp "$TEST_WORKSPACE/tool check/source" "$TEST_WORKSPACE/tool check/copy" || exit 1
+		[ "$(find "$TEST_WORKSPACE/tool check" -type f -printf "%f\n" | sort)" = "$(printf "copy\nsource")" ] || exit 1
+	' > "$work/functions.out" 2> "$work/functions.err"
+	status=$?
+	if [ "$status" -ne 0 ] || [ -s "$work/functions.out" ] || [ -s "$work/functions.err" ]; then
+		printf 'FAIL inherited shell functions cross the isolation boundary\n' >&2
+		exit 1
+	fi
+) || exit 1
+printf 'PASS isolation: eight forbidden-write paths, private state, independent invocations, exit status, no inherited shell functions\n'
