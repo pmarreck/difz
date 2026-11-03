@@ -1,2 +1,7 @@
 packages.x86_64-linux.default
 checks.x86_64-linux.test
+checks.x86_64-linux.benchmark-contract
+checks.x86_64-linux.cross-apply
+checks.x86_64-linux.rust-codec
+checks.x86_64-linux.rust-ffi
+checks.x86_64-linux.windows-gnu

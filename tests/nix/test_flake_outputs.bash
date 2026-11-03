@@ -69,5 +69,14 @@ expect_json '.codecOutputs' '{"aarch64-darwin":["rust-codec-tests"],"aarch64-lin
 require_json '.codecCheck | type == "string" and length > 0' 'Rust codec runtime check is declared'
 require_json '.hostOutputs | length == 3 and all(.[]; . == true)' 'native host test artifacts have declared Nix outputs'
 require_json '.rustFfiCheck | type == "string" and length > 0' 'installed Rust consumer runtime has a declared Nix check'
+require_json '.crossApplyCheck | type == "string" and length > 0' 'cross-implementation acceptance has a declared Nix check'
+require_json '(.crossApplySource.required | length == 2 and all(.[]; . == true)) and (.crossApplySource.excluded | length == 6 and all(.[]; . == false))' 'cross-apply source membership excludes unrelated path sets'
+ci_targets=$(awk '{sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); if ($0 != "" && $0 !~ /^#/) print}' "$ROOT_DIR/.mechatron-prime/targets") || exit 1
+ci_targets=$(printf '%s\n' "$ci_targets" | LC_ALL=C sort) || exit 1
+expected_ci_targets=$(jq -r '.ciTargets | sort | .[]' <<< "$contract") || exit 1
+if [ "$ci_targets" != "$expected_ci_targets" ]; then
+	printf 'FAIL Mechatron Prime CI targets must cover every declared native check\n' >&2; exit 1
+fi
+printf 'PASS Mechatron Prime CI target set covers every declared native check\n'
 require_json '(.zigSource.required | length == 10 and all(.[]; . == true)) and (.zigSource.excluded | length == 8 and all(.[]; . == false))' 'Zig source membership classifies required and unrelated path sets'
 require_json '(.benchmarkSource.required | length == 11 and all(.[]; . == true)) and (.benchmarkSource.excluded | length == 8 and all(.[]; . == false))' 'benchmark source membership classifies required and unrelated path sets'

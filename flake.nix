@@ -40,6 +40,13 @@
 					root = ./.;
 					fileset = pkgs.lib.fileset.unions [ ./bm ./profiling.json ./README.md ./tests/benchmark ];
 				};
+				crossApplySource = pkgs.lib.fileset.toSource {
+					root = ./.;
+					fileset = pkgs.lib.fileset.unions [
+						./tests/acceptance/cross-apply
+						./tests/integration/test-cross-apply.bash
+					];
+				};
 
 				# Single hash for the entire Zig dependency tree.
 				# To update: set to "" or pkgs.lib.fakeHash, run `nix build`,
@@ -223,6 +230,19 @@
 				checks = {
 					build = releaseFast;
 					test = debugTests;
+					cross-apply = pkgs.runCommand "difz-cross-apply-check" {
+						src = crossApplySource;
+						nativeBuildInputs = with pkgs; [ bash coreutils diffutils findutils gnugrep ];
+					} ''
+						export HOME="$TMPDIR/home"
+						mkdir -p "$HOME"
+						cp -r "$src" work
+						chmod -R u+w work
+						patchShebangs work
+						cd work
+						DIFZ=${releaseFast}/bin/difz bash tests/integration/test-cross-apply.bash
+						touch "$out"
+					'';
 					rust-ffi = pkgs.runCommand "difz-rust-ffi-check" {
 						nativeBuildInputs = with pkgs; [ bash coreutils binutils ];
 					} ''
@@ -287,7 +307,7 @@
 
 				devShells.default = pkgs.mkShell {
 					packages = with pkgs; [
-						bash coreutils diffutils gnugrep gnused gawk binutils
+						bash coreutils diffutils findutils gnugrep gnused gawk binutils
 						zig
 						rustc
 						cargo

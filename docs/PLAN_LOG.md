@@ -163,3 +163,7 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 - [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Explain worker wall-time scaling with verified 8 MiB and 32 MiB ordinary-compression and prefix-diff controls, using explicit 8 MiB jobs. (done 2026-10-24 22:55 EDT; context: docs/plan_context/zstd-worker-apply.md)
 - [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Compare codec decode and complete difz apply using 24 shuffled blocks and an identical-input control; preserve all 288 paired samples and storage limits. (done 2026-10-24 22:55 EDT; context: docs/plan_context/zstd-worker-apply.md)
 - [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Characterize four-job prefix reach, deterministic output, frame counts, current native acceptance, and advertised-window limits for Rusty_zstd and zstdz. (done 2026-10-24 23:06 EDT; context: docs/plan_context/rust-port.md)
+
+## Retired 2026-11-02
+
+- [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Qualify Structured-zstd prefix cross-apply, caller-output bounds, checksum verification, and window behavior in Nix; retain complete hostile-input qualification as an adoption gate. (done 2026-10-25 00:28 EDT; context: docs/plan_context/rust-codec-measurements.md)

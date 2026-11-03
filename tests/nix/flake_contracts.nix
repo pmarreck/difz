@@ -24,6 +24,17 @@ in {
 	codecCheck = checks.rust-codec.name;
 	hostOutputs = builtins.mapAttrs (_: packages: builtins.hasAttr "host-tests" packages) flake.packages;
 	rustFfiCheck = checks.rust-ffi.name;
+	crossApplyCheck = checks.cross-apply.name;
+	ciTargets = let
+		ciChecks = flake.checks.x86_64-linux;
+		package = flake.packages.x86_64-linux.default;
+		# Package aliases are already covered by the package target.
+		required = builtins.filter (name: ciChecks.${name}.drvPath != package.drvPath)
+			(builtins.attrNames ciChecks);
+	in [ "packages.x86_64-linux.default" ] ++ map (name: "checks.x86_64-linux.${name}") required;
+	crossApplySource = membership checks.cross-apply.src
+		[ "tests/acceptance/cross-apply" "tests/integration/test-cross-apply.bash" ]
+		[ "PLAN.md" "flake.nix" "src/lib.zig" "tests/codec_rust/interop.rs" "tests/cli/test_cli.bash" "README.md" ];
 	zigSource = membership flake.packages.${system}.default.src
 		[ "build.zig" "build.zig.zon" "src/lib.zig" "src/difz.c" "src/difz.h" "scripts/flatten-static-lib" "tests/cli/test_cli.bash" "tests/ffi/caller.c" "tests/ffi/rust_caller.rs" "tests/ffi/test_installed_lib.bash" ]
 		[ "PLAN.md" "README.md" "flake.nix" "scripts/run-tests-isolated" "tests/run-prepared-host" "tests/codec_rust/interop.rs" "tests/codec_rust/test_runner.bash" "docs/plan_context/rust-port.md" ];

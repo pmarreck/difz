@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# Compare prepared implementations through their public CLI and independent tools.
+set -u
+fail() {
+	printf 'FAIL cross-apply: %s/%s: %s\n' "${kind:-arguments}" "${case_name:-arguments}" "$1" >&2
+	if [ -n "${work:-}" ] && [ -f "$work/actual-sorted" ]; then
+		diff -u "$work/expected-sorted" "$work/actual-sorted" >&2
+	fi
+	if [ -n "${work:-}" ] && [ -s "$work/stderr" ]; then cat "$work/stderr" >&2; fi
+	exit 1
+}
+[ "$#" -eq 2 ] || fail 'expected reference and candidate executables'
+for executable in "$@"; do
+	[ -f "$executable" ] && [ -x "$executable" ] || fail 'each artifact must be a regular executable'
+done
+executables=()
+for executable in "$@"; do
+	directory=$(cd "$(dirname -- "$executable")" && pwd) || exit 1
+	executables+=("$directory/$(basename -- "$executable")")
+done
+work=$(mktemp -d "${TMPDIR:-/tmp}/difz-cross-apply.XXXXXXXX") || exit 1
+trap 'rm -rf -- "$work"' EXIT
+invoke() { "$@" > "$work/stdout" 2> "$work/stderr"; }
+same() {
+	local expected=$1 actual=$2
+	[ ! -L "$actual" ] || return 1
+	if [ -d "$expected" ]; then
+		[ -d "$actual" ] || return 1
+		diff -r --no-dereference "$expected" "$actual" >/dev/null 2>&1 || return 1
+		# DIFZTREE entries exclude the root; its POSIX mode is not encoded.
+		(cd "$expected" && find . -mindepth 1 ! -type l -printf '%P %m\n') > "$work/expected-modes" || return 1
+		(cd "$actual" && find . -mindepth 1 ! -type l -printf '%P %m\n') > "$work/actual-modes" || return 1
+		LC_ALL=C sort "$work/expected-modes" > "$work/expected-sorted" || return 1
+		LC_ALL=C sort "$work/actual-modes" > "$work/actual-sorted" || return 1
+		cmp -s "$work/expected-sorted" "$work/actual-sorted"
+	else
+		[ -f "$actual" ] && cmp -s "$expected" "$actual"
+	fi
+}
+flip() {
+	local path=$1 offset=$2 byte octal
+	byte=$(od -An -tu1 -j "$offset" -N1 "$path") || fail 'cannot read mutation byte'
+	printf -v octal '%03o' "$((byte ^ 1))"
+	printf '%b' "\\$octal" | dd of="$path" bs=1 seek="$offset" count=1 conv=notrunc 2>/dev/null || fail 'cannot mutate fixture'
+}
+reject() {
+	local executable=$1 source_path=$2 patch_path=$3 output_path=$4 status
+	invoke "$executable" --patch --no-progress "$source_path" "$patch_path" -o "$output_path"
+	status=$?
+	[ "$status" -eq 1 ] && [ ! -e "$output_path" ] && [ ! -L "$output_path" ] || fail 'invalid input was not rejected cleanly before publication'
+}
+run_case() {
+	local kind=$1 case_name=$2 case_dir source_path target_path wrong_source producer consumer patch_path output_path bytes status offset corrupted
+	local options=() corruptions=()
+	case_dir="$work/$kind-$case_name"
+	mkdir -p "$case_dir" || fail 'cannot create case'
+	source_path="$case_dir/source with spaces"; target_path="$case_dir/target"
+	wrong_source="$case_dir/wrong source"
+	if [ "$kind" = file ]; then
+		: > "$source_path"; : > "$target_path"
+		case "$case_name" in
+			empty) :;;
+			new-binary) printf '\000\377\200new\r\n\360\237\232\200' > "$target_path";;
+			deleted) printf 'deleted\000\377' > "$source_path";;
+			identical) printf 'same\000\377\200abcdefghijkabcdefghijk' > "$source_path"; cp "$source_path" "$target_path" || exit 1;;
+			edited) printf 'old\000\377abcdefghijkabcdefghijk' > "$source_path"; printf 'new\000\377abcdefXYZijkabcdefghijk' > "$target_path";;
+			moved) printf 'AAAA\000BBBB\377CCCC' > "$source_path"; printf 'CCCCAAAA\000BBBB\377' > "$target_path";;
+			*) fail 'missing file fixture';;
+		esac
+		cp "$source_path" "$wrong_source" || fail 'cannot copy wrong-source fixture'
+		if [ -s "$wrong_source" ]; then flip "$wrong_source" 0; else printf wrong > "$wrong_source"; fi
+	else
+		mkdir "$source_path" "$target_path" "$wrong_source" || fail 'cannot create tree fixtures'
+		printf wrong > "$wrong_source/extra"
+		case "$case_name" in
+			empty) :;;
+			changed)
+				mkdir -p "$source_path/bin" "$target_path/bin" "$target_path/empty dir" || exit 1
+				printf 'old\000\377' > "$source_path/bin/app"
+				printf 'new\000\377' > "$target_path/bin/app"
+				printf stable > "$source_path/unchanged"
+				cp "$source_path/unchanged" "$target_path/unchanged" || exit 1
+				printf removed > "$source_path/deleted"
+				printf inserted > "$target_path/added file"
+				printf unicode > "$target_path/café.txt"
+				printf old-kind > "$source_path/now-dir"
+				mkdir "$target_path/now-dir" "$source_path/now-file" || exit 1
+				printf new-kind > "$target_path/now-file"
+				ln -s bin/app "$target_path/app link" || exit 1
+				ln -s 'café.txt' "$target_path/unicode link" || exit 1
+				chmod 751 "$target_path/bin/app" || exit 1
+				chmod 711 "$target_path/empty dir" || exit 1;;
+			*) fail 'missing tree fixture';;
+		esac
+		chmod 700 "$source_path" || exit 1
+		chmod 750 "$target_path" || exit 1
+		options=(--omit-metadata 'xattr,acl,timestamps,finder,sparse,hardlink')
+	fi
+	cp -a "$source_path" "$case_dir/source-before" || exit 1
+	cp -a "$target_path" "$case_dir/target-before" || exit 1
+	for producer in 0 1; do
+		patch_path="$case_dir/patch-$producer"
+		invoke "${executables[$producer]}" --no-progress "${options[@]}" "$source_path" "$target_path" -o "$patch_path" || fail "encoder $producer failed"
+		[ -f "$patch_path" ] && [ ! -L "$patch_path" ] && [ -s "$patch_path" ] || fail 'encoder reported success without a patch'
+		bytes=$(wc -c < "$patch_path")
+		head -c "$((bytes - 1))" "$patch_path" > "$patch_path.truncated" || exit 1
+		corruptions=("$patch_path.truncated")
+		if [ "$kind" = file ]; then
+			# ZDIF v4 source/target identities begin at byte offsets 5 and 37.
+			for offset in 5 37; do
+				cp "$patch_path" "$patch_path.bad-$offset" || exit 1
+				flip "$patch_path.bad-$offset" "$offset"
+				corruptions+=("$patch_path.bad-$offset")
+			done
+		else
+			cp "$patch_path" "$patch_path.bad-checksum" || exit 1
+			flip "$patch_path.bad-checksum" "$((bytes - 1))"
+			corruptions+=("$patch_path.bad-checksum")
+		fi
+		for consumer in 0 1; do
+			output_path="$case_dir/output-$producer-$consumer"
+			invoke "${executables[$consumer]}" --patch --no-progress "$source_path" "$patch_path" -o "$output_path" || fail "decoder $consumer failed"
+			same "$target_path" "$output_path" || fail 'reconstruction differs from target bytes, tree, or modes'
+			reject "${executables[$consumer]}" "$wrong_source" "$patch_path" "$output_path.wrong"
+			for corrupted in "${corruptions[@]}"; do
+				reject "${executables[$consumer]}" "$source_path" "$corrupted" "$output_path.invalid"
+			done
+			if [ "$kind" = tree ]; then mkdir "$output_path.existing" || exit 1; printf keep > "$output_path.existing/keep";
+			else printf keep > "$output_path.existing"; fi
+			cp -a "$output_path.existing" "$output_path.before" || exit 1
+			invoke "${executables[$consumer]}" --patch --no-progress "$source_path" "$patch_path" -o "$output_path.existing"
+			status=$?
+			if [ "$kind" = tree ]; then
+				if [ "$status" -ne 1 ] || ! same "$output_path.before" "$output_path.existing"; then
+					fail 'existing tree output was not preserved'
+				fi
+			else
+				# The existing file CLI intentionally opens an explicit -o with wb.
+				if [ "$status" -ne 0 ] || ! same "$target_path" "$output_path.existing"; then
+					fail 'existing file output was not replaced correctly'
+				fi
+			fi
+		done
+	done
+	same "$case_dir/source-before" "$source_path" || fail 'source input was modified'
+	same "$case_dir/target-before" "$target_path" || fail 'target input was modified'
+	[ "$(stat -c %a "$case_dir/source-before")" = "$(stat -c %a "$source_path")" ] &&
+		[ "$(stat -c %a "$case_dir/target-before")" = "$(stat -c %a "$target_path")" ] || fail 'an input mode was modified'
+}
+# Fail fast on bad adapters while the valid control still sweeps the full set.
+cases=(file:new-binary tree:changed file:empty file:deleted file:identical file:edited file:moved tree:empty)
+declare -A seen=()
+file_count=0; tree_count=0
+for fixture in "${cases[@]}"; do
+	[ -z "${seen[$fixture]+present}" ] || fail 'duplicate acceptance case'
+	seen[$fixture]=1
+	kind=${fixture%%:*}; name=${fixture#*:}
+	case "$kind" in
+		file) file_count=$((file_count + 1));;
+		tree) tree_count=$((tree_count + 1));;
+		*) fail 'unknown fixture kind';;
+	esac
+	run_case "$kind" "$name"
+done
+printf 'PASS cross-apply: files=%d trees=%d encoder/decoder-pairs=4\n' "$file_count" "$tree_count"

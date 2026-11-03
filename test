@@ -30,6 +30,7 @@ if nix build --no-update-lock-file --no-link --json -L \
 	".#checks.${system}.benchmark-contract" \
 	".#checks.${system}.rust-codec" \
 	".#checks.${system}.rust-ffi" \
+	".#checks.${system}.cross-apply" \
 	".#checks.${system}.windows-gnu" > "$manifest"; then
 	prepared=1
 else

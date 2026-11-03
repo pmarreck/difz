@@ -147,3 +147,61 @@ PLAN includes conformance to the updated cross-platform-project-build-arch skill
 5. Replace the CLI and C ABI implementation, run the shared Bash and installed-C tests, and make the complete `./test` cover the Rust implementation by default before switching the production build.
 
 The reference may catch differences, but it is not an infallible specification. Independent SHA-256/byte comparisons, canonical golden vectors, native filesystem readback, and malformed-input contracts remain necessary. Rust performance must be measured under the shared profiling workflow before carrying over any Zig benchmark claim.
+
+### Cross-apply gate
+
+`tests/acceptance/cross-apply` takes two prepared CLI executables. Six file
+cases cover empty inputs, insertion, deletion, identical binary data, edits and
+moved bytes. Two tree cases cover empty trees and changes including UTF-8 paths,
+contained symlinks, file/directory kind changes, empty directories and modes.
+Each implementation creates patches that both implementations must apply.
+Independent byte, recursive-tree, symlink and descendant-mode comparisons
+verify reconstruction; compressed-byte identity is not required.
+
+Wrong-source controls retain the source length where a distinct same-length
+source exists. Truncated patches, altered source/target identities and changed
+tree checksums must fail with exit status 1 and no published output. A simulated
+abort status is rejected. Source and target inputs must remain unchanged.
+Explicit file output currently replaces existing files; directory output must
+preserve an existing destination. DIFZTREE excludes root POSIX permissions from
+its entry manifest, so reconstruction comparisons cover descendant modes while
+input-preservation checks also cover root modes.
+
+The gate contract uses the current native executable plus a forwarding adapter
+as its positive control. Seven broken adapters exercise skipped encoding or
+application, same-size corrupted files, corrupted tree files, incorrect modes,
+masked failures and abort statuses. All 15 invalid executable-shape pairs must
+fail before executing either artifact. This qualifies the gate against the
+reference; no Rust product executable exists yet, so it does not establish Rust
+product compatibility.
+
+The current native reference is retained as a Nix GC root under
+`.cache/oracle/zig-zstdz-21eb3cd`, alongside the earlier preserved executable.
+Its derivation matches the package evaluated from commit `21eb3cd`; adding this
+gate does not change the production executable. Reference preservation and QA
+do not select the production Rust codec.
+
+The complete `./test` runs the contract inside the Linux preventive boundary.
+The source-bounded `checks.<system>.cross-apply` also runs it in a Nix builder.
+The CI manifest is checked against every declared native check, deduplicating
+package aliases by derivation identity. Native metadata-family coverage,
+installed C-ABI parity, hostile-input resource bounds and foreign-platform
+qualification remain separate migration requirements.
+
+The Linux complete suite passed on 2026-11-02 with 95 core passes, one
+platform-specific skip, 92 CLI passes, the cross-apply contract, and the Rust
+C-ABI consumer. All six Nix checks passed; flake evaluation also passed for all
+three declared Nix systems without claiming foreign native execution. The
+final run took 1,309.91 seconds: 13.80 seconds of Nix preparation/checks and a
+1,296.11-second host phase including resource admission. The five reported host
+subsuites totaled 4.00 seconds, including 2.54 seconds for cross-apply; boundary
+qualification is additional. Queue waiting dominated feedback. An earlier host
+observation measured 4.84 seconds for the gate before moving discriminating
+cases earlier; this is not a controlled performance baseline.
+
+The first complete attempt restored missing dependencies and compiled QA for
+334.42 seconds. Its host assertions later passed, but changing the entrypoint
+while it was waiting caused a shell parse error at completion. That attempt is
+incomplete and is not substituted for the final passing run. The missing-gate
+Nix failure and the incomplete-CI-manifest failure were both observed before
+their corresponding implementations passed.

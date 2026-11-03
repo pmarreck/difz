@@ -34,5 +34,6 @@ run_core() {
 }
 if ! run_suite core run_core; then errors=$((errors + 1)); fi
 if ! run_suite cli env -u DIFZ_TEST_DIRECTORY_OMIT DIFZ="$prefix/bin/difz" bash tests/cli/test_cli.bash; then errors=$((errors + 1)); fi
+if ! run_suite cross-apply env DIFZ="$prefix/bin/difz" bash tests/integration/test-cross-apply.bash; then errors=$((errors + 1)); fi
 if ! run_suite rust-ffi env DIFZ_RUST_CALLER="$prefix/bin/difz-rust-caller" bash tests/ffi/test_rust_lib.bash; then errors=$((errors + 1)); fi
 exit "$errors"
