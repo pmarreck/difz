@@ -69,6 +69,9 @@ expect_json '.codecOutputs' '{"aarch64-darwin":["rust-codec-tests"],"aarch64-lin
 require_json '.codecCheck | type == "string" and length > 0' 'Rust codec runtime check is declared'
 require_json '.hostOutputs | length == 3 and all(.[]; . == true)' 'native host test artifacts have declared Nix outputs'
 require_json '.rustFfiCheck | type == "string" and length > 0' 'installed Rust consumer runtime has a declared Nix check'
+require_json '.rustCoreCheck | type == "string" and length > 0' 'Rust core has a declared Nix check'
+require_json '.rustCoreOutputs | length == 3 and all(.[]; . == true)' 'Rust core artifacts are declared for every native system'
+require_json '(.rustCoreSource.required | length == 4 and all(.[]; . == true)) and (.rustCoreSource.excluded | length == 6 and all(.[]; . == false))' 'Rust core source membership excludes unrelated path sets'
 require_json '.crossApplyCheck | type == "string" and length > 0' 'cross-implementation acceptance has a declared Nix check'
 require_json '(.crossApplySource.required | length == 2 and all(.[]; . == true)) and (.crossApplySource.excluded | length == 6 and all(.[]; . == false))' 'cross-apply source membership excludes unrelated path sets'
 ci_targets=$(awk '{sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); if ($0 != "" && $0 !~ /^#/) print}' "$ROOT_DIR/.mechatron-prime/targets") || exit 1

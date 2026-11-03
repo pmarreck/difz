@@ -205,3 +205,41 @@ while it was waiting caused a shell parse error at completion. That attempt is
 incomplete and is not substituted for the final passing run. The missing-gate
 Nix failure and the incomplete-CI-manifest failure were both observed before
 their corresponding implementations passed.
+
+### Rust header core
+
+`rust/` now starts the Rust functional core with ZDIF v4 header encoding and
+prefix parsing. The library uses `no_std`, forbids unsafe code, copies the
+fixed metadata into typed fields, and borrows the remaining frame. Exhaustive
+struct destructuring makes adding a field require serializer review. It does
+not allocate or read the frame, verify identities, enforce output/window limits,
+or implement compression. Wire lengths retain the complete u64 range; accepting
+metadata is not authorization to allocate that size. The file decoder must
+enforce its limits separately before allocation.
+
+The six Debug-profile tests cover the byte layout, borrowed payload, all 85
+header truncations, all 256 values at each magic/version byte, all 256 values
+at every digest-byte position, and representative u64 length boundaries.
+Four native-generated patches are checked against independent `b3sum` digests;
+Rust-generated headers combined with the native frames must also reconstruct
+the original targets through the native executable. These are small fixtures,
+not qualification of actual 2 GiB inputs or of a Rust compressor.
+
+`packages.<system>.rust-core-tests` and `checks.<system>.rust-core` use a
+source-bounded, locked, offline Cargo build with the pinned Rust 1.94.1 toolchain.
+The package requires a nonempty test inventory and executes ignored tests too.
+Native-reference and BLAKE3 tools are declared Nix inputs. The production CLI,
+C ABI implementation and codec selection remain unchanged.
+
+The initial API-only stub failed compilation; a typed nonfunctional stub then
+failed all six tests. The implemented core passed all six in 0.09 seconds under
+the normal Nix check, including the native cross-apply controls. All seven Nix
+checks and the updated flake preflight passed. Evaluation passed on all three
+declared Nix systems; foreign runtime execution is not established.
+
+The earlier complete passing host run remains applicable: the native CLI and
+host-test derivation paths are identical to commit `0f23408`, and every host
+runner, confinement helper and exercised host test source is unchanged. A
+duplicate full-entrypoint attempt completed its Nix phase in 9.95 seconds and
+was canceled during host admission after 869.80 seconds. Its interrupted status
+is not a new passing host verdict; the earlier exact-artifact result is reused.

@@ -167,3 +167,4 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 ## Retired 2026-11-02
 
 - [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Qualify Structured-zstd prefix cross-apply, caller-output bounds, checksum verification, and window behavior in Nix; retain complete hostile-input qualification as an adoption gate. (done 2026-10-25 00:28 EDT; context: docs/plan_context/rust-codec-measurements.md)
+- [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Compare optimized zstdz, Rusty, and Structured codecs on verified 4/16/64 MiB prefix deltas, including source-ownership controls and all 258 timed samples. (done 2026-10-25 00:28 EDT; context: docs/plan_context/rust-codec-measurements.md)

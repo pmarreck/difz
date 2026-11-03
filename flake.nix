@@ -219,17 +219,20 @@
 						runHook postInstall
 					'';
 				};
+				rustCoreTests = import ./rust/qa.nix { inherit pkgs; oracle = releaseFast; };
 		in
 			{
 				packages.default = releaseFast;
 				packages.zstd-benchmark = zstdBenchmark;
 				packages.performance-benchmark = performancePackage;
 				packages.rust-codec-tests = rustCodecTests;
+				packages.rust-core-tests = rustCoreTests;
 				packages.host-tests = hostTests;
 
 				checks = {
 					build = releaseFast;
 					test = debugTests;
+					rust-core = rustCoreTests;
 					cross-apply = pkgs.runCommand "difz-cross-apply-check" {
 						src = crossApplySource;
 						nativeBuildInputs = with pkgs; [ bash coreutils diffutils findutils gnugrep ];

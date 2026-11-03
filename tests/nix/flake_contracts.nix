@@ -24,6 +24,11 @@ in {
 	codecCheck = checks.rust-codec.name;
 	hostOutputs = builtins.mapAttrs (_: packages: builtins.hasAttr "host-tests" packages) flake.packages;
 	rustFfiCheck = checks.rust-ffi.name;
+	rustCoreCheck = checks.rust-core.name;
+	rustCoreOutputs = builtins.mapAttrs (_: packages: builtins.hasAttr "rust-core-tests" packages) flake.packages;
+	rustCoreSource = membership flake.packages.${system}.rust-core-tests.src
+		[ "Cargo.toml" "Cargo.lock" "src/lib.rs" "src/tests.rs" ]
+		[ "PLAN.md" "flake.nix" "qa.nix" "src/zstd_patch.zig" "tests/codec_rust/interop.rs" "tests/acceptance/cross-apply" ];
 	crossApplyCheck = checks.cross-apply.name;
 	ciTargets = let
 		ciChecks = flake.checks.x86_64-linux;
