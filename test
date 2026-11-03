@@ -28,6 +28,7 @@ if nix build --no-update-lock-file --no-link --json -L \
 	".#packages.${system}.host-tests" \
 	".#checks.${system}.test" \
 	".#checks.${system}.benchmark-contract" \
+	".#checks.${system}.build-wrapper" \
 	".#checks.${system}.rust-codec" \
 	".#checks.${system}.rust-ffi" \
 	".#checks.${system}.rust-core" \

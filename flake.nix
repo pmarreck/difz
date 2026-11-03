@@ -47,6 +47,10 @@
 						./tests/integration/test-cross-apply.bash
 					];
 				};
+				buildWrapperSource = pkgs.lib.fileset.toSource {
+					root = ./.;
+					fileset = pkgs.lib.fileset.unions [ ./build ./tests/integration/test-build-wrapper.bash ];
+				};
 
 				# Single hash for the entire Zig dependency tree.
 				# To update: set to "" or pkgs.lib.fakeHash, run `nix build`,
@@ -223,6 +227,7 @@
 		in
 			{
 				packages.default = releaseFast;
+				packages.debug = debugTests;
 				packages.zstd-benchmark = zstdBenchmark;
 				packages.performance-benchmark = performancePackage;
 				packages.rust-codec-tests = rustCodecTests;
@@ -233,6 +238,17 @@
 					build = releaseFast;
 					test = debugTests;
 					rust-core = rustCoreTests;
+					build-wrapper = pkgs.runCommand "difz-build-wrapper-check" {
+						src = buildWrapperSource;
+						nativeBuildInputs = with pkgs; [ bash coreutils gnugrep ];
+					} ''
+						cp -R "$src/." .
+						chmod -R u+w .
+						export HOME="$TMPDIR/home"
+						mkdir -p "$HOME"
+						bash tests/integration/test-build-wrapper.bash
+						touch "$out"
+					'';
 					cross-apply = pkgs.runCommand "difz-cross-apply-check" {
 						src = crossApplySource;
 						nativeBuildInputs = with pkgs; [ bash coreutils diffutils findutils gnugrep ];

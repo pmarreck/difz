@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 set -uo pipefail
-set -E
-
-trap 'echo "ERR at ${BASH_SOURCE[0]}:${LINENO}: $BASH_COMMAND" >&2' ERR
 
 run() {
   "$@" || {
@@ -11,19 +8,24 @@ run() {
   }
 }
 
-optimize="ReleaseFast"
+target=".#default"
 if [[ "${1:-}" == "debug" ]]; then
-  optimize="Debug"
+  target=".#debug"
   shift
 fi
 
-if [[ "$optimize" != "ReleaseFast" ]]; then
-  # Non-release builds use zig directly (local dev, no need for Nix reproducibility)
-  run zig build "-Doptimize=$optimize" "$@"
-elif command -v nix >/dev/null 2>&1; then
-  run nix build "$@"
-  mkdir -p zig-out/bin
-  run install -m755 result/bin/* zig-out/bin/
-else
-  run zig build "-Doptimize=$optimize" "$@"
+if ! command -v nix >/dev/null 2>&1; then
+  printf 'build: Nix is required; install Nix with flakes enabled.\n' >&2
+  exit 69
 fi
+
+if ! prefix=$(nix build --no-update-lock-file --print-out-paths "$target" "$@"); then
+  printf 'build: Nix build failed.\n' >&2
+  exit 1
+fi
+if [[ -z "$prefix" || "$prefix" = *$'\n'* || ! -f "$prefix/bin/difz" || ! -x "$prefix/bin/difz" ]]; then
+  printf 'build: Nix did not return one prepared difz executable.\n' >&2
+  exit 1
+fi
+run mkdir -p zig-out/bin
+run install -m755 "$prefix/bin/difz" zig-out/bin/difz

@@ -197,6 +197,7 @@ Requires [Nix](https://nixos.org/) with flakes enabled:
 
 ```bash
 ./build  # reproducible optimized Nix build
+./build debug  # checked Debug artifact, also built through Nix
 ./test   # Nix-prepared suites, then confined host filesystem and ABI tests
 ```
 

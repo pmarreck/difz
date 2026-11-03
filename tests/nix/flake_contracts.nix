@@ -25,6 +25,11 @@ in {
 	hostOutputs = builtins.mapAttrs (_: packages: builtins.hasAttr "host-tests" packages) flake.packages;
 	rustFfiCheck = checks.rust-ffi.name;
 	rustCoreCheck = checks.rust-core.name;
+	buildWrapperCheck = checks.build-wrapper.name;
+	debugPackages = builtins.mapAttrs (nativeSystem: packages: packages.debug.drvPath == flake.checks.${nativeSystem}.test.drvPath) flake.packages;
+	buildWrapperSource = membership checks.build-wrapper.src
+		[ "build" "tests/integration/test-build-wrapper.bash" ]
+		[ "PLAN.md" "README.md" "flake.nix" "src/zstd_patch.zig" "rust/src/lib.rs" ];
 	rustCoreOutputs = builtins.mapAttrs (_: packages: builtins.hasAttr "rust-core-tests" packages) flake.packages;
 	rustCoreSource = membership flake.packages.${system}.rust-core-tests.src
 		[ "Cargo.toml" "Cargo.lock" "src/lib.rs" "src/tests.rs" ]

@@ -14,8 +14,9 @@ for the Rust host ABI, verifies that the library-only target installs its
 archive/header without the CLI, then compiles the Rust consumer. Linux Rust
 uses the GNU ABI; the ordinary standalone CLI retains its musl target.
 
-The five Nix check attributes are Debug core/CLI/installed-C,
-benchmark-contract, rust-codec, rust-ffi, and windows-gnu. The Linux Debug
+The eight required Nix checks are Debug core/CLI/installed-C,
+benchmark-contract, build-wrapper, cross-apply, rust-codec, rust-core, rust-ffi,
+and windows-gnu. The Linux Debug
 check now declares the `script` utility, so the PTY assertion executes there.
 Cached Nix checks retain their earlier verdicts; their reuse is not described
 as fresh runtime execution.
@@ -130,6 +131,36 @@ The broader build migration still needs PF/VARIANT publication, canonical
 implementation selection where appropriate, and native agreement across the
 five supported platforms. Native-runner policy and the production Rust codec
 choice remain separate dependencies.
+
+## Nix-only build adapter, 2026-11-02
+
+Both `./build` and `./build debug` now require Nix and refuse a missing Nix
+executable before running a compiler or publishing anything. The optimized
+route selects `packages.<system>.default`; Debug selects a package alias of the
+checked Debug artifact. Neither route updates the lock file. The wrapper uses
+the output path returned by that specific Nix build instead of assuming that
+`result` identifies the requested artifact, including with a custom output link.
+
+The source-bounded `build-wrapper` check copies the real adapter into a private
+project and supplies controlled Nix and Zig children. Both profiles refuse
+missing Nix without calling Zig. Successful profile selection and an alternate
+output path have positive controls. A failed build and five invalid artifact
+shapes (missing, directory, nonexecutable, empty response and multiple outputs)
+must preserve the previous executable's bytes. These checks execute in a Nix
+builder and never publish into the live checkout.
+
+All eight native Nix checks passed; the README change also reran the benchmark
+contract's 26 assertions. Bash syntax, ShellCheck and flake preflight passed.
+All three declared Nix systems evaluated, including the exact Debug-package
+alias and required/excluded source sets. The earlier complete passing host
+result is reused because the prepared native artifacts, confinement and
+exercised host test sources remain unchanged. This does not claim a new host
+execution or foreign-platform runtime qualification.
+
+Publication still uses the legacy `zig-out/bin` location. PF/VARIANT/profile
+trees, full-product publication, executable compatibility inspection, serialized
+atomic selection and the five-platform build scopes remain open. This change
+completes the required-Nix boundary, not the broader build-conformance item.
 
 ## Feedback investigation
 
