@@ -1079,3 +1079,47 @@ unchanged bounds; historical cohorts remain unbaselined. The two codec changes
 are separate commits, with standalone transport Nix evidence and full host
 validation for their combined tree. Filesystem integration, metadata/directory
 growth and memory, and native macOS/Windows qualification remain pending.
+
+## First Rust filesystem capabilities, 2026-11-06
+
+The experimental `difz-platform` crate starts the OS adapter for Linux and
+macOS. Windows has no implementation yet. Directory handles pin identity;
+relative child opens validate a single canonical basename and refuse symlinks.
+Nonblocking opens let the adapter reject FIFOs and other nonregular entries
+before a read can block. Fresh descriptors move directly into Rust File owners,
+including on classification/error paths, with close-on-exec enabled.
+
+Bounded file reading preserves arbitrary bytes, permits empty files at a zero
+ceiling and reads at most one extra byte to detect an exceeded limit. It checks
+the limit before growing output and uses fallible Vec allocation. An injected
+reader verifies exact requests, interrupted-call retries, IO failures and
+rejection of a broken reader's excessive returned count. Output length is
+bounded; allocator capacity and whole-process RSS are separate contracts.
+
+Real scratch fixtures cover a selected directory renamed and replaced by an
+outside symlink, symlink and FIFO refusal, invalid names, binary files and exact
+length ceilings. Independent Linux kernel readback checks descriptor counts
+over repeated success/error paths and close-on-exec flags. Four initial tests
+failed against stubs. The final Linux run passes seven platform tests, sixty
+core tests, four Release controls and two C-boundary controls through Nix.
+The kernel fixture is Linux-specific; six tests are required on macOS, whose
+native execution remains unqualified. All three Nix-system configurations
+evaluate. This layer does not yet capture metadata or publish output trees.
+
+The owner-directed GitHub Actions CI disable was verified through GitHub's
+workflow API; `.github/workflows/ci.yml` remains intact. Mechatron remains the
+active service. The README now keeps its canonical Mechatron badge and the
+contract rejects an advertised GitHub CI badge. That contract failed against
+the former README and passed after the badge change; the retained workflow's
+`./test` command is still checked.
+
+The complete suite validates the combined CI-documentation/filesystem tree.
+It passed in 177.44 seconds: 11.25 for Nix preparation/checks and 166.19 for
+host admission, setup and execution. Fresh file growth took 30.19 seconds.
+Encode on one core used the policy's automatic retry after sample variation
+made its first correct result inconclusive; the other three cases used one
+attempt. The [original diagnostic and succeeding result](../benchmarks/rust-file-growth-20261106-directory-capability-retry.ndjson)
+are retained. All final ratios pass unchanged bounds, and cohorts remain
+unbaselined. The CI-documentation and filesystem changes are separate commits;
+their combined final tree received full host validation. Production entry
+points, Windows support and native macOS qualification remain pending.

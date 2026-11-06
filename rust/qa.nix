@@ -4,7 +4,7 @@ pkgs.rustPlatform.buildRustPackage {
 	version = "0.1.0";
 	src = pkgs.lib.fileset.toSource {
 		root = ./.;
-		fileset = pkgs.lib.fileset.unions [ ./Cargo.toml ./Cargo.lock ./src ./zstdz ./consumer ./c-api ];
+		fileset = pkgs.lib.fileset.unions [ ./Cargo.toml ./Cargo.lock ./src ./zstdz ./consumer ./c-api ./platform ];
 	};
 	cargoLock.lockFile = ./Cargo.lock;
 	strictDeps = true;
@@ -45,6 +45,11 @@ pkgs.rustPlatform.buildRustPackage {
 		c_api=$(jq -er 'select(.reason == "compiler-artifact" and .target.name == "difz_rust") | .filenames[] | select(endswith(".a"))' c-api.json)
 		cargo test --locked --offline -p difz-c-api --no-run --message-format=json > c-api-tests.json
 		c_api_tests=$(jq -er 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null) | .executable' c-api-tests.json)
+		if ! cargo test --locked --offline -p difz-platform --no-run --message-format=json > platform-tests.json; then
+			jq -r 'select(.reason == "compiler-message") | .message.rendered // empty' platform-tests.json >&2
+			exit 1
+		fi
+		platform_tests=$(jq -er 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null) | .executable' platform-tests.json)
 		${pkgs.stdenv.cc}/bin/cc -std=c11 -Wall -Wextra -Werror c-api/tests/caller.c \
 			-Ic-api/include "$c_api" -lpthread -lm \
 			${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "-ldl -lrt -lutil"} \
@@ -75,6 +80,9 @@ pkgs.rustPlatform.buildRustPackage {
 		c_api_test_count=$("$c_api_tests" --list | grep -c ': test$')
 		test "$c_api_test_count" -ge 2
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$c_api_tests" --test-threads=1 --include-ignored
+		platform_test_count=$("$platform_tests" --list | grep -c ': test$')
+		test "$platform_test_count" -ge ${if pkgs.stdenv.hostPlatform.isLinux then "7" else "6"}
+		${pkgs.coreutils}/bin/timeout --kill-after=5s 30s "$platform_tests" --test-threads=1 --include-ignored
 		if CARGO_TARGET_DIR="$TMPDIR/c-api-abort" cargo rustc --locked --offline --release -p difz-c-api --lib -- -C panic=abort > "$TMPDIR/c-api-abort-log" 2>&1; then
 			printf 'FAIL aborting Rust C boundary was accepted\n' >&2
 			exit 1

@@ -84,6 +84,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "difz-platform"
+version = "0.1.0"
+dependencies = [
+ "difz-core",
+ "libc",
+]
+
+[[package]]
 name = "difz-zstdz"
 version = "0.1.0"
 

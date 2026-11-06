@@ -6,7 +6,7 @@ rust-version = "1.94"
 publish = false
 
 [workspace]
-members = ["zstdz", "consumer", "c-api"]
+members = ["zstdz", "consumer", "c-api", "platform"]
 resolver = "3"
 
 [dependencies]
