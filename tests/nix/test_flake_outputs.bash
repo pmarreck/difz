@@ -7,11 +7,14 @@ EXPECTED='["aarch64-darwin","aarch64-linux","x86_64-linux"]'
 EXPECTED_RANDOM_INPUTS='["random-luajit"]'
 EXPECTED_RANDOM_REV='a758c902143f8f1dc08c3f33964b8fde7e4a2218'
 EXPECTED_CI_TEST_COMMAND='./test'
-EXPECTED_CI_BADGE='[![CI](https://github.com/pmarreck/difz/actions/workflows/ci.yml/badge.svg?branch=yolo)](https://github.com/pmarreck/difz/actions/workflows/ci.yml)'
+EXPECTED_CI_BADGE='[![Mechatron Prime CI](https://img.shields.io/endpoint?url=https%3A%2F%2Fthelio-nixos.tail66c90.ts.net%2Fbadges%2Fdifz.json&style=for-the-badge)](https://thelio-nixos.tail66c90.ts.net/mechatron-prime/)'
 if ! grep -Fqx -- "$EXPECTED_CI_BADGE" "$ROOT_DIR/README.md"; then
-	printf 'FAIL README GitHub CI badge\n' >&2; exit 1
+	printf 'FAIL README Mechatron Prime CI badge\n' >&2; exit 1
 fi
-printf 'PASS README GitHub CI badge targets ci.yml on yolo\n'
+if grep -Fq -- 'github.com/pmarreck/difz/actions/workflows/ci.yml/badge.svg' "$ROOT_DIR/README.md"; then
+	printf 'FAIL README advertises disabled GitHub Actions CI\n' >&2; exit 1
+fi
+printf 'PASS README canonical Mechatron Prime CI badge; disabled GitHub badge absent\n'
 ci_test_command=$(awk '
 	/^[[:space:]]*-[[:space:]]+name:[[:space:]]+Test[[:space:]]*$/ { in_test_step = 1; next }
 	in_test_step && /^[[:space:]]+run:[[:space:]]*/ {
