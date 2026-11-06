@@ -244,7 +244,7 @@
 					inherit pkgs;
 					metadataSource = ./src/metadata.zig;
 					directorySource = ./src/directory.zig;
-					patchSources = [ ./src/directory_patch.zig ./src/path_filter.zig ./src/glob.zig ./src/pcre2.zig ./src/zstd_patch.zig ./src/patch.zig ];
+					patchSources = [ ./src/directory_patch.zig ./src/symlink_transport.zig ./src/path_filter.zig ./src/glob.zig ./src/pcre2.zig ./src/zstd_patch.zig ./src/patch.zig ];
 					zstdz = zstdBenchmark;
 					pcre2 = pcre2Reference;
 				};

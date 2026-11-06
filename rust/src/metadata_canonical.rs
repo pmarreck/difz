@@ -122,13 +122,18 @@ impl<'a> CanonicalMetadata<'a> {
 	pub fn metadata(&self) -> &Metadata<'a> {
 		&self.0
 	}
-	/// Expected work is linear in encoded bytes. Count before reserving output.
-	pub fn encode(&self) -> Result<Vec<u8>, Error> {
+	/// Count descriptor lengths without allocating or scanning value bytes.
+	pub fn encoded_len(&self) -> Result<usize, Error> {
 		let mut length = 0usize;
 		self.write::<Error>(|bytes| {
 			length = length.checked_add(bytes.len()).ok_or(Error::BadMetadata)?;
 			Ok(())
 		})?;
+		Ok(length)
+	}
+	/// Expected work is linear in encoded bytes. Count before reserving output.
+	pub fn encode(&self) -> Result<Vec<u8>, Error> {
+		let length = self.encoded_len()?;
 		let mut output = Vec::new();
 		output
 			.try_reserve_exact(length)
