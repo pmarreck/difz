@@ -6,7 +6,6 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 
 
 - [ ] Deliver a Rust implementation of difz, using the existing tests and executable as independent oracles. (context: docs/plan_context/rust-port.md)
-	- [x] Select the shipped codec for the full Rust port. Answer: Retain zstdz through its statically linked C API; accept native-code process-failure risk while rewriting difz itself in Rust. (done 2026-11-06 09:04 EST; context: docs/plan_context/rust-port.md)
 	- [ ] Qualify bounded hostile-prefix decoding and complete output/window resource contracts before adopting a Rust codec or multi-frame encoding.
 	- [ ] Establish product-wide differential acceptance tests before replacing any production entry point; qualify codec output limits and performance separately.
 	- [ ] Qualify static zstdz linking and Rust buffer/context ownership on all supported targets before publishing the Rust library; the selected codec adapter has no global progress callbacks.
@@ -22,6 +21,7 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 		- [x] Reuse owned reference processes for complete metadata sweeps, require one-shot equivalence and malformed-frame rejection, and bound stalled test process groups; a fresh eighteen-test run took 3.40 seconds. (done 2026-11-06 10:52 EST; context: docs/plan_context/rust-port.md)
 		- [x] Port the raw metadata record model with owned/borrowed byte fields, legal portable permission masks and explicit field presence; native wire and presence sweeps pass over every selector byte. (done 2026-11-06 11:20 EST; context: docs/plan_context/rust-port.md)
 		- [x] Port canonical metadata validation, encoding and BLAKE3 identity behind an immutable validated wrapper; verify all families against native fixtures and recoverable allocation failure under a 128 MiB cap. (done 2026-11-06 12:15 EST; context: docs/plan_context/rust-port.md)
+		- [x] Port canonical metadata decoding with borrowed byte fields, preallocation count checks and native differential coverage for truncations, mutations, tags and presence bytes. (done 2026-11-06 12:32 EST; context: docs/plan_context/rust-port.md)
 - [ ] Conform the build to the cross-platform-project-build-arch skill, including canonical implementation selection where applicable, PF/VARIANT/profile outputs, safe host publication, the five-platform matrix, and Nix/native agreement.
 	- [ ] Qualify native macOS and Windows preventive test boundaries before claiming complete native test execution there. (context: docs/plan_context/test-preparation.md)
 - [ ] Qualify metadata capture and restore on native macOS and Windows hosts; cross-builds establish compilation only. (context: docs/plan_context/metadata-v2.md)

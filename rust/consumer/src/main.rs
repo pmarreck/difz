@@ -65,6 +65,10 @@ fn main() {
 			Err(difz_core::metadata::Error::OutOfMemory)
 		);
 		println!("PASS canonical metadata output allocation failure is recoverable");
+		assert_eq!(
+			CanonicalMetadata::decode(&u32::MAX.to_le_bytes()),
+			Err(difz_core::metadata::Error::TruncatedMetadata)
+		);
 	}
 	println!("PASS transitive Cargo consumer: binary prefix round trip and wrong-source rejection");
 }

@@ -83,6 +83,12 @@ fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const u8 {
             const digest = metadata.canonicalHash(parsed);
             return allocator.dupe(u8, &digest);
         },
+        14, 15 => {
+            const parsed = try metadata.decodeCanonical(allocator, input);
+            if (mode == 14) return metadata.encodeCanonical(allocator, parsed);
+            const digest = metadata.canonicalHash(parsed);
+            return allocator.dupe(u8, &digest);
+        },
         else => return error.BadMetadata,
     }
 }

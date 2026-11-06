@@ -35,6 +35,8 @@ pub enum Error {
 	EmptyNativeAcl,
 	ZeroLengthHole,
 	HoleOverflow,
+	TruncatedMetadata,
+	TrailingMetadata,
 }
 
 macro_rules! wire_enum {
@@ -296,6 +298,9 @@ pub use record::{Ace, Hole, Metadata, NativeAcl, Permissions, Times, Xattr};
 #[path = "metadata_canonical.rs"]
 mod canonical;
 pub use canonical::CanonicalMetadata;
+
+#[path = "metadata_decode.rs"]
+mod decode;
 
 #[cfg(test)]
 #[path = "metadata_tests.rs"]

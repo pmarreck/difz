@@ -173,3 +173,128 @@ fn canonical_identity_binds_origin_presence_and_each_metadata_family() {
 		assert_ne!(baseline.hash(), changed.hash(), "selector={selector}");
 	}
 }
+
+fn check_borrowed(value: &Cow<'_, [u8]>, input: &[u8]) {
+	assert!(matches!(value, Cow::Borrowed(_)));
+	// Empty views have no byte location to preserve.
+	if value.is_empty() {
+		return;
+	}
+	let start = input.as_ptr() as usize;
+	let pointer = value.as_ptr() as usize;
+	assert!(pointer >= start && pointer + value.len() <= start + input.len());
+}
+
+#[test]
+fn canonical_decoder_borrows_native_records_and_preserves_wire_identity() {
+	let mut reference = Reference::start();
+	for selector in 0..=31u8 {
+		let Ok(bytes) = reference.call(12, &[selector]) else {
+			continue;
+		};
+		let original = bytes.clone();
+		let decoded = CanonicalMetadata::decode(&bytes).unwrap();
+		assert_eq!(decoded.metadata(), &fixture(selector).unwrap());
+		assert_eq!(decoded.encode().unwrap(), bytes);
+		assert_eq!(decoded.hash().to_vec(), reference.call(15, &bytes).unwrap());
+		for attr in &decoded.metadata().xattrs {
+			check_borrowed(&attr.name, &bytes);
+			check_borrowed(&attr.value, &bytes);
+		}
+		for ace in &decoded.metadata().aces {
+			check_borrowed(&ace.name, &bytes);
+		}
+		if let Some(acl) = &decoded.metadata().native_acl {
+			check_borrowed(&acl.bytes, &bytes);
+		}
+		if let Some(path) = &decoded.metadata().hardlink_to {
+			check_borrowed(path, &bytes);
+		}
+		assert_eq!(bytes, original);
+	}
+}
+
+#[test]
+fn canonical_decoder_matches_native_truncations_mutations_and_reserved_fields() {
+	let mut reference = Reference::start();
+	for selector in [0, 1, 2, 3, 8, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31] {
+		let bytes = reference.call(12, &[selector]).unwrap();
+		for length in 0..bytes.len() {
+			compare(
+				&mut reference,
+				CanonicalMetadata::decode(&bytes[..length]),
+				14,
+				&bytes[..length],
+				|m| m.encode().unwrap(),
+			);
+		}
+		let mut trailing = bytes.clone();
+		trailing.push(0);
+		compare(
+			&mut reference,
+			CanonicalMetadata::decode(&trailing),
+			14,
+			&trailing,
+			|m| m.encode().unwrap(),
+		);
+	}
+	let bytes = reference.call(12, &[1]).unwrap();
+	for index in 0..bytes.len() {
+		for bit in 0..8 {
+			let mut changed = bytes.clone();
+			changed[index] ^= 1 << bit;
+			compare(
+				&mut reference,
+				CanonicalMetadata::decode(&changed),
+				14,
+				&changed,
+				|m| m.encode().unwrap(),
+			);
+		}
+	}
+	for count in [1u32, u32::MAX] {
+		assert_eq!(
+			CanonicalMetadata::decode(&count.to_le_bytes()),
+			Err(Error::TruncatedMetadata)
+		);
+	}
+}
+
+#[test]
+fn canonical_decoder_covers_every_tag_permission_and_presence_byte() {
+	let mut reference = Reference::start();
+	let empty = reference.call(12, &[0]).unwrap();
+	// Minimal records use the published field layout, independent of Rust encoding.
+	let mut attr = 1u32.to_le_bytes().to_vec();
+	attr.push(1);
+	attr.extend(1u32.to_le_bytes());
+	attr.push(b'x');
+	attr.extend(0u32.to_le_bytes());
+	attr.extend(&empty[4..]);
+	let mut ace = empty[..4].to_vec();
+	ace.extend(1u32.to_le_bytes());
+	ace.extend([1, 0]);
+	ace.extend(0u32.to_le_bytes());
+	ace.extend(&empty[8..]);
+	for byte in 0..=255u8 {
+		for (template, offset) in [
+			(&empty, 8),
+			(&empty, 9),
+			(&empty, 14),
+			(&empty, 19),
+			(&attr, 4),
+			(&ace, 8),
+			(&ace, 9),
+		] {
+			let mut bytes = template.clone();
+			bytes[offset] = byte;
+			compare(
+				&mut reference,
+				CanonicalMetadata::decode(&bytes),
+				14,
+				&bytes,
+				|m| m.encode().unwrap(),
+			);
+		}
+	}
+}

@@ -556,3 +556,29 @@ The complete suite passed: 28.69 seconds for Nix preparation/checks and
 297.93 seconds for host admission/setup/execution, totaling 326.62 seconds.
 Growth execution took 21.97 seconds. All three native Nix systems evaluate;
 native execution remains qualified on Linux amd64 only.
+
+### Canonical metadata decoding
+
+The Rust canonical decoder borrows every variable byte field from its input.
+Descriptor storage uses fallible reservation only after a minimum-record-size
+check establishes that the count could fit in the remaining bytes. Checked
+cursor slices reject truncations, closed enums reject undefined tags and bits,
+and the parser rejects trailing bytes before validating the canonical record.
+The resulting immutable wrapper shares the encoder and identity contract.
+
+Native fixtures verify decoded records, exact re-encoding, hashes, unchanged
+input and borrowed byte locations. Differential controls compare every
+truncation of sixteen valid fixtures, every single-bit mutation of a rich
+fixture, trailing bytes, forged counts and all 256 values at each tag,
+permission and presence field. The first two tests failed with a decoder stub;
+all twenty-five core tests now pass, together with both Release measurement
+controls. The Linux memory-limited consumer also rejects a forged maximum
+count without requesting its descriptor allocation.
+
+The complete suite passed with twenty-four core tests before the final finite
+tag-domain control was added: 34.73 seconds for preparation/checks and 297.95
+seconds for host admission/setup/execution, totaling 332.68 seconds. Growth
+execution took 22.56 seconds. The fresh twenty-five-test Nix result has a
+byte-identical runtime consumer, so the complete host verdict applies to it.
+All three native Nix systems evaluate. Native execution remains qualified on
+Linux amd64, and metadata growth qualification remains open before adoption.
