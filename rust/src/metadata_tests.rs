@@ -1,10 +1,10 @@
 use super::*;
 use std::{
-	io::Write,
-	process::{Command, Stdio},
+	io::{BufReader, Read, Write},
+	process::{Child, ChildStdin, ChildStdout, Command, Stdio},
 };
 
-fn native(mode: u32, input: &[u8]) -> Result<Vec<u8>, String> {
+fn native_once(mode: u32, input: &[u8]) -> Result<Vec<u8>, String> {
 	let mut process = Command::new(std::env::var_os("DIFZ_METADATA_ORACLE").unwrap())
 		.arg(mode.to_string())
 		.stdin(Stdio::piped())
@@ -30,21 +30,96 @@ fn native(mode: u32, input: &[u8]) -> Result<Vec<u8>, String> {
 	}
 }
 
-fn compare<T>(actual: Result<T, Error>, mode: u32, bytes: &[u8], encode: impl Fn(T) -> Vec<u8>) {
+struct Reference {
+	child: Child,
+	input: Option<ChildStdin>,
+	output: BufReader<ChildStdout>,
+}
+impl Reference {
+	fn start() -> Self {
+		let mut child = Command::new(std::env::var_os("DIFZ_METADATA_ORACLE").unwrap())
+			.arg("--stream")
+			.stdin(Stdio::piped())
+			.stdout(Stdio::piped())
+			.stderr(Stdio::inherit())
+			.spawn()
+			.unwrap();
+		let input = child.stdin.take();
+		let output = BufReader::new(child.stdout.take().unwrap());
+		Self {
+			child,
+			input,
+			output,
+		}
+	}
+	fn call(&mut self, mode: u32, bytes: &[u8]) -> Result<Vec<u8>, String> {
+		assert!(bytes.len() <= 1 << 20);
+		let input = self.input.as_mut().unwrap();
+		input.write_all(&mode.to_le_bytes()).unwrap();
+		input
+			.write_all(&(bytes.len() as u32).to_le_bytes())
+			.unwrap();
+		input.write_all(bytes).unwrap();
+		input.flush().unwrap();
+		let mut header = [0; 5];
+		self.output.read_exact(&mut header).unwrap();
+		let length = u32::from_le_bytes(header[1..].try_into().unwrap()) as usize;
+		assert!(length <= 1 << 20, "oversize oracle response");
+		let mut response = vec![0; length];
+		self.output.read_exact(&mut response).unwrap();
+		match header[0] {
+			0 => Ok(response),
+			1 => Err(String::from_utf8(response).unwrap()),
+			status => panic!("invalid oracle status {status}"),
+		}
+	}
+}
+impl Drop for Reference {
+	fn drop(&mut self) {
+		drop(self.input.take());
+		if std::thread::panicking() {
+			// Reap only our child; a failed read must not leave it blocked writing.
+			let _ = self.child.kill();
+			let _ = self.child.wait();
+		} else {
+			assert!(
+				self.child.wait().unwrap().success(),
+				"reference process failed"
+			);
+		}
+	}
+}
+
+fn compare<T>(
+	reference: &mut Reference,
+	actual: Result<T, Error>,
+	mode: u32,
+	bytes: &[u8],
+	encode: impl Fn(T) -> Vec<u8>,
+) {
 	let actual = actual.map(encode).map_err(|e| format!("{e:?}"));
-	assert_eq!(actual, native(mode, bytes), "mode={mode} bytes={bytes:?}");
+	assert_eq!(
+		actual,
+		reference.call(mode, bytes),
+		"mode={mode} bytes={bytes:?}"
+	);
 }
 
 #[test]
 fn omission_masks_and_family_names_match_the_reference_over_the_finite_domain() {
+	let mut reference = Reference::start();
 	let names = ["xattr", "acl", "timestamps", "finder", "sparse", "hardlink"];
 	for mask in (0..=255u32)
 		.chain((6..32).map(|bit| 1 << bit))
 		.chain([u32::MAX])
 	{
-		compare(Omit::from_bits(mask), 0, &mask.to_le_bytes(), |omit| {
-			omit.bits().to_le_bytes().to_vec()
-		});
+		compare(
+			&mut reference,
+			Omit::from_bits(mask),
+			0,
+			&mask.to_le_bytes(),
+			|omit| omit.bits().to_le_bytes().to_vec(),
+		);
 		if mask < 64 {
 			let omit = Omit::from_bits(mask).unwrap();
 			let mut selected = Vec::new();
@@ -57,9 +132,13 @@ fn omission_masks_and_family_names_match_the_reference_over_the_finite_domain() 
 			}
 			let text = selected.join(",");
 			assert_eq!(Omit::parse(text.as_bytes()), Ok(omit));
-			compare(Omit::parse(text.as_bytes()), 1, text.as_bytes(), |omit| {
-				omit.bits().to_le_bytes().to_vec()
-			});
+			compare(
+				&mut reference,
+				Omit::parse(text.as_bytes()),
+				1,
+				text.as_bytes(),
+				|omit| omit.bits().to_le_bytes().to_vec(),
+			);
 		}
 	}
 	for text in [
@@ -75,11 +154,15 @@ fn omission_masks_and_family_names_match_the_reference_over_the_finite_domain() 
 		"none",
 		"all",
 	] {
-		compare(Omit::parse(text.as_bytes()), 1, text.as_bytes(), |omit| {
-			omit.bits().to_le_bytes().to_vec()
-		});
+		compare(
+			&mut reference,
+			Omit::parse(text.as_bytes()),
+			1,
+			text.as_bytes(),
+			|omit| omit.bits().to_le_bytes().to_vec(),
+		);
 	}
-	compare(Omit::parse(&[0xff]), 1, &[0xff], |omit| {
+	compare(&mut reference, Omit::parse(&[0xff]), 1, &[0xff], |omit| {
 		omit.bits().to_le_bytes().to_vec()
 	});
 }
@@ -98,6 +181,7 @@ fn time_bytes(value: Option<Time>) -> Vec<u8> {
 
 #[test]
 fn timestamp_presence_signed_seconds_nanoseconds_and_flag_bytes_match_reference() {
+	let mut reference = Reference::start();
 	let mut values = vec![None];
 	for sec in [i64::MIN, -1, 0, 1, i64::MAX] {
 		for nsec in [0, 1, 999_999_999, 1_000_000_000, u32::MAX] {
@@ -106,7 +190,13 @@ fn timestamp_presence_signed_seconds_nanoseconds_and_flag_bytes_match_reference(
 	}
 	for value in values {
 		let bytes = time_bytes(value);
-		compare(decode_time_override(&bytes), 2, &bytes, time_bytes);
+		compare(
+			&mut reference,
+			decode_time_override(&bytes),
+			2,
+			&bytes,
+			time_bytes,
+		);
 		let expected = if value.is_some_and(|t| t.nsec >= 1_000_000_000) {
 			Err(Error::InvalidNsec)
 		} else {
@@ -120,13 +210,26 @@ fn timestamp_presence_signed_seconds_nanoseconds_and_flag_bytes_match_reference(
 	for flag in 0..=255u8 {
 		let mut bytes = vec![flag];
 		bytes.resize(13, 0);
-		compare(decode_time_override(&bytes), 2, &bytes, time_bytes);
-		compare(decode_time_override(&[flag]), 2, &[flag], time_bytes);
+		compare(
+			&mut reference,
+			decode_time_override(&bytes),
+			2,
+			&bytes,
+			time_bytes,
+		);
+		compare(
+			&mut reference,
+			decode_time_override(&[flag]),
+			2,
+			&[flag],
+			time_bytes,
+		);
 	}
 }
 
 #[test]
 fn modification_override_binds_original_and_observed_values_with_exact_lengths() {
+	let mut reference = Reference::start();
 	for original in [
 		None,
 		Some(Time {
@@ -158,11 +261,16 @@ fn modification_override_binds_original_and_observed_values_with_exact_lengths()
 				encode_modification_override(value).map(|b| b.as_bytes().to_vec()),
 				expected
 			);
-			compare(decode_modification_override(&bytes), 3, &bytes, |v| {
-				encode_modification_override(v).unwrap().as_bytes().to_vec()
-			});
+			compare(
+				&mut reference,
+				decode_modification_override(&bytes),
+				3,
+				&bytes,
+				|v| encode_modification_override(v).unwrap().as_bytes().to_vec(),
+			);
 			for length in 0..bytes.len() {
 				compare(
+					&mut reference,
 					decode_modification_override(&bytes[..length]),
 					3,
 					&bytes[..length],
@@ -170,25 +278,42 @@ fn modification_override_binds_original_and_observed_values_with_exact_lengths()
 				);
 			}
 			bytes.push(0);
-			compare(decode_modification_override(&bytes), 3, &bytes, |v| {
-				encode_modification_override(v).unwrap().as_bytes().to_vec()
-			});
+			compare(
+				&mut reference,
+				decode_modification_override(&bytes),
+				3,
+				&bytes,
+				|v| encode_modification_override(v).unwrap().as_bytes().to_vec(),
+			);
 		}
 	}
 }
 
 #[test]
 fn attribute_names_match_reference_for_binary_bytes_reserved_names_and_size_limits() {
+	let mut reference = Reference::start();
 	for byte in 0..=255u8 {
 		let name = [b'a', byte, b'b'];
 		for (class, mode) in [(XattrClass::Logical, 4), (XattrClass::Raw, 5)] {
-			compare(validate_xattr_name(class, &name), mode, &name, |()| vec![]);
+			compare(
+				&mut reference,
+				validate_xattr_name(class, &name),
+				mode,
+				&name,
+				|()| vec![],
+			);
 		}
 	}
 	for length in [0, 1, 126, 127, 128, 254, 255, 256] {
 		let name = vec![b'a'; length];
 		for (class, mode) in [(XattrClass::Logical, 4), (XattrClass::Raw, 5)] {
-			compare(validate_xattr_name(class, &name), mode, &name, |()| vec![]);
+			compare(
+				&mut reference,
+				validate_xattr_name(class, &name),
+				mode,
+				&name,
+				|()| vec![],
+			);
 		}
 	}
 	for name in [
@@ -206,6 +331,7 @@ fn attribute_names_match_reference_for_binary_bytes_reserved_names_and_size_limi
 	] {
 		for (class, mode) in [(XattrClass::Logical, 4), (XattrClass::Raw, 5)] {
 			compare(
+				&mut reference,
 				validate_xattr_name(class, name.as_bytes()),
 				mode,
 				name.as_bytes(),
@@ -236,10 +362,11 @@ fn attribute_names_match_reference_for_binary_bytes_reserved_names_and_size_limi
 		] {
 			assert_eq!(
 				vec![u8::from(is_transport_name(name.as_bytes()))],
-				native(8, name.as_bytes()).unwrap()
+				reference.call(8, name.as_bytes()).unwrap()
 			);
 			for (class, mode) in [(XattrClass::Logical, 4), (XattrClass::Raw, 5)] {
 				compare(
+					&mut reference,
 					validate_xattr_name(class, name.as_bytes()),
 					mode,
 					name.as_bytes(),
@@ -252,6 +379,7 @@ fn attribute_names_match_reference_for_binary_bytes_reserved_names_and_size_limi
 
 #[test]
 fn hardlink_and_acl_identity_validation_matches_reference() {
+	let mut reference = Reference::start();
 	for path in [
 		"",
 		"a",
@@ -272,6 +400,7 @@ fn hardlink_and_acl_identity_validation_matches_reference() {
 		"a\0b",
 	] {
 		compare(
+			&mut reference,
 			validate_hardlink(path.as_bytes()),
 			6,
 			path.as_bytes(),
@@ -280,17 +409,30 @@ fn hardlink_and_acl_identity_validation_matches_reference() {
 	}
 	for length in [4095, 4096, 4097] {
 		let path = vec![b'a'; length];
-		compare(validate_hardlink(&path), 6, &path, |()| vec![]);
+		compare(
+			&mut reference,
+			validate_hardlink(&path),
+			6,
+			&path,
+			|()| vec![],
+		);
 	}
 	for byte in 0..=255u8 {
 		let name = [b'a', byte, b'b'];
-		compare(validate_hardlink(&name), 6, &name, |()| vec![]);
+		compare(
+			&mut reference,
+			validate_hardlink(&name),
+			6,
+			&name,
+			|()| vec![],
+		);
 	}
 	for tag in 0..=255u8 {
 		for name in [b"".as_slice(), b"name", b"a/b", b"a\0b", b"\xff", b"a\\b"] {
 			let mut input = vec![tag];
 			input.extend(name);
 			compare(
+				&mut reference,
 				AceTag::try_from(tag).and_then(|tag| validate_ace_name(tag, name)),
 				7,
 				&input,
@@ -302,12 +444,13 @@ fn hardlink_and_acl_identity_validation_matches_reference() {
 
 #[test]
 fn raw_attribute_platform_eligibility_keeps_its_separate_structural_contract() {
+	let mut reference = Reference::start();
 	assert_eq!(Os::ALL.len(), 3);
 	for tag in 0..=255u8 {
 		let actual = Os::try_from(tag).map(|os| vec![u8::from(raw_accepted(os, b"user.name"))]);
 		let mut input = vec![tag];
 		input.extend(b"user.name");
-		compare(actual, 9, &input, |value| value);
+		compare(&mut reference, actual, 9, &input, |value| value);
 	}
 	for os in Os::ALL.iter().copied() {
 		for name in [
@@ -329,7 +472,7 @@ fn raw_attribute_platform_eligibility_keeps_its_separate_structural_contract() {
 			input.extend(name);
 			assert_eq!(
 				vec![u8::from(raw_accepted(os, name))],
-				native(9, &input).unwrap()
+				reference.call(9, &input).unwrap()
 			);
 		}
 		for length in [127, 128, 255, 256] {
@@ -337,8 +480,58 @@ fn raw_attribute_platform_eligibility_keeps_its_separate_structural_contract() {
 			input.extend(vec![b'a'; length]);
 			assert_eq!(
 				vec![u8::from(raw_accepted(os, &input[1..]))],
-				native(9, &input).unwrap()
+				reference.call(9, &input).unwrap()
 			);
 		}
+	}
+}
+
+#[test]
+fn streaming_reference_matches_one_shot_and_rejects_truncated_or_oversize_requests() {
+	let mut reference = Reference::start();
+	let cases = [
+		(0, 0u32.to_le_bytes().to_vec()),
+		(0, u32::MAX.to_le_bytes().to_vec()),
+		(1, b"acl".to_vec()),
+		(1, b"acl,acl".to_vec()),
+		(2, vec![0]),
+		(2, vec![2]),
+		(3, vec![0; 13]),
+		(3, vec![0; 12]),
+		(4, b"hello".to_vec()),
+		(4, vec![0]),
+		(5, vec![0xff]),
+		(5, vec![b'/']),
+		(6, b"a/b".to_vec()),
+		(6, b"../a".to_vec()),
+		(7, vec![4, b'n', b'a', b'm', b'e']),
+		(7, vec![0]),
+		(8, b"difz.btime".to_vec()),
+		(8, b"USER.difz.btime".to_vec()),
+		(9, vec![1, b'u', b's', b'e', b'r', b'.', b'n']),
+		(9, vec![0]),
+		(99, vec![0, 0xff]),
+	];
+	for (mode, input) in cases {
+		assert_eq!(reference.call(mode, &input), native_once(mode, &input));
+	}
+	drop(reference); // A clean EOF must terminate successfully after valid and invalid records.
+	let mut oversize = 0u32.to_le_bytes().to_vec();
+	oversize.extend(((1u32 << 20) + 1).to_le_bytes());
+	let mut short_body = 0u32.to_le_bytes().to_vec();
+	short_body.extend(4u32.to_le_bytes());
+	short_body.extend([0; 3]);
+	for input in [vec![0], vec![0; 7], oversize, short_body] {
+		let mut child = Command::new(std::env::var_os("DIFZ_METADATA_ORACLE").unwrap())
+			.arg("--stream")
+			.stdin(Stdio::piped())
+			.stdout(Stdio::piped())
+			.stderr(Stdio::piped())
+			.spawn()
+			.unwrap();
+		child.stdin.take().unwrap().write_all(&input).unwrap();
+		let result = child.wait_with_output().unwrap();
+		assert_eq!(result.status.code(), Some(2));
+		assert!(result.stdout.is_empty());
 	}
 }

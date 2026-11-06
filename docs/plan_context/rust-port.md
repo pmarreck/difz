@@ -416,3 +416,25 @@ The complete suite passed again: Nix preparation/checks took 9.51 seconds;
 the host phase, including its shared-slot queue, took 262.89 seconds. The fresh
 growth checks took 24.44 seconds. Total elapsed time was 272.40 seconds; that
 total is not a measurement of test execution alone.
+
+### Reference-process reuse
+
+Each metadata test now owns one reference child and sends bounded binary
+requests over pipes. The child still calls the existing Zig functions with a
+fresh arena for every request. All six metadata input sweeps remain intact.
+An additional test compares successful and failing requests against the original
+one-shot interface, checks clean EOF, and rejects truncated headers/bodies and
+oversize requests. Crashes, malformed responses and unsuccessful child exits
+fail the Rust test. Cleanup reaps only the owned child. The Nix test process group
+has a 120-second deadline plus five seconds for termination if IPC stalls.
+
+The first fresh eighteen-test run took 3.40 seconds, compared with 11.28 seconds
+for the preceding seventeen-test run. These are observed check-feedback times,
+not a codec benchmark or a statistical speedup claim. The product consumer is
+byte-identical to the complete passing name-validation run, with SHA-256
+`2d58736ff9345e824f50db7501f8f63c9d61109b7eb1802188a98321fd77e012`.
+Host runners, configuration and the other host binaries are unchanged, so that
+complete host verdict is reused while the changed Rust/reference checks run
+fresh. No new host execution is claimed for this helper-only change.
+All other required Nix check derivations match the preceding commit exactly;
+the complete required Nix target set passes with the changed Rust check rebuilt.

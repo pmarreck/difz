@@ -9,7 +9,7 @@ pkgs.rustPlatform.buildRustPackage {
 	cargoLock.lockFile = ./Cargo.lock;
 	strictDeps = true;
 	nativeBuildInputs = [ pkgs.jq pkgs.rust-bindgen pkgs.rustPlatform.bindgenHook ];
-	nativeCheckInputs = [ pkgs.b3sum pkgs.gnugrep ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.binutils ];
+	nativeCheckInputs = [ pkgs.b3sum pkgs.gnugrep pkgs.coreutils ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.binutils ];
 	DIFZ_ZSTDZ_ROOT = zstdz;
 	DIFZ_ORACLE = "${oracle}/bin/difz";
 	DIFZ_METADATA_ORACLE = "${metadataOracle}/bin/difz-metadata-oracle";
@@ -49,8 +49,9 @@ pkgs.rustPlatform.buildRustPackage {
 		mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
 		chmod 700 "$XDG_RUNTIME_DIR"
 		test_count=$("$test_binary" --list | grep -c ': test$')
-		test "$test_count" -ge 17
-		"$test_binary" --test-threads=1 --include-ignored
+		test "$test_count" -ge 18
+		# Include the reference children in a bounded process group if IPC stalls.
+		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$test_binary" --test-threads=1 --include-ignored
 		"$consumer"
 		# A parent must not silently link two providers of the ZSTD C namespace.
 		control="$TMPDIR/native-provider-control"
