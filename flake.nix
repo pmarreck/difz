@@ -228,6 +228,8 @@
 					inherit pkgs;
 					metadataSource = ./src/metadata.zig;
 					directorySource = ./src/directory.zig;
+					patchSources = [ ./src/directory_patch.zig ./src/path_filter.zig ./src/glob.zig ./src/pcre2.zig ./src/zstd_patch.zig ./src/patch.zig ];
+					zstdz = zstdBenchmark;
 				};
 				rustZstdzSdk = import ./rust/zstdz-sdk.nix { inherit pkgs; zstdz = zstdBenchmark; };
 				rustCoreTests = import ./rust/qa.nix { inherit pkgs metadataOracle; oracle = releaseFast; zstdz = zstdBenchmark; sdk = rustZstdzSdk; random = randomPackage; };

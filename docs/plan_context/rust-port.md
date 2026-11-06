@@ -749,3 +749,33 @@ The complete suite passed in 860.02 seconds: 10.40 for preparation/checks and
 849.62 for host admission/setup/execution. Growth execution took 22.32 seconds.
 All three native Nix systems evaluate. Directory patch encoding/decoding,
 filesystem adapters and the remaining Rust entry points are still pending.
+
+### DIFZTREE v2 envelope integrity
+
+The Rust envelope parser accepts only the v2 format. It verifies the byte
+ceiling, fixed header, magic, format version, domain-separated BLAKE3 checksum,
+reader requirement, flags, descriptor limits and conservative body-size bounds
+in native order. Reader requirements 0, 1 and 2 describe this same v2 layout;
+they do not enable a v1 decoder. The result borrows the body and leaves its
+rules, operations and metadata semantically unvalidated. Encoding returns a
+fixed 120-byte header for the supplied body. Both operations allocate no
+storage and perform O(patch bytes) checksum work.
+
+The reference helper now calls the unchanged native directory codec through
+`createPatch` and `readOptions`. Its source closure explicitly includes the
+codec and filter dependencies. PCRE2 is a test-helper dependency here; this
+change adds no dependency to the shipped Rust library. Four native patch
+profiles cover empty trees, root metadata, a binary file and a filter rule.
+Accepted identity changes, all omission masks and supported reader requirements
+provide positive controls alongside truncation, corruption, version/flag/count
+mutations, exact byte ceilings and mixed-error precedence. Combined minimum
+rule/entry body lengths are tested at one byte below, exactly and one above
+the boundary, without treating envelope acceptance as full body acceptance.
+
+All three new test groups failed with stubs while the prior thirty-five passed.
+All thirty-eight core tests and three Release controls pass; fresh core
+execution took 6.07 seconds. All three Nix systems evaluate. The complete suite
+passed in 334.25 seconds: 33.35 for preparation/checks and 300.90 for host
+admission/setup/execution. Growth execution took 22.52 seconds; historical
+baselines remain unapproved. Directory body decoding, encoding, application
+and filesystem adapters remain pending.

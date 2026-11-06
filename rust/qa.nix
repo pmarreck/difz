@@ -48,7 +48,7 @@ pkgs.rustPlatform.buildRustPackage {
 		mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
 		chmod 700 "$XDG_RUNTIME_DIR"
 		test_count=$("$test_binary" --list | grep -c ': test$')
-		test "$test_count" -ge 35
+		test "$test_count" -ge 38
 		# Include the reference children in a bounded process group if IPC stalls.
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$test_binary" --test-threads=1 --include-ignored
 		consumer_test_count=$("$consumer_tests" --list | grep -c ': test$')
