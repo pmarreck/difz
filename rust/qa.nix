@@ -18,7 +18,8 @@ pkgs.rustPlatform.buildRustPackage {
 	doCheck = true;
 	buildPhase = ''
 		runHook preBuild
-		${pkgs.stdenv.cc}/bin/cc consumer/native_params.c -I${zstdz}/include ${zstdz}/lib/libzstd.a -pthread -o native-params
+		${pkgs.stdenv.cc}/bin/cc consumer/native_params.c -DZSTD_MULTITHREAD \
+			-I${zstdz.src}/lib -I${zstdz.src}/lib/compress ${zstdz}/lib/libzstd.a -pthread -o native-params
 		./native-params > native-params.json
 		export DIFZ_NATIVE_PARAMS="$PWD/native-params.json"
 		export CC=false CXX=false AR=false
@@ -52,7 +53,7 @@ pkgs.rustPlatform.buildRustPackage {
 		# Include the reference children in a bounded process group if IPC stalls.
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$test_binary" --test-threads=1 --include-ignored
 		consumer_test_count=$("$consumer_tests" --list | grep -c ': test$')
-		test "$consumer_test_count" -ge 3
+		test "$consumer_test_count" -ge 4
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$consumer_tests" --test-threads=1 --include-ignored
 		"$consumer"
 		( unset DIFZ_ZSTDZ_ROOT; source ${sdk}/nix-support/setup-hook; test "$DIFZ_ZSTDZ_ROOT" = ${sdk}; source ${sdk}/nix-support/setup-hook )

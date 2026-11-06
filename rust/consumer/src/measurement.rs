@@ -57,38 +57,90 @@ struct Samples {
 	cpu: Vec<f64>,
 }
 
-fn sample_work<T>(mut execute: impl FnMut() -> T, mut verify: impl FnMut(&T)) -> Samples {
-	for _ in 0..3 {
-		verify(&execute());
+trait Clock {
+	type Start;
+	fn start(&mut self) -> Self::Start;
+	fn elapsed(&mut self, start: Self::Start) -> (u128, u128);
+}
+struct NativeClock;
+impl Clock for NativeClock {
+	type Start = (ProcessTime, Instant);
+	fn start(&mut self) -> Self::Start {
+		(ProcessTime::try_now().unwrap(), Instant::now())
 	}
-	let calibration = ProcessTime::try_now().unwrap();
-	let calibrated = execute();
-	let calibration_ns = calibration.try_elapsed().unwrap().as_nanos();
-	verify(&calibrated);
-	assert!(calibration_ns > 0, "CPU clock must advance");
-	drop(calibrated); // Do not retain an extra output across timed operations.
-	let iterations = calibrated_iterations(calibration_ns);
-	let mut samples = Samples {
-		iterations,
-		wall: Vec::new(),
-		cpu: Vec::new(),
-	};
-	for _ in 0..5 {
-		let mut wall = 0u128;
-		let mut cpu = 0u128;
-		for _ in 0..iterations {
-			let cpu_start = ProcessTime::try_now().unwrap();
-			let wall_start = Instant::now();
-			let output = execute();
-			wall += wall_start.elapsed().as_nanos();
-			cpu += cpu_start.try_elapsed().unwrap().as_nanos();
-			verify(&output);
+	fn elapsed(&mut self, (cpu, wall): Self::Start) -> (u128, u128) {
+		(
+			wall.elapsed().as_nanos(),
+			cpu.try_elapsed().unwrap().as_nanos(),
+		)
+	}
+}
+struct Sweep {
+	rows: Vec<Samples>,
+	order: Vec<usize>,
+}
+fn sample_rows<T>(
+	count: usize,
+	mut work: impl FnMut(usize) -> T,
+	mut verify: impl FnMut(usize, &T),
+	clock: &mut impl Clock,
+) -> Sweep {
+	assert!((1..=16).contains(&count));
+	let mut rows = Vec::new();
+	for row in 0..count {
+		for _ in 0..3 {
+			verify(row, &work(row));
 		}
-		assert!(wall > 0 && cpu > 0);
-		samples.wall.push(wall as f64 / iterations as f64);
-		samples.cpu.push(cpu as f64 / iterations as f64);
+		let start = clock.start();
+		let calibrated = work(row);
+		let (_, cpu) = clock.elapsed(start);
+		assert!(cpu > 0, "CPU clock must advance");
+		verify(row, &calibrated);
+		drop(calibrated);
+		rows.push(Samples {
+			iterations: calibrated_iterations(cpu),
+			wall: Vec::new(),
+			cpu: Vec::new(),
+		});
 	}
-	samples
+	let mut order = Vec::new();
+	for round in 0..5 {
+		for position in 0..count {
+			let row = if round % 2 == 0 {
+				(round + position) % count
+			} else {
+				(round + count - position) % count
+			};
+			order.push(row);
+			let samples = &mut rows[row];
+			let mut wall = 0u128;
+			let mut cpu = 0u128;
+			for _ in 0..samples.iterations {
+				let start = clock.start();
+				let output = work(row);
+				let (elapsed_wall, elapsed_cpu) = clock.elapsed(start);
+				wall += elapsed_wall;
+				cpu += elapsed_cpu;
+				verify(row, &output);
+			}
+			assert!(wall > 0 && cpu > 0);
+			samples.wall.push(wall as f64 / samples.iterations as f64);
+			samples.cpu.push(cpu as f64 / samples.iterations as f64);
+		}
+	}
+	Sweep { rows, order }
+}
+#[cfg(test)]
+fn sample_work<T>(mut execute: impl FnMut() -> T, mut verify: impl FnMut(&T)) -> Samples {
+	sample_rows(
+		1,
+		|_| execute(),
+		|_, output| verify(output),
+		&mut NativeClock,
+	)
+	.rows
+	.pop()
+	.unwrap()
 }
 
 pub fn run(args: &[String]) {
@@ -108,7 +160,14 @@ pub fn run(args: &[String]) {
 	let directory = std::env::temp_dir().join(format!("difz-rust-measure-{}", std::process::id()));
 	fs::create_dir(&directory).unwrap(); // Refuse preexisting state; cleanup only our creation.
 	let scratch = Scratch(directory);
-	let mut rows = Vec::new();
+	struct Fixture {
+		size: usize,
+		source: Vec<u8>,
+		target: Vec<u8>,
+		patch: Vec<u8>,
+		parameters: serde_json::Value,
+	}
+	let mut fixtures = Vec::new();
 	let native_parameters: serde_json::Value =
 		serde_json::from_str(include_str!(env!("DIFZ_NATIVE_PARAMS"))).unwrap();
 	for n in sizes {
@@ -139,31 +198,128 @@ pub fn run(args: &[String]) {
 			String::from_utf8_lossy(&native.stderr)
 		);
 		let patch = fs::read(&p).unwrap();
-		let expected = match op {
-			Operation::Encode => &patch,
-			Operation::Apply => &target,
-		};
-		let samples = sample_work(
-			|| execute(op, &source, &target, &patch),
-			|output| assert_eq!(output, expected),
-		);
 		let parameters = native_parameters
 			.as_array()
 			.unwrap()
 			.iter()
 			.find(|p| p["size"].as_u64() == Some(n as u64))
 			.unwrap();
-		rows.push(json!({"size":n,"native_parameters":parameters,"patch_bytes":patch.len(),"iterations_per_sample":samples.iterations,"samples":{"wall_ns":samples.wall,"cpu_ns":samples.cpu}}));
+		fixtures.push(Fixture {
+			size: n,
+			source,
+			target,
+			patch,
+			parameters: parameters.clone(),
+		});
 	}
+	let sweep = sample_rows(
+		fixtures.len(),
+		|index| {
+			let Fixture {
+				size: _,
+				source,
+				target,
+				patch,
+				parameters: _,
+			} = &fixtures[index];
+			execute(op, source, target, patch)
+		},
+		|index, output| {
+			let fixture = &fixtures[index];
+			let expected = match op {
+				Operation::Encode => &fixture.patch,
+				Operation::Apply => &fixture.target,
+			};
+			assert_eq!(output, expected);
+		},
+		&mut NativeClock,
+	);
+	let sample_order: Vec<Vec<usize>> = sweep
+		.order
+		.chunks(fixtures.len())
+		.map(|indices| indices.iter().map(|index| fixtures[*index].size).collect())
+		.collect();
+	let rows: Vec<_> = fixtures.iter().zip(sweep.rows).map(|(fixture, samples)| json!({"size":fixture.size,"native_parameters":fixture.parameters,"patch_bytes":fixture.patch.len(),"iterations_per_sample":samples.iterations,"samples":{"wall_ns":samples.wall,"cpu_ns":samples.cpu}})).collect();
 	println!(
 		"{}",
-		json!({"schema":"performance-measurement/v1","correct":true,"build_mode":"release","runtime":"Rust-1.94.1/zstdz","operation":op.name(),"seed":seed.to_string(),"fixture":"seeded-random-source-scattered-edits-v1","clock":"Instant monotonic wall; ProcessTime all-thread CPU; per-call normalized; validation and destruction outside timing; calibration output released before sampling","rows":rows})
+		json!({"schema":"performance-measurement/v1","correct":true,"build_mode":"release","runtime":"Rust-1.94.1/zstdz","operation":op.name(),"seed":seed.to_string(),"fixture":"seeded-random-source-scattered-edits-v2-resident-sweep","clock":"Instant monotonic wall; ProcessTime all-thread CPU; per-call normalized; validation and destruction outside timing; calibration output released; interleaved size rounds","sample_order":sample_order,"rows":rows})
 	);
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn sweep_interleaves_sizes_with_clocks_validation_and_destruction_separated() {
+		use std::{
+			cell::{Cell, RefCell},
+			rc::Rc,
+		};
+		struct FakeClock(Rc<Cell<u8>>);
+		impl Clock for FakeClock {
+			type Start = ();
+			fn start(&mut self) {
+				assert_eq!(self.0.replace(1), 0);
+			}
+			fn elapsed(&mut self, (): ()) -> (u128, u128) {
+				assert_eq!(self.0.replace(0), 2);
+				(TARGET_SAMPLE_NS, TARGET_SAMPLE_NS)
+			}
+		}
+		struct Output {
+			row: usize,
+			live: Rc<Cell<usize>>,
+			phase: Rc<Cell<u8>>,
+		}
+		impl Drop for Output {
+			fn drop(&mut self) {
+				assert_eq!(self.phase.get(), 0);
+				assert_eq!(self.live.replace(0), 1);
+			}
+		}
+		for count in 1..=8 {
+			let phase = Rc::new(Cell::new(0));
+			let live = Rc::new(Cell::new(0));
+			let trace = RefCell::new(Vec::new());
+			let sweep = sample_rows(
+				count,
+				|row| {
+					assert_eq!(live.replace(1), 0);
+					if phase.get() == 1 {
+						phase.set(2);
+					}
+					trace.borrow_mut().push(row);
+					Output {
+						row,
+						live: live.clone(),
+						phase: phase.clone(),
+					}
+				},
+				|row, output| {
+					assert_eq!(phase.get(), 0);
+					assert_eq!(row, output.row);
+				},
+				&mut FakeClock(phase.clone()),
+			);
+			assert_eq!(live.get(), 0);
+			let trace = trace.into_inner();
+			assert_eq!(
+				&trace[..count * 4],
+				&(0..count).flat_map(|row| [row; 4]).collect::<Vec<_>>()
+			);
+			assert_eq!(&trace[count * 4..], sweep.order);
+			for round in sweep.order.chunks_exact(count) {
+				let mut visited = round.to_vec();
+				visited.sort_unstable();
+				assert_eq!(visited, (0..count).collect::<Vec<_>>());
+			}
+			for row in sweep.rows {
+				assert_eq!(row.iterations, 1);
+				assert_eq!(row.wall, vec![TARGET_SAMPLE_NS as f64; 5]);
+				assert_eq!(row.cpu, row.wall);
+			}
+		}
+	}
 	#[test]
 	fn each_probe_output_is_released_before_the_next_operation() {
 		use std::{cell::Cell, rc::Rc};

@@ -801,3 +801,62 @@ The complete suite passed in 761.72 seconds: 166.61 for Nix preparation/checks
 and 595.11 for host admission/setup/execution. The confined native run passed
 ninety-six tests with one platform skip. Growth execution took 30.24 seconds;
 declared bounds pass and historical baselines remain unapproved.
+
+### Interleaved sampling and resolved native state
+
+The path-filter prototype's complete run passed correctness and then failed
+the unchanged encode growth bound: the 4-to-8 MiB CPU ratio was 2.818351,
+above 2.8. The [v5 failure](../benchmarks/rust-file-growth-20261106-v5-filter-failure.ndjson)
+remains a nonretryable failure. That run took 830.71 seconds, including 819.24
+for host admission/setup/execution; its growth phase stopped after 6.57 seconds.
+
+Four predefined [paired diagnostics](../benchmarks/rust-file-encode-20261106-paired-diagnostics.ndjson)
+used the previous and prototype binaries in forward and reverse size order.
+Their 4-to-8 MiB arithmetic-mean CPU ratios were 2.1593, 2.1212, 2.1964 and
+1.9586, respectively. These diagnostics are not gate retries, eligible baseline
+selections, proof of the failure's cause, or evidence of a speedup.
+
+SDK introspection also exposed an incomplete parameter claim. Main search
+parameters stay fixed, but the resolved window log grows from 21 to 24 and
+LDM hash log from 15 to 18. The context allocation grows from 11,290,656 to
+13,132,832 bytes. These are intentionally scaled states, not identical complete
+parameter sets. The SDK report now reads resolved state after compression,
+using private headers and the archive from the same pinned source and feature
+configuration. The gate checks the expected window/LDM trajectory, unchanged
+search settings, zero workers and exact SDK records. Six registry mutations
+and seven malformed native-profile reports are required negative controls.
+
+[Callgrind diagnostics](../benchmarks/zstd-prefix-work-20261106-instructions.ndjson)
+count only native `ZSTD_compress2`, excluding Rust, BLAKE3 and the ZDIF header.
+On the benchmark's exact seed-41 corpus they recorded 45,116,324, 90,064,094,
+179,136,728 and 357,807,197 instructions. Frame lengths match the retained
+Rust benchmark after subtracting its 85-byte header. A separate LCG control
+also approximately doubles. These finite controls describe native instruction
+work; they do not establish whole-Rust timing or a universal complexity result.
+The reproduction uses the current locked SDK and random provider:
+
+```sh
+diagnostic_source=$(nix flake metadata --json | jq -er .path)
+nix build --impure --no-link --print-out-paths \
+  --file docs/benchmarks/research/zstd_prefix_instructions.nix \
+  --argstr source "$diagnostic_source"
+```
+
+The v6 sampler prepares and retains all four source/target fixtures before
+measurement, calibrates each size, then rotates start positions and alternates
+direction across five sampling rounds. Every round visits every size. Three
+warmups, the 100 ms estimated work target, five samples, validation outside
+timing, output destruction and the 2.8 growth ceiling are preserved. Inputs
+are jointly resident, so v6 is a new measurement definition. The raw record
+includes actual sample order. A deterministic injected-clock control verifies
+work order and that validation and destruction occur outside timed intervals;
+it failed against size-grouped sampling while the prior controls passed.
+
+All thirty-eight core tests and four Release controls pass; the fresh core
+run took 7.62 seconds and controls 0.09 seconds. All three Nix systems evaluate.
+The complete suite passed in 971.60 seconds: 44.19 for Nix preparation/checks
+and 927.41 for host admission/setup/execution. The required four fresh growth
+cases passed their unchanged bounds; growth execution took 22.57 seconds.
+Their [v6 observations](../benchmarks/rust-file-growth-20261106-v6-host-samples.ndjson)
+remain unbaselined. This single run does not establish a reduction in noise
+or explain the earlier failure. No historical epoch is approved.
