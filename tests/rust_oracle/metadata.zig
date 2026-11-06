@@ -89,6 +89,27 @@ fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const u8 {
             const digest = metadata.canonicalHash(parsed);
             return allocator.dupe(u8, &digest);
         },
+        16, 17 => {
+            if (input.len != 2) return error.BadMetadata;
+            const raw = try fixtures.forNormalization(allocator, input[0]);
+            const omit = try metadata.Omit.fromBits(input[1]);
+            const normalized = try metadata.canonicalize(allocator, raw, omit);
+            if (mode == 16) return metadata.encodeCanonical(allocator, normalized);
+            return allocator.dupe(u8, &metadata.canonicalHash(normalized));
+        },
+        18 => {
+            if (input.len % 16 != 0) return error.BadMetadata;
+            const holes = try allocator.alloc(metadata.Hole, input.len / 16);
+            for (holes, 0..) |*hole, index| {
+                const offset = index * 16;
+                hole.* = .{
+                    .offset = std.mem.readInt(u64, input[offset..][0..8], .little),
+                    .length = std.mem.readInt(u64, input[offset + 8 ..][0..8], .little),
+                };
+            }
+            const normalized = try metadata.canonicalize(allocator, .{ .holes = holes }, .{});
+            return metadata.encodeCanonical(allocator, normalized);
+        },
         else => return error.BadMetadata,
     }
 }

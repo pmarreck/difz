@@ -51,6 +51,46 @@ fn execute(op: Operation, source: &[u8], target: &[u8], patch: &[u8]) -> Vec<u8>
 	}
 }
 
+struct Samples {
+	iterations: usize,
+	wall: Vec<f64>,
+	cpu: Vec<f64>,
+}
+
+fn sample_work<T>(mut execute: impl FnMut() -> T, mut verify: impl FnMut(&T)) -> Samples {
+	for _ in 0..3 {
+		verify(&execute());
+	}
+	let calibration = ProcessTime::try_now().unwrap();
+	let calibrated = execute();
+	let calibration_ns = calibration.try_elapsed().unwrap().as_nanos();
+	verify(&calibrated);
+	assert!(calibration_ns > 0, "CPU clock must advance");
+	drop(calibrated); // Do not retain an extra output across timed operations.
+	let iterations = calibrated_iterations(calibration_ns);
+	let mut samples = Samples {
+		iterations,
+		wall: Vec::new(),
+		cpu: Vec::new(),
+	};
+	for _ in 0..5 {
+		let mut wall = 0u128;
+		let mut cpu = 0u128;
+		for _ in 0..iterations {
+			let cpu_start = ProcessTime::try_now().unwrap();
+			let wall_start = Instant::now();
+			let output = execute();
+			wall += wall_start.elapsed().as_nanos();
+			cpu += cpu_start.try_elapsed().unwrap().as_nanos();
+			verify(&output);
+		}
+		assert!(wall > 0 && cpu > 0);
+		samples.wall.push(wall as f64 / iterations as f64);
+		samples.cpu.push(cpu as f64 / iterations as f64);
+	}
+	samples
+}
+
 pub fn run(args: &[String]) {
 	assert!(!cfg!(debug_assertions), "optimized probe required");
 	assert_eq!(
@@ -103,49 +143,49 @@ pub fn run(args: &[String]) {
 			Operation::Encode => &patch,
 			Operation::Apply => &target,
 		};
-		for _ in 0..3 {
-			assert_eq!(&execute(op, &source, &target, &patch), expected);
-		}
-		let calibration = ProcessTime::try_now().unwrap();
-		let calibrated = execute(op, &source, &target, &patch);
-		let calibration_ns = calibration.try_elapsed().unwrap().as_nanos();
-		assert_eq!(&calibrated, expected);
-		assert!(calibration_ns > 0, "CPU clock must advance");
-		let iterations = calibrated_iterations(calibration_ns);
-		let mut wall_samples = Vec::new();
-		let mut cpu_samples = Vec::new();
-		for _ in 0..5 {
-			let mut wall = 0u128;
-			let mut cpu = 0u128;
-			for _ in 0..iterations {
-				let cpu_start = ProcessTime::try_now().unwrap();
-				let wall_start = Instant::now();
-				let output = execute(op, &source, &target, &patch);
-				wall += wall_start.elapsed().as_nanos();
-				cpu += cpu_start.try_elapsed().unwrap().as_nanos();
-				assert_eq!(&output, expected); // Independent native patch/target, outside timing.
-			}
-			assert!(wall > 0 && cpu > 0);
-			wall_samples.push(wall as f64 / iterations as f64);
-			cpu_samples.push(cpu as f64 / iterations as f64);
-		}
+		let samples = sample_work(
+			|| execute(op, &source, &target, &patch),
+			|output| assert_eq!(output, expected),
+		);
 		let parameters = native_parameters
 			.as_array()
 			.unwrap()
 			.iter()
 			.find(|p| p["size"].as_u64() == Some(n as u64))
 			.unwrap();
-		rows.push(json!({"size":n,"native_parameters":parameters,"patch_bytes":patch.len(),"iterations_per_sample":iterations,"samples":{"wall_ns":wall_samples,"cpu_ns":cpu_samples}}));
+		rows.push(json!({"size":n,"native_parameters":parameters,"patch_bytes":patch.len(),"iterations_per_sample":samples.iterations,"samples":{"wall_ns":samples.wall,"cpu_ns":samples.cpu}}));
 	}
 	println!(
 		"{}",
-		json!({"schema":"performance-measurement/v1","correct":true,"build_mode":"release","runtime":"Rust-1.94.1/zstdz","operation":op.name(),"seed":seed.to_string(),"fixture":"seeded-random-source-scattered-edits-v1","clock":"Instant monotonic wall; ProcessTime all-thread CPU; per-call normalized; validation and buffer destruction outside timing","rows":rows})
+		json!({"schema":"performance-measurement/v1","correct":true,"build_mode":"release","runtime":"Rust-1.94.1/zstdz","operation":op.name(),"seed":seed.to_string(),"fixture":"seeded-random-source-scattered-edits-v1","clock":"Instant monotonic wall; ProcessTime all-thread CPU; per-call normalized; validation and destruction outside timing; calibration output released before sampling","rows":rows})
 	);
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn each_probe_output_is_released_before_the_next_operation() {
+		use std::{cell::Cell, rc::Rc};
+		struct Live(Rc<Cell<usize>>);
+		impl Drop for Live {
+			fn drop(&mut self) {
+				self.0.set(self.0.get() - 1);
+			}
+		}
+		let live = Rc::new(Cell::new(0));
+		let samples = sample_work(
+			|| {
+				assert_eq!(live.get(), 0, "prior output retained across operations");
+				live.set(1);
+				Live(live.clone())
+			},
+			|_| {},
+		);
+		assert_eq!(live.get(), 0);
+		assert_eq!(samples.wall.len(), 5);
+		assert_eq!(samples.cpu.len(), 5);
+	}
 	#[test]
 	fn seed_transport_matches_the_provider_and_retains_high_bits() {
 		for (reported, argument) in [

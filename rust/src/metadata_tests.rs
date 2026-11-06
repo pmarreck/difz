@@ -97,7 +97,7 @@ fn compare<T>(
 	actual: Result<T, Error>,
 	mode: u32,
 	bytes: &[u8],
-	encode: impl Fn(T) -> Vec<u8>,
+	encode: impl FnOnce(T) -> Vec<u8>,
 ) {
 	let actual = actual.map(encode).map_err(|e| format!("{e:?}"));
 	assert_eq!(

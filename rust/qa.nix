@@ -48,11 +48,11 @@ pkgs.rustPlatform.buildRustPackage {
 		mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
 		chmod 700 "$XDG_RUNTIME_DIR"
 		test_count=$("$test_binary" --list | grep -c ': test$')
-		test "$test_count" -ge 25
+		test "$test_count" -ge 27
 		# Include the reference children in a bounded process group if IPC stalls.
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$test_binary" --test-threads=1 --include-ignored
 		consumer_test_count=$("$consumer_tests" --list | grep -c ': test$')
-		test "$consumer_test_count" -ge 2
+		test "$consumer_test_count" -ge 3
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$consumer_tests" --test-threads=1 --include-ignored
 		"$consumer"
 		( unset DIFZ_ZSTDZ_ROOT; source ${sdk}/nix-support/setup-hook; test "$DIFZ_ZSTDZ_ROOT" = ${sdk}; source ${sdk}/nix-support/setup-hook )

@@ -1,5 +1,5 @@
 use super::{
-	Ace, Error, Hole, Metadata, NativeAcl, Time, Times, Xattr, validate_ace_name,
+	Ace, Error, Family, Hole, Metadata, NativeAcl, Omit, Time, Times, Xattr, validate_ace_name,
 	validate_hardlink, validate_xattr_name,
 };
 use alloc::vec::Vec;
@@ -11,6 +11,110 @@ use core::convert::Infallible;
 pub struct CanonicalMetadata<'a>(Metadata<'a>);
 
 impl<'a> CanonicalMetadata<'a> {
+	/// Consume a raw record, omitting families before validation. Sorts require
+	/// expected O(n log n) key comparisons; merging extents is linear after sort.
+	/// Existing descriptor storage and owned byte buffers are reused.
+	pub fn normalize(mut metadata: Metadata<'a>, omit: Omit) -> Result<Self, Error> {
+		let Metadata {
+			xattrs,
+			aces,
+			native_acl,
+			times,
+			finder_flags,
+			finder_info,
+			holes,
+			hardlink_to,
+		} = &mut metadata;
+		for &family in Family::ALL {
+			if !omit.contains(family) {
+				continue;
+			}
+			match family {
+				Family::Xattr => xattrs.clear(),
+				Family::Acl => {
+					aces.clear();
+					*native_acl = None;
+				}
+				Family::Timestamps => *times = Times::default(),
+				Family::Finder => {
+					*finder_flags = 0;
+					*finder_info = None;
+				}
+				Family::Sparse => holes.clear(),
+				Family::Hardlink => *hardlink_to = None,
+			}
+		}
+		// Validate each family's input before sorting; preserve native error order.
+		wire_length(xattrs.len())?;
+		for attr in xattrs.iter() {
+			validate_xattr_name(attr.class, &attr.name)?;
+			wire_length(attr.value.len())?;
+		}
+		xattrs.sort_unstable_by(|a, b| (a.class, a.name.as_ref()).cmp(&(b.class, b.name.as_ref())));
+		for pair in xattrs.windows(2) {
+			if pair[0].class == pair[1].class && pair[0].name == pair[1].name {
+				return Err(Error::DuplicateXattr);
+			}
+		}
+		wire_length(aces.len())?;
+		for ace in aces.iter() {
+			validate_ace_name(ace.tag, &ace.name)?;
+			wire_length(ace.name.len())?;
+		}
+		aces.sort_unstable_by(|a, b| (a.tag, a.name.as_ref()).cmp(&(b.tag, b.name.as_ref())));
+		for pair in aces.windows(2) {
+			if pair[0].tag == pair[1].tag && pair[0].name == pair[1].name {
+				return Err(Error::DuplicateAce);
+			}
+		}
+		if let Some(acl) = native_acl {
+			if acl.bytes.is_empty() {
+				return Err(Error::EmptyNativeAcl);
+			}
+			wire_length(acl.bytes.len())?;
+		}
+		let Times {
+			mtime,
+			atime,
+			btime,
+		} = times;
+		for value in [*mtime, *atime, *btime].into_iter().flatten() {
+			if value.nsec >= 1_000_000_000 {
+				return Err(Error::InvalidNsec);
+			}
+		}
+		wire_length(holes.len())?;
+		for hole in holes.iter() {
+			if hole.length == 0 {
+				return Err(Error::ZeroLengthHole);
+			}
+			hole.offset
+				.checked_add(hole.length)
+				.ok_or(Error::HoleOverflow)?;
+		}
+		holes.sort_unstable_by_key(|hole| hole.offset);
+		let mut count = 0usize;
+		for index in 0..holes.len() {
+			let hole = holes[index];
+			let end = hole.offset + hole.length; // Checked before sorting.
+			if count != 0 {
+				let previous = &mut holes[count - 1];
+				let previous_end = previous.offset + previous.length;
+				if hole.offset <= previous_end {
+					previous.length = previous_end.max(end) - previous.offset;
+					continue;
+				}
+			}
+			holes[count] = hole;
+			count += 1;
+		}
+		holes.truncate(count);
+		Self::new(metadata)
+	}
+	/// Recover the raw record by consuming its validation wrapper.
+	pub fn into_metadata(self) -> Metadata<'a> {
+		self.0
+	}
 	pub fn new(metadata: Metadata<'a>) -> Result<Self, Error> {
 		validate(&metadata)?;
 		Ok(Self(metadata))

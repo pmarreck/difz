@@ -582,3 +582,56 @@ execution took 22.56 seconds. The fresh twenty-five-test Nix result has a
 byte-identical runtime consumer, so the complete host verdict applies to it.
 All three native Nix systems evaluate. Native execution remains qualified on
 Linux amd64, and metadata growth qualification remains open before adoption.
+
+### Metadata normalization and probe output lifetimes
+
+Normalization consumes a raw record, removes omitted families before their
+validation, sorts attributes and portable ACL entries, rejects duplicates,
+and merges overlapping or adjacent sparse extents. It reuses descriptor and
+owned byte storage. Exhaustive family matching and record destructuring make
+new families or fields require review. Sorting takes O(n log n) key comparisons;
+extent merging is linear after sorting. Metadata growth qualification remains
+open before production adoption.
+
+Native differential controls cover all 64 omission masks over 35 raw fixtures,
+including mixed invalid families and their error precedence. Additional controls
+cover idempotence, exact wire/hash identity, nested/adjacent extents in twelve
+orders, maximum u64 extent ends and preservation of owned buffers. Both new
+controls failed with a stub while the prior twenty-five passed. All twenty-seven
+core tests pass. The memory-limited consumer normalizes reversed descriptors
+sharing 64 MiB of values before its recoverable output-allocation check.
+
+The first complete v4 run passed correctness but failed file-apply growth at
+4 MiB to 8 MiB: 3.027 times against the 2.8 limit. Its
+[diagnostic](../benchmarks/rust-file-growth-20261106-v4-normalization-diagnostic.ndjson)
+is retained as a failure, not an accepted observation. Preparation/checks took
+32.35 seconds; host admission/setup/execution took 717.18 seconds, totaling
+749.53 seconds. The failing growth phase took 13.24 seconds. This does not
+establish a cause for the growth failure.
+
+Inspection found that the calibration result remained allocated throughout
+subsequent timed samples. A required Release consumer test counts live outputs
+through the actual sampling function; it fails if a prior result survives into
+the next operation. That test failed with the retained calibration result and
+passes after explicitly releasing it before sampling. Measurement definition v5
+keeps the same sizes, native validation, three warmups, five samples, 100 ms
+estimated work target and growth limits. Its new definition prevents mixing
+measurements with v4. All three required Release controls pass; complete v5
+host qualification passes. The complete v5 suite took 70.53 seconds: 8.41 for
+preparation/checks and 62.12 for host admission/setup/execution. Growth execution
+took 22.96 seconds, so this does not close the feedback-time budget.
+
+A [paired diagnostic](../benchmarks/rust-file-apply-20261106-reversed-diagnostics.ndjson)
+ran the decoder and normalization binaries with descending sizes. Both observed
+about 2.1 times from 4 MiB to 8 MiB, rather than consistently reproducing the
+earlier 3.027 ratio. One pair cannot establish a speed difference or identify the
+original cause. The retained-buffer defect is independently demonstrated by the
+lifetime test; the original failed observation remains a failure. Kernel/SIMD
+changes were deferred while correcting this sampling-state defect.
+
+The extended [v5 observations](../benchmarks/rust-file-growth-20261106-v5-samples.ndjson)
+cover encode/apply on 1, 2 and 12 allowed cores. All six meet work, variation and
+declared growth checks and remain `UNBASELINED`/exit 3. Encode on one core used
+its single permitted noise retry; that first attempt remains diagnostic data.
+No epoch was approved. These finite sweeps establish the declared bounds for
+their observed workloads, not an asymptotic proof or a speedup claim.

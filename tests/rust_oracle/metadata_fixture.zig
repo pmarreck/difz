@@ -83,3 +83,39 @@ pub fn make(allocator: std.mem.Allocator, selector: u8) !metadata.Metadata {
     }
     return value;
 }
+
+// Raw normalization inputs are separate from strict wire-decoder fixtures:
+// normalization validates families in order; decoding parses times first.
+pub fn forNormalization(allocator: std.mem.Allocator, selector: u8) !metadata.Metadata {
+    if (selector <= 31) return make(allocator, selector);
+    if (selector > 34) return error.BadMetadata;
+    var value = try make(allocator, 1);
+    const xattrs = try allocator.dupe(metadata.Xattr, value.xattrs);
+    const aces = try allocator.dupe(metadata.Ace, value.aces);
+    const holes = try allocator.dupe(metadata.Hole, value.holes);
+    value.xattrs = xattrs;
+    value.aces = aces;
+    value.holes = holes;
+    switch (selector) {
+        32 => {
+            xattrs[1] = xattrs[0];
+            aces[1].name = "";
+            value.native_acl.?.bytes = "";
+            value.times.mtime.?.nsec = 1_000_000_000;
+            holes[0].length = 0;
+            value.hardlink_to = "../escape";
+        },
+        33 => {
+            xattrs[1] = xattrs[0];
+            xattrs[0].name = "";
+            aces[1] = aces[0];
+        },
+        34 => {
+            value.native_acl.?.bytes = "";
+            value.times.mtime.?.nsec = 1_000_000_000;
+            holes[0].length = 0;
+        },
+        else => unreachable,
+    }
+    return value;
+}

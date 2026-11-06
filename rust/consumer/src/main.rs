@@ -44,21 +44,25 @@ fn main() {
 			difz_core::file::apply(source, &huge, 0),
 			Err(difz_core::file::Error::OutOfMemory)
 		);
-		use difz_core::metadata::{CanonicalMetadata, Metadata, Xattr, XattrClass};
+		use difz_core::metadata::{CanonicalMetadata, Metadata, Omit, Xattr, XattrClass};
 		use std::borrow::Cow;
 		// Repeated borrowed values request over 4 GiB of output with 64 MiB of input.
 		let value = vec![0u8; 64 << 20];
-		let attributes = (0..64)
+		let mut attributes: Vec<_> = (0..64)
 			.map(|index| Xattr {
 				class: XattrClass::Logical,
 				name: Cow::Owned(format!("alias-{index:02}").into_bytes()),
 				value: Cow::Borrowed(value.as_slice()),
 			})
 			.collect();
-		let metadata = CanonicalMetadata::new(Metadata {
-			xattrs: attributes,
-			..Metadata::default()
-		})
+		attributes.reverse();
+		let metadata = CanonicalMetadata::normalize(
+			Metadata {
+				xattrs: attributes,
+				..Metadata::default()
+			},
+			Omit::default(),
+		)
 		.unwrap();
 		assert_eq!(
 			metadata.encode(),

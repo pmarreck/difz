@@ -139,6 +139,43 @@ fn fixture(selector: u8) -> Result<Metadata<'static>, Error> {
 	Ok(value)
 }
 
+fn normalization_fixture(selector: u8) -> Metadata<'static> {
+	if selector <= 31 {
+		return fixture(selector).unwrap();
+	}
+	let mut value = fixture(1).unwrap();
+	match selector {
+		32 | 33 => {
+			value.xattrs[1] = Xattr {
+				class: XattrClass::Logical,
+				name: Cow::Borrowed(b"app"),
+				value: Cow::Borrowed(b"v\0\xff"),
+			};
+			if selector == 32 {
+				value.aces[1].name = Cow::Borrowed(b"");
+				value.native_acl.as_mut().unwrap().bytes = Cow::Borrowed(b"");
+				value.times.mtime.as_mut().unwrap().nsec = 1_000_000_000;
+				value.holes[0].length = 0;
+				value.hardlink_to = Some(Cow::Borrowed(b"../escape"));
+			} else {
+				value.xattrs[0].name = Cow::Borrowed(b"");
+				value.aces[1] = Ace {
+					tag: AceTag::Owner,
+					permissions: Permissions::from_bits(3).unwrap(),
+					name: Cow::Borrowed(b""),
+				};
+			}
+		}
+		34 => {
+			value.native_acl.as_mut().unwrap().bytes = Cow::Borrowed(b"");
+			value.times.mtime.as_mut().unwrap().nsec = 1_000_000_000;
+			value.holes[0].length = 0;
+		}
+		_ => unreachable!(),
+	}
+	value
+}
+
 #[test]
 fn canonical_wire_and_hash_match_independent_native_fixtures_and_rejections() {
 	let mut reference = Reference::start();
@@ -297,4 +334,92 @@ fn canonical_decoder_covers_every_tag_permission_and_presence_byte() {
 			);
 		}
 	}
+}
+
+#[test]
+fn normalization_matches_native_for_every_omission_mask_and_family_error() {
+	let mut reference = Reference::start();
+	let mut hash_reference = Reference::start();
+	for selector in 0..=34u8 {
+		for mask in 0..64u8 {
+			let normalized = CanonicalMetadata::normalize(
+				normalization_fixture(selector),
+				Omit::from_bits(u32::from(mask)).unwrap(),
+			);
+			compare(&mut reference, normalized, 16, &[selector, mask], |m| {
+				let wire = m.encode().unwrap();
+				assert_eq!(
+					hash_reference.call(17, &[selector, mask]).unwrap(),
+					m.hash().to_vec()
+				);
+				let again =
+					CanonicalMetadata::normalize(m.into_metadata(), Omit::default()).unwrap();
+				assert_eq!(again.encode().unwrap(), wire);
+				wire
+			});
+		}
+	}
+}
+
+#[test]
+fn normalization_merges_native_extent_permutations_and_keeps_owned_buffers() {
+	let mut reference = Reference::start();
+	let ranges = [(0, 4), (2, 1), (4, 8), (12, 1), (99, 1), (u64::MAX - 5, 5)];
+	for reverse in [false, true] {
+		for shift in 0..ranges.len() {
+			let mut holes: Vec<Hole> = ranges
+				.iter()
+				.map(|&(offset, length)| Hole { offset, length })
+				.collect();
+			holes.rotate_left(shift);
+			if reverse {
+				holes.reverse();
+			}
+			let mut wire = Vec::new();
+			for hole in &holes {
+				wire.extend(hole.offset.to_le_bytes());
+				wire.extend(hole.length.to_le_bytes());
+			}
+			let normalized = CanonicalMetadata::normalize(
+				Metadata {
+					holes,
+					..Metadata::default()
+				},
+				Omit::default(),
+			)
+			.unwrap();
+			assert_eq!(
+				normalized.encode().unwrap(),
+				reference.call(18, &wire).unwrap()
+			);
+			assert_eq!(
+				normalized.metadata().holes,
+				vec![
+					Hole {
+						offset: 0,
+						length: 13
+					},
+					Hole {
+						offset: 99,
+						length: 1
+					},
+					Hole {
+						offset: u64::MAX - 5,
+						length: 5
+					}
+				]
+			);
+		}
+	}
+	let mut raw = fixture(1).unwrap();
+	raw.xattrs[0].value = Cow::Owned(vec![0, 255, 42]);
+	let pointer = raw.xattrs[0].value.as_ptr();
+	raw.xattrs.reverse();
+	raw.aces.reverse();
+	let normalized = CanonicalMetadata::normalize(raw, Omit::default()).unwrap();
+	assert_eq!(normalized.metadata().xattrs[0].value.as_ptr(), pointer);
+	assert!(matches!(
+		normalized.metadata().xattrs[0].value,
+		Cow::Owned(_)
+	));
 }
