@@ -1,12 +1,12 @@
-{ pkgs, metadataSource, directorySource, patchSources, zstdz, pcre2 }:
+{ pkgs, metadataSource, directorySource, patchSources, zstdz, pcre2, xattrNames }:
 pkgs.stdenv.mkDerivation {
     pname = "difz-metadata-reference";
     version = "0.1.0";
     src = pkgs.lib.fileset.toSource {
         root = ./.;
-        fileset = pkgs.lib.fileset.unions [ ./metadata.zig ./metadata_fixture.zig ./restore.zig ./directory.zig ./snapshot_fixture.zig ./tree_patch.zig ./path_filter.zig ./symlink_transport.zig ./linux_acl.zig ./reference.zig ./main.c ];
+        fileset = pkgs.lib.fileset.unions [ ./metadata.zig ./metadata_fixture.zig ./restore.zig ./directory.zig ./snapshot_fixture.zig ./tree_patch.zig ./path_filter.zig ./symlink_transport.zig ./linux_acl.zig ./attribute_names.zig ./reference.zig ./main.c ];
     };
-    nativeBuildInputs = [ pkgs.zig ];
+    nativeBuildInputs = [ pkgs.zig pkgs.gnutar pkgs.gzip ];
     dontConfigure = true;
     buildPhase = ''
         runHook preBuild
@@ -15,6 +15,9 @@ pkgs.stdenv.mkDerivation {
         mkdir reference
         cp ${metadataSource} reference/metadata.zig
         cp ${directorySource} reference/directory.zig
+        mkdir reference/xattr_names
+        tar -xOf ${pkgs.lib.escapeShellArg xattrNames.archive} ${pkgs.lib.escapeShellArg xattrNames.member} > reference/xattr_names/names.zig
+        tar -xOf ${pkgs.lib.escapeShellArg xattrNames.archive} ${pkgs.lib.escapeShellArg "${builtins.dirOf xattrNames.member}/names_test.zig"} > reference/xattr_names/names_test.zig
         ${pkgs.lib.concatMapStringsSep "\n" (source: "cp ${pkgs.lib.escapeShellArg "${source}"} reference/${builtins.baseNameOf source}") patchSources}
         cp reference.zig reference/reference.zig
         zig build-lib -O ReleaseSafe -fPIC -fcompiler-rt -mcpu=baseline -lc \

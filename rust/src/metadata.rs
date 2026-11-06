@@ -84,30 +84,37 @@ pub fn validate_xattr_name(class: XattrClass, name: &[u8]) -> Result<(), Error> 
 		return Err(Error::EmptyName);
 	}
 	match class {
-		XattrClass::Logical => {
-			if name.len() > 127
-				|| name
-					.iter()
-					.any(|byte| *byte < 0x20 || *byte == 0x7f || FORBIDDEN.contains(byte))
-				|| core::str::from_utf8(name).is_err()
-				|| name[0] == b' '
-				|| name.ends_with(b" ")
-				|| name.ends_with(b".")
-				|| [b"user.".as_slice(), b"com.apple.", b"$"]
-					.iter()
-					.any(|prefix| {
-						name.get(..prefix.len())
-							.is_some_and(|head| head.eq_ignore_ascii_case(prefix))
-					}) || name.eq_ignore_ascii_case(b"zone.identifier")
-			{
-				return Err(Error::InvalidLogicalName);
-			}
-		}
+		XattrClass::Logical => validate_logical_name(name)?,
 		XattrClass::Raw => {
 			if name.len() > 255 || name.iter().any(|byte| matches!(byte, 0 | b'/' | b'\\')) {
 				return Err(Error::InvalidRawName);
 			}
 		}
+	}
+	Ok(())
+}
+// Native transport access shares the portable grammar but may address the
+// reserved difz attributes. Canonical user metadata rejects those first.
+fn validate_logical_name(name: &[u8]) -> Result<(), Error> {
+	if name.is_empty() {
+		return Err(Error::EmptyName);
+	}
+	if name.len() > 127
+		|| name
+			.iter()
+			.any(|byte| *byte < 0x20 || *byte == 0x7f || FORBIDDEN.contains(byte))
+		|| core::str::from_utf8(name).is_err()
+		|| name[0] == b' '
+		|| name.ends_with(b" ")
+		|| name.ends_with(b".")
+		|| [b"user.".as_slice(), b"com.apple.", b"$"]
+			.iter()
+			.any(|prefix| {
+				name.get(..prefix.len())
+					.is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+			}) || name.eq_ignore_ascii_case(b"zone.identifier")
+	{
+		return Err(Error::InvalidLogicalName);
 	}
 	Ok(())
 }
@@ -314,3 +321,6 @@ pub use restore::{
 #[cfg(test)]
 #[path = "metadata_tests.rs"]
 pub(crate) mod tests;
+
+#[path = "attribute_name.rs"]
+pub mod attribute_name;

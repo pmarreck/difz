@@ -1258,3 +1258,28 @@ Fresh file growth took 22.75 seconds and passed unchanged limits on the first
 attempt for every case; historical cohorts remain unbaselined. This qualifies
 the Linux primitives, while full metadata capture/restore and native macOS or
 Windows qualification remain pending.
+
+## Rust native attribute-name mapping, 2026-11-06
+
+The core maps logical/raw attribute names for Linux, macOS and Windows without
+allocation. Forward mapping writes a terminated CStr into caller storage and
+leaves that storage unchanged on failure. Inverse mapping borrows its input.
+Logical Linux names acquire `user.`; the other OSes retain the logical bytes.
+Native raw limits and Windows injection/UTF-8 rules match the pinned
+xattr_stream policy. Raw inverse mapping is intentionally a byte passthrough,
+not validation. Canonical metadata reservations remain separate, so internal
+transport names are addressable without becoming legal user metadata.
+
+The logical grammar is shared with canonical metadata validation. The Nix
+oracle extracts the original mapping and companion source from the existing
+pinned Zig dependency archive, whose hash is read from build.zig.zon. Neither
+source is rewritten. The initial missing companion-file build failure was a
+setup failure. A subsequent deliberately broken mapper fails both new tests
+while all sixty existing core tests pass; restoring the implementation passes
+all sixty-two. Sweeps cover every OS/class, every byte in names, native length
+boundaries, reserved/native prefixes, binary/UTF-8 cases, output-buffer limits,
+unchanged failure buffers and borrowed inverse results. The focused core run
+took 7.80 seconds, followed by four Release, two C-boundary and fifteen platform
+controls; three native attribute fixtures remain in the required host phase.
+All three Nix systems evaluate. These pure policy comparisons do not qualify
+native macOS/Windows filesystem execution. The complete suite remains pending.

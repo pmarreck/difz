@@ -116,6 +116,7 @@ fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const u8 {
         46, 47 => return @import("symlink_transport.zig").run(allocator, mode, input),
         48, 49, 52, 53 => return @import("linux_acl.zig").run(allocator, mode, input),
         50, 51 => return @import("path_filter.zig").run(allocator, mode, input),
+        54, 55 => return @import("attribute_names.zig").run(allocator, mode, input),
         else => return error.BadMetadata,
     }
 }

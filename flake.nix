@@ -242,6 +242,10 @@
 				};
 				metadataOracle = import ./tests/rust_oracle/default.nix {
 					inherit pkgs;
+					xattrNames = let
+						pin = builtins.elemAt (pkgs.lib.splitString ".xattr_stream = .{" (builtins.readFile ./build.zig.zon)) 1;
+						hash = builtins.elemAt (pkgs.lib.splitString "\"" (builtins.elemAt (pkgs.lib.splitString ".hash = " pin) 1)) 1;
+					in { archive = "${zigDeps}/p/${hash}.tar.gz"; member = "${hash}/src/names.zig"; };
 					metadataSource = ./src/metadata.zig;
 					directorySource = ./src/directory.zig;
 					patchSources = [ ./src/directory_patch.zig ./src/symlink_transport.zig ./src/native_acl.zig ./src/path_filter.zig ./src/glob.zig ./src/pcre2.zig ./src/zstd_patch.zig ./src/patch.zig ];
