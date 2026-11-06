@@ -25,6 +25,11 @@ in {
 	hostOutputs = builtins.mapAttrs (_: packages: builtins.hasAttr "host-tests" packages) flake.packages;
 	rustFfiCheck = checks.rust-ffi.name;
 	rustCoreCheck = checks.rust-core.name;
+	rustSdkTargets = builtins.mapAttrs (_: packages: packages.rust-zstdz-sdk.rustTarget) flake.packages;
+	rustCoreSdk = builtins.elem flake.packages.${system}.rust-zstdz-sdk.drvPath
+		(map (input: input.drvPath) checks.rust-core.buildInputs);
+	rustSdkSource = membership flake.packages.${system}.rust-zstdz-sdk.src
+		[ "zstdz-sdk-setup-hook.sh" ] [ "Cargo.toml" "qa.nix" "src/lib.rs" "zstdz/build.rs" ];
 	buildWrapperCheck = checks.build-wrapper.name;
 	debugPackages = builtins.mapAttrs (nativeSystem: packages: packages.debug.drvPath == flake.checks.${nativeSystem}.test.drvPath) flake.packages;
 	buildWrapperSource = membership checks.build-wrapper.src
@@ -33,7 +38,7 @@ in {
 	rustCoreOutputs = builtins.mapAttrs (_: packages: builtins.hasAttr "rust-core-tests" packages) flake.packages;
 	rustCoreSource = membership flake.packages.${system}.rust-core-tests.src
 		[ "Cargo.toml" "Cargo.lock" "src/lib.rs" "src/tests.rs" "src/file.rs" "src/file_tests.rs" "src/metadata.rs" "src/metadata_tests.rs" "zstdz/Cargo.toml" "zstdz/build.rs" "zstdz/src/lib.rs" "consumer/Cargo.toml" "consumer/src/main.rs" "consumer/src/measurement.rs" "consumer/native_params.c" ]
-		[ "PLAN.md" "flake.nix" "qa.nix" "src/zstd_patch.zig" "tests/codec_rust/interop.rs" "tests/acceptance/cross-apply" ];
+		[ "PLAN.md" "flake.nix" "qa.nix" "src/zstd_patch.zig" "tests/codec_rust/interop.rs" "tests/acceptance/cross-apply" "zstdz-sdk.nix" "zstdz-sdk-setup-hook.sh" ];
 	crossApplyCheck = checks.cross-apply.name;
 	ciTargets = let
 		ciChecks = flake.checks.x86_64-linux;

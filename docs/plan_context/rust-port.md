@@ -438,3 +438,30 @@ complete host verdict is reused while the changed Rust/reference checks run
 fresh. No new host execution is claimed for this helper-only change.
 All other required Nix check derivations match the preceding commit exactly;
 the complete required Nix target set passes with the changed Rust check rebuilt.
+
+### Reusable zstdz SDK
+
+`packages.<system>.rust-zstdz-sdk` supplies the pinned static archive, headers,
+generated Rust bindings and a Rust target-triple manifest. Add this package to
+the consuming project's Nix `buildInputs`; its setup hook exports one
+`DIFZ_ZSTDZ_ROOT`. The development shell and Rust QA use that same package.
+The adapter reads its bindings and archive from this root, verifies the SDK
+target against Cargo's `TARGET`, and propagates static linking through Cargo.
+Cargo does not compile or fetch the native codec.
+
+A separately resolved Cargo parent outside the difz workspace builds and runs a
+binary-data round trip with only a `difz-core` dependency and no manual linker
+flags. Its dependencies resolve offline from the declared vendor input; the
+subsequent build uses its frozen lock. A control with the correct archive but a
+wrong target manifest failed because the previous adapter accepted it; the
+new guard rejects it during `cargo check`, before linking. Hook controls cover
+initialization, repeated sourcing and conflicting SDK roots. The existing
+duplicate-native-provider control remains required.
+
+SDK output and target metadata evaluate for the three native Nix systems.
+Actual Rust/native SDK execution is qualified on Linux amd64. This does not
+complete the five-platform library qualification or the remaining Rust port.
+
+The complete suite passed with fresh SDK/Rust checks and confined host execution.
+Preparation/checks took 30.62 seconds; the host phase, including admission, took
+97.66 seconds, for 128.28 seconds total. Growth execution took 24.21 seconds.

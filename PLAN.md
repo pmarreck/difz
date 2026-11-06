@@ -4,7 +4,6 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 
 ## Active
 
-- [x] Publish the recovered branch and verify Mechatron Prime CI for a7c7134 plus zero local/remote divergence; finish tested work with prompt pushes and fetched-revision checks, explicitly reporting holds or divergence. (done 2026-10-31 09:07 EDT; commit a7c7134)
 
 - [ ] Deliver a Rust implementation of difz, using the existing tests and executable as independent oracles. (context: docs/plan_context/rust-port.md)
 	- [x] Select the shipped codec for the full Rust port. Answer: Retain zstdz through its statically linked C API; accept native-code process-failure risk while rewriting difz itself in Rust. (done 2026-11-06 09:04 EST; context: docs/plan_context/rust-port.md)
@@ -12,6 +11,7 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 	- [ ] Establish product-wide differential acceptance tests before replacing any production entry point; qualify codec output limits and performance separately.
 		- [x] Qualify a reusable file and portable-tree cross-apply gate, seven broken adapters, 15 invalid artifact pairs, and complete native CI registration. (done 2026-11-02 20:51 EST; context: docs/plan_context/rust-port.md)
 	- [ ] Qualify static zstdz linking and Rust buffer/context ownership on all supported targets before publishing the Rust library; the selected codec adapter has no global progress callbacks.
+		- [x] Package the pinned archive and bindings as a reusable Nix SDK; verify a standalone Rust parent, matching target metadata, idempotent setup and rejection of wrong targets or conflicting roots. (done 2026-11-06 11:06 EST; context: docs/plan_context/rust-port.md)
 	- [ ] Port the file codec, directory metadata and format, filesystem adapters, C API, and CLI while preserving the declared behavior and platform scope.
 		- [x] Implement the Rust ZDIF v4 file codec with a statically linked zstdz adapter, independent cross-apply and hostile-input controls, and a transitive Cargo consumer; native Linux qualification passes. (done 2026-11-06 09:18 EST; context: docs/plan_context/rust-port.md)
 		- [x] Enforce declared linear growth for Rust file encode/apply in the stable 1–8 MiB parameter regime, with native-oracle checks, required 1/2-core coverage and extended 12-core measurements; historical cohorts remain unbaselined. (done 2026-11-06 09:56 EST; context: docs/plan_context/rust-port.md)

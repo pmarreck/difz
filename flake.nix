@@ -225,7 +225,8 @@
 					'';
 				};
 				metadataOracle = import ./tests/rust_oracle/default.nix { inherit pkgs; metadataSource = ./src/metadata.zig; };
-				rustCoreTests = import ./rust/qa.nix { inherit pkgs metadataOracle; oracle = releaseFast; zstdz = zstdBenchmark; random = randomPackage; };
+				rustZstdzSdk = import ./rust/zstdz-sdk.nix { inherit pkgs; zstdz = zstdBenchmark; };
+				rustCoreTests = import ./rust/qa.nix { inherit pkgs metadataOracle; oracle = releaseFast; zstdz = zstdBenchmark; sdk = rustZstdzSdk; random = randomPackage; };
 		in
 			{
 				packages.default = releaseFast;
@@ -234,6 +235,7 @@
 				packages.performance-benchmark = performancePackage;
 				packages.rust-codec-tests = rustCodecTests;
 				packages.rust-core-tests = rustCoreTests;
+				packages.rust-zstdz-sdk = rustZstdzSdk;
 				packages.host-tests = hostTests;
 
 				checks = {
@@ -337,6 +339,7 @@
 						bsdiff
 						xdelta
 						zstdBenchmark
+						rustZstdzSdk
 						time
 						file
 						git

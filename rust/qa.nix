@@ -1,4 +1,4 @@
-{ pkgs, oracle, metadataOracle, zstdz, random }:
+{ pkgs, oracle, metadataOracle, zstdz, sdk, random }:
 pkgs.rustPlatform.buildRustPackage {
 	pname = "difz-rust-core-tests";
 	version = "0.1.0";
@@ -8,9 +8,9 @@ pkgs.rustPlatform.buildRustPackage {
 	};
 	cargoLock.lockFile = ./Cargo.lock;
 	strictDeps = true;
-	nativeBuildInputs = [ pkgs.jq pkgs.rust-bindgen pkgs.rustPlatform.bindgenHook ];
+	nativeBuildInputs = [ pkgs.jq ];
+	buildInputs = [ sdk ];
 	nativeCheckInputs = [ pkgs.b3sum pkgs.gnugrep pkgs.coreutils ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.binutils ];
-	DIFZ_ZSTDZ_ROOT = zstdz;
 	DIFZ_ORACLE = "${oracle}/bin/difz";
 	DIFZ_METADATA_ORACLE = "${metadataOracle}/bin/difz-metadata-oracle";
 	B3SUM = "${pkgs.b3sum}/bin/b3sum";
@@ -21,12 +21,6 @@ pkgs.rustPlatform.buildRustPackage {
 		${pkgs.stdenv.cc}/bin/cc consumer/native_params.c -I${zstdz}/include ${zstdz}/lib/libzstd.a -pthread -o native-params
 		./native-params > native-params.json
 		export DIFZ_NATIVE_PARAMS="$PWD/native-params.json"
-		printf '#define ZSTD_STATIC_LINKING_ONLY\n#include <zstd.h>\nenum { DIFZ_ZSTD_WINDOWLOG_MAX = ZSTD_WINDOWLOG_MAX };\n' > bindings.h
-		bindgen bindings.h --use-core --no-layout-tests --formatter none \
-			--allowlist-function 'ZSTD_(getCParams|isError|compressBound|createCCtx|freeCCtx|CCtx_setParameter|CCtx_refPrefix|compress2|createDCtx|freeDCtx|DCtx_setMaxWindowSize|DCtx_refPrefix|decompressDCtx)' \
-			--allowlist-var 'ZSTD_(c_.*|btlazy2|WINDOWLOG_.*)|DIFZ_ZSTD_WINDOWLOG_MAX' --no-prepend-enum-name \
-			-- -I${zstdz}/include > zstdz_bindings.rs
-		export DIFZ_ZSTDZ_BINDINGS="$PWD/zstdz_bindings.rs"
 		export CC=false CXX=false AR=false
 		if ! cargo test --locked --offline -p difz-core --lib --no-run --message-format=json > cargo-tests.json; then
 			jq -r 'select(.reason == "compiler-message") | .message.rendered // empty' cargo-tests.json >&2
@@ -53,6 +47,45 @@ pkgs.rustPlatform.buildRustPackage {
 		# Include the reference children in a bounded process group if IPC stalls.
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$test_binary" --test-threads=1 --include-ignored
 		"$consumer"
+		( unset DIFZ_ZSTDZ_ROOT; source ${sdk}/nix-support/setup-hook; test "$DIFZ_ZSTDZ_ROOT" = ${sdk}; source ${sdk}/nix-support/setup-hook )
+		if ( export DIFZ_ZSTDZ_ROOT=conflicting-sdk; source ${sdk}/nix-support/setup-hook ) 2> "$TMPDIR/sdk-conflict-error"; then
+			printf 'FAIL conflicting SDK root was accepted\n' >&2
+			exit 1
+		fi
+		grep -F 'Conflicting difz zstdz SDK roots' "$TMPDIR/sdk-conflict-error"
+		# This parent is outside the difz Cargo workspace and receives no link flags.
+		parent="$TMPDIR/sdk-parent"
+		mkdir -p "$parent/src"
+		cat > "$parent/Cargo.toml" <<EOF
+[package]
+name = "difz-sdk-parent"
+version = "0.0.0"
+edition = "2024"
+[workspace]
+[dependencies]
+difz-core = { path = "$PWD" }
+EOF
+		cat > "$parent/src/main.rs" <<'EOF'
+fn main() {
+    let source = b"\0\xfforiginal";
+    let target = b"\0\xffupdated";
+    let patch = difz_core::file::encode(source, target).unwrap();
+    assert_eq!(difz_core::file::apply(source, &patch, 1024).unwrap(), target);
+}
+EOF
+		cargo metadata --offline --format-version 1 --manifest-path "$parent/Cargo.toml" > "$parent/metadata.json"
+		cargo build --locked --offline --release --manifest-path "$parent/Cargo.toml" --message-format=json > "$parent/artifacts.json"
+		parent_binary=$(jq -er 'select(.reason == "compiler-artifact" and .target.name == "difz-sdk-parent" and .executable != null) | .executable' "$parent/artifacts.json")
+		"$parent_binary"
+		wrong="$TMPDIR/wrong-sdk"
+		mkdir -p "$wrong/nix-support"
+		ln -s ${sdk}/lib "$wrong/lib"
+		printf 'wrong-sdk-target\n' > "$wrong/nix-support/rust-target"
+		if DIFZ_ZSTDZ_ROOT="$wrong" CARGO_TARGET_DIR="$TMPDIR/wrong-target" cargo check --locked --offline --manifest-path "$parent/Cargo.toml" > "$parent/wrong-output" 2> "$parent/wrong-error"; then
+			printf 'FAIL wrong-target zstdz SDK was accepted\n' >&2
+			exit 1
+		fi
+		grep -F 'zstdz SDK target mismatch' "$parent/wrong-error"
 		# A parent must not silently link two providers of the ZSTD C namespace.
 		control="$TMPDIR/native-provider-control"
 		mkdir -p "$control/src" "$control/other/src"

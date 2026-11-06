@@ -2,18 +2,21 @@ use std::{env, fs, path::PathBuf};
 
 fn main() {
 	println!("cargo:rerun-if-env-changed=DIFZ_ZSTDZ_ROOT");
-	println!("cargo:rerun-if-env-changed=DIFZ_ZSTDZ_BINDINGS");
 	let root =
 		PathBuf::from(env::var_os("DIFZ_ZSTDZ_ROOT").expect("Nix must provide pinned zstdz"));
-	assert!(
-		root.join("lib/libzstd.a").is_file(),
-		"missing static zstdz archive"
+	let target_file = root.join("nix-support/rust-target");
+	println!("cargo:rerun-if-changed={}", target_file.display());
+	let sdk_target = fs::read_to_string(target_file).expect("Nix must provide the SDK target");
+	assert_eq!(
+		sdk_target.trim_end(),
+		env::var("TARGET").unwrap(),
+		"zstdz SDK target mismatch"
 	);
-	let bindings = env::var_os("DIFZ_ZSTDZ_BINDINGS").expect("Nix must generate pinned C bindings");
-	println!(
-		"cargo:rerun-if-changed={}",
-		PathBuf::from(&bindings).display()
-	);
+	let archive = root.join("lib/libzstd.a");
+	println!("cargo:rerun-if-changed={}", archive.display());
+	assert!(archive.is_file(), "missing static zstdz archive");
+	let bindings = root.join("share/difz-zstdz/bindings.rs");
+	println!("cargo:rerun-if-changed={}", bindings.display());
 	fs::copy(
 		bindings,
 		PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("bindings.rs"),
