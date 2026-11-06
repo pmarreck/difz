@@ -311,4 +311,4 @@ pub use restore::{
 
 #[cfg(test)]
 #[path = "metadata_tests.rs"]
-mod tests;
+pub(crate) mod tests;

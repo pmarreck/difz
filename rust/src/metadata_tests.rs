@@ -34,13 +34,13 @@ fn native_once(mode: u32, input: &[u8]) -> Result<Vec<u8>, String> {
 	}
 }
 
-struct Reference {
+pub(crate) struct Reference {
 	child: Child,
 	input: Option<ChildStdin>,
 	output: BufReader<ChildStdout>,
 }
 impl Reference {
-	fn start() -> Self {
+	pub(crate) fn start() -> Self {
 		let mut child = Command::new(std::env::var_os("DIFZ_METADATA_ORACLE").unwrap())
 			.arg("--stream")
 			.stdin(Stdio::piped())
@@ -56,7 +56,7 @@ impl Reference {
 			output,
 		}
 	}
-	fn call(&mut self, mode: u32, bytes: &[u8]) -> Result<Vec<u8>, String> {
+	pub(crate) fn call(&mut self, mode: u32, bytes: &[u8]) -> Result<Vec<u8>, String> {
 		assert!(bytes.len() <= 1 << 20);
 		let input = self.input.as_mut().unwrap();
 		input.write_all(&mode.to_le_bytes()).unwrap();

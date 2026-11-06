@@ -1,5 +1,5 @@
 const std = @import("std");
-const metadata = @import("metadata");
+const metadata = @import("reference").metadata;
 const fixtures = @import("metadata_fixture.zig");
 
 fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const u8 {
@@ -111,6 +111,7 @@ fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const u8 {
             return metadata.encodeCanonical(allocator, normalized);
         },
         20, 21, 22 => return @import("restore.zig").run(allocator, mode, input),
+        30, 31 => return @import("directory.zig").run(allocator, mode, input),
         else => return error.BadMetadata,
     }
 }

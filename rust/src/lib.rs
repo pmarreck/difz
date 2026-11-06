@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 extern crate alloc;
+pub mod directory;
 pub mod file;
 pub mod metadata;
 

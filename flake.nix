@@ -224,7 +224,11 @@
 						runHook postInstall
 					'';
 				};
-				metadataOracle = import ./tests/rust_oracle/default.nix { inherit pkgs; metadataSource = ./src/metadata.zig; };
+				metadataOracle = import ./tests/rust_oracle/default.nix {
+					inherit pkgs;
+					metadataSource = ./src/metadata.zig;
+					directorySource = ./src/directory.zig;
+				};
 				rustZstdzSdk = import ./rust/zstdz-sdk.nix { inherit pkgs; zstdz = zstdBenchmark; };
 				rustCoreTests = import ./rust/qa.nix { inherit pkgs metadataOracle; oracle = releaseFast; zstdz = zstdBenchmark; sdk = rustZstdzSdk; random = randomPackage; };
 		in

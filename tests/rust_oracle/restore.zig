@@ -1,5 +1,5 @@
 const std = @import("std");
-const metadata = @import("metadata");
+const metadata = @import("reference").metadata;
 
 comptime {
     if (std.meta.fields(metadata.Caps).len != 9) @compileError("review capability wire layout");

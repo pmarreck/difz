@@ -1,5 +1,5 @@
 const std = @import("std");
-const metadata = @import("metadata");
+const metadata = @import("reference").metadata;
 
 // Independent reference fixtures for the forthcoming Rust canonical codec.
 pub fn make(allocator: std.mem.Allocator, selector: u8) !metadata.Metadata {

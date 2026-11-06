@@ -669,3 +669,27 @@ Nix systems evaluate; native execution remains qualified on Linux amd64.
 The original CDC design is also published on
 `old-cdc-plus-compression-probe-design` at `a83c041`, after preparing that
 revision's original checks. An independent fetch confirms the remote ref.
+
+### DIFZTREE paths and symlink targets
+
+The Rust path grammar preserves native UTF-8, relative-path, separator, NUL,
+drive-prefix, component and 4096-byte checks, including error precedence.
+Symlink targets use the link's parent depth to reject lexical escapes. They
+permit dot components and contained parent traversal without filesystem access.
+The link path retains its byte limit; the native target grammar has no such
+length cap. Both functions use linear scans and allocate no storage. Directory
+growth qualification remains open before production adoption.
+
+The native reference now compiles the unchanged metadata and directory sources
+under one import root, preserving their shared types. It reaches symlink
+validation through the public snapshot boundary and supplies each required
+parent directory. The two Rust tests compare binary byte sweeps, Unicode and
+malformed UTF-8, conflicting errors, length boundaries, input preservation,
+relative targets and parent traversals at depths zero through eight. Both
+failed with stubs while the prior twenty-seven passed. The combined base passes
+all thirty-one core tests and three Release probe controls.
+
+The complete suite passed in 197.66 seconds: 49.60 for preparation/checks and
+148.06 for host admission/setup/execution. Growth execution took 24.20 seconds.
+This step does not implement tree records, snapshot identity or directory
+patching in Rust.
