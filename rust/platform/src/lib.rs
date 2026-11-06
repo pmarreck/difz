@@ -141,3 +141,8 @@ fn read_limited(reader: &mut impl Read, maximum: usize) -> Result<Vec<u8>, Error
 }
 #[cfg(test)]
 mod tests;
+
+mod names;
+pub use names::Names;
+#[cfg(test)]
+mod names_tests;

@@ -1149,3 +1149,41 @@ basenames and wrong object kinds. A renamed parent replaced by an outside
 symlink leaves inspection and link reads attached to the original directory.
 Native execution remains qualified on Linux only; macOS and Windows remain
 open migration work.
+
+## Rust directory enumeration, 2026-11-06
+
+The platform adapter exposes an owned directory-name stream through a pinned
+parent handle. Each stream reopens the directory itself with an independent
+offset, transfers its descriptor to a libc directory owner only on success,
+and closes it on drop. Stream position and lifetime are independent of the
+original Directory handle. Names remain raw bytes, including hidden files
+and non-UTF-8 names; only dot and dot-dot are excluded. Snapshot construction
+will enforce canonical path grammar and inspect actual entry kinds.
+
+Caller ceilings bound emitted entry count and each name's byte length before
+allocation. Allocation is fallible. Limit, allocation and IO errors finish the
+iterator so retrying cannot skip an entry. EOF distinguishes a real readdir
+error through cleared errno. The code borrows libc's terminated name without
+assuming a fixed dirent record size and copies it before advancing.
+
+Four initial Linux tests failed against stubs while the existing seven passed.
+Real scratch fixtures compare names with independent standard-library readback,
+check exact and exceeded ceilings, interleave two streams across parent rename
+and path replacement, and retain the streams after dropping the parent handle.
+Linux kernel readback checks descriptor counts across completion, early drop
+and limit failures, and checks close-on-exec on the directory and stream.
+An unrelated libc error is seeded before an empty-directory read to ensure
+stale errno cannot turn EOF into IO failure. Native macOS execution and Windows
+implementation remain pending. Enumeration is not an atomic filesystem
+snapshot, and this change does not yet capture or restore metadata.
+
+The combined inspection/enumeration tree passes the complete suite: 337.87
+seconds total, with 42.83 seconds in Nix preparation/checks and 295.04 seconds
+in host admission, setup and execution. Fresh file growth took 22.95 seconds
+and passed unchanged limits; historical cohorts remain unbaselined. Linux
+passes fourteen platform tests, sixty core tests, four Release controls and
+two C-boundary controls. The macOS requirement is twelve platform tests, whose
+native execution remains unqualified. The units retain separate focused Nix
+checks and separate commits; this complete host run covers their combined
+final tree. The earlier inspection-only run was stopped while still queued
+to avoid repeating the unchanged host suites.

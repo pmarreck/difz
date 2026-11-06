@@ -7,9 +7,9 @@ use std::{
 	sync::atomic::{AtomicU64, Ordering},
 };
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-struct Fixture(PathBuf);
+pub(crate) struct Fixture(pub(crate) PathBuf);
 impl Fixture {
-	fn new() -> Self {
+	pub(crate) fn new() -> Self {
 		let path = std::env::temp_dir().join(format!(
 			"difz-directory-capability-{}-{}",
 			std::process::id(),
