@@ -1,4 +1,4 @@
-{ pkgs, oracle, zstdz, random }:
+{ pkgs, oracle, metadataOracle, zstdz, random }:
 pkgs.rustPlatform.buildRustPackage {
 	pname = "difz-rust-core-tests";
 	version = "0.1.0";
@@ -12,6 +12,7 @@ pkgs.rustPlatform.buildRustPackage {
 	nativeCheckInputs = [ pkgs.b3sum pkgs.gnugrep ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.binutils ];
 	DIFZ_ZSTDZ_ROOT = zstdz;
 	DIFZ_ORACLE = "${oracle}/bin/difz";
+	DIFZ_METADATA_ORACLE = "${metadataOracle}/bin/difz-metadata-oracle";
 	B3SUM = "${pkgs.b3sum}/bin/b3sum";
 	DIFZ_RANDOM = "${random}/bin/random";
 	doCheck = true;
@@ -48,7 +49,7 @@ pkgs.rustPlatform.buildRustPackage {
 		mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
 		chmod 700 "$XDG_RUNTIME_DIR"
 		test_count=$("$test_binary" --list | grep -c ': test$')
-		test "$test_count" -ge 11
+		test "$test_count" -ge 14
 		"$test_binary" --test-threads=1 --include-ignored
 		"$consumer"
 		# A parent must not silently link two providers of the ZSTD C namespace.

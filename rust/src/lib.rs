@@ -3,6 +3,7 @@
 
 extern crate alloc;
 pub mod file;
+pub mod metadata;
 
 const MAGIC: &[u8; 5] = b"ZDIF\x04";
 const HASH_LEN: usize = 32;

@@ -371,3 +371,28 @@ The host runners and executed test sources are unchanged. Its earlier complete
 host verdict is reused; the duplicate queued host attempt was canceled and is
 not reported as a new passing run. Native-provider qualification on other
 platforms and the remaining Rust migration stay open.
+
+### Metadata primitives, 2026-11-06
+
+The Rust core now implements the six-family omission mask and comma-separated
+grammar, optional timestamp transport, and original/observed modification
+records. Their fixed-size encoders allocate no heap memory. Signed seconds use
+the complete i64 wire domain; nanoseconds must be below one billion. Explicit
+absence remains distinct from a present zero timestamp. One family declaration
+generates the variants, names, bits and accepted mask.
+
+A separate Nix artifact calls the existing Zig metadata functions directly. Its
+small C frontend transfers arbitrary bytes with explicit lengths; neither the
+Rust implementation nor a copied parser supplies its expected results. Every
+valid mask combination and every unknown bit is checked, alongside invalid
+names, duplicates, padding, all 256 timestamp flag values, signed-second extremes,
+invalid nanoseconds and every truncation of the modification fixtures. The three
+new tests failed with nonfunctional stubs while the prior eleven tests passed;
+all fourteen passed after implementation. Variable-size canonical metadata,
+tree formats and filesystem restoration remain to be ported.
+
+The complete suite passed with fresh Nix checks and confined host execution:
+27.73 seconds for preparation/checks and 38.01 seconds for the host phase,
+65.74 seconds total. The host phase includes admission and environment setup;
+the declared growth checks took 25.55 seconds. No feedback-budget improvement
+or native macOS/Windows qualification is claimed by this step.
