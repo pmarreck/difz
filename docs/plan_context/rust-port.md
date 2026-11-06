@@ -952,3 +952,42 @@ checks and 30.49 for host admission, setup and execution. Fresh file growth
 took 22.95 seconds and passed unchanged bounds. Directory application and its
 growth/memory qualification remain pending; production entry points are still
 the existing implementation.
+
+## Rust DIFZTREE application, 2026-11-06
+
+Rust application verifies parsed grammar and the masked source identity before
+expanding any files. It reconstructs all six operations, validates expanded
+sparse/hardlink relations and verifies the complete target identity. Raw,
+symlink and unchanged-file bytes borrow the patch or source; moved canonical
+metadata retains its descriptor ownership. Changed files own their Rust output.
+Expected work is linear in bytes plus ordered path lookups and codec work.
+
+The aggregate logical-output budget counts symlink and hardlink bytes too.
+Unlike the native tree adapter's post-decompression size check, Rust checks a
+delta's advertised size before decompression while retaining source/window
+error precedence. A corrupt delta that also exceeds this budget can therefore
+fail with `LimitExceeded` before frame validation. A resealed 1 GiB advertised
+output with a six-byte budget verifies that rejection without allocating the
+advertised output. This is an intentional resource-contract improvement.
+
+A hardlink referring to newly decompressed, owned data currently makes a
+fallible copy. A returned snapshot cannot safely borrow another entry's Vec;
+borrowed source/patch data can be shared directly. The copy preserves bytes and
+metadata but can raise memory use compared with the native alias. Qualify this
+ownership tradeoff and a shared-buffer representation before production
+adoption; no equivalent-memory claim is made.
+
+Cross-apply compares both Rust and native patches against the unchanged native
+applicator for all sixty-four omission masks, exact logical-output boundaries
+and smaller root/raw/rule fixtures. Rejections cover wrong tree identities,
+every byte of a resealed delta, missing source entries, wrong kinds and invalid
+expanded hardlink modes. Ownership controls verify borrowed and owned output
+and retained source-error precedence. The stub failed both new groups while
+fifty earlier tests passed. The implementation passes fifty-four core tests,
+four Release controls and all three Nix-system evaluations.
+
+The complete suite passed in 872.52 seconds: 43.70 for Nix preparation/checks
+and 828.82 for host admission, setup and execution. Fresh file growth took
+24.04 seconds and passed unchanged bounds. Most elapsed time was admission
+waiting, not test execution. Directory growth, hardlink memory use, filesystem
+integration and native macOS/Windows execution remain unqualified.

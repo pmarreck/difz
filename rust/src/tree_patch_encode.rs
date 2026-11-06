@@ -123,7 +123,7 @@ pub fn create(
 	Ok(output.bytes)
 }
 
-fn project<'a>(
+pub(super) fn project<'a>(
 	source: &'a CanonicalSnapshot<'_>,
 	omit: Omit,
 ) -> Result<CanonicalSnapshot<'a>, Error> {
@@ -194,4 +194,4 @@ impl Writer {
 
 #[cfg(test)]
 #[path = "tree_patch_encode_tests.rs"]
-mod tests;
+pub(super) mod tests;

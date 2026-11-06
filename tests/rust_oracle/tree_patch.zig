@@ -37,6 +37,30 @@ fn rich(allocator: std.mem.Allocator, mask: u8) ![]const u8 {
 }
 
 pub fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const u8 {
+    if (mode == 45) {
+        if (input.len < 9 or input[0] > 1) return error.BadFixture;
+        const metadata = reference.metadata;
+        const attrs = [_]metadata.Xattr{.{ .class = .logical, .name = "x", .value = "v\x00\xff" }};
+        const aces = [_]metadata.Ace{.{ .tag = .owner, .read = true, .execute = true }};
+        const holes = [_]metadata.Hole{.{ .offset = 0, .length = 2 }};
+        const meta: metadata.Metadata = .{
+            .xattrs = &attrs, .aces = &aces, .native_acl = .{ .origin = .linux, .bytes = "acl\x00\xff" },
+            .times = .{ .mtime = .{ .sec = -1, .nsec = 7 } }, .finder_flags = 1,
+            .finder_info = [_]u8{0} ** 32, .holes = &holes,
+        };
+        const source = [_]directory.Entry{
+            .{ .path = "app", .kind = .directory, .mode = 0o750 },
+            .{ .path = "app/base", .kind = .file, .mode = 0o644, .data = "\x00\x00OLD\x00", .meta = meta },
+            .{ .path = "app/link", .kind = .symlink, .mode = 0o777, .data = "base" },
+            .{ .path = "app/same", .kind = .file, .mode = 0o644, .data = "same" },
+        };
+        var limits: patch.Limits = .{};
+        limits.max_output_bytes = @intCast(std.mem.readInt(u64, input[1..9], .little));
+        var result = try patch.applyPatch(allocator, if (input[0] == 0) &.{} else &source, input[9..], limits);
+        defer result.deinit();
+        const hash = try directory.treeHashWithRoot(result.entries, result.root_meta);
+        return allocator.dupe(u8, &hash);
+    }
     if (mode == 40) {
         if (input.len == 0 or input.len > 2) return error.BadFixture;
         if (input[0] == 4) return rich(allocator, if (input.len == 2) input[1] else 0);

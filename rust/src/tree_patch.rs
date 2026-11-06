@@ -24,6 +24,10 @@ pub enum Error {
 	Snapshot(crate::directory::Error),
 	Filter(crate::path_filter::Error),
 	File(crate::file::Error),
+	SourceHashMismatch,
+	TargetHashMismatch,
+	MissingSourceEntry,
+	SourceKindMismatch,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EnvelopeLimits {
@@ -166,3 +170,6 @@ pub use decode::{DecodedEntry, Limits, Operation, ParsedPatch};
 #[path = "tree_patch_encode.rs"]
 mod encode;
 pub use encode::{CreateOptions, create};
+#[path = "tree_patch_apply.rs"]
+mod apply;
+pub use apply::{ApplyLimits, apply};

@@ -65,7 +65,7 @@ fn file(bytes: &'static [u8]) -> Content<'static> {
 		bytes: Cow::Borrowed(bytes),
 	}
 }
-fn fixture(target: bool) -> CanonicalSnapshot<'static> {
+pub(crate) fn fixture(target: bool) -> CanonicalSnapshot<'static> {
 	let mut entries = vec![
 		entry(
 			b"app",

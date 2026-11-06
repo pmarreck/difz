@@ -51,11 +51,11 @@ impl TryFrom<u8> for Operation {
 }
 #[derive(Debug)]
 pub struct DecodedEntry<'a> {
-	path: &'a [u8],
-	mode: u16,
-	operation: Operation,
-	payload: &'a [u8],
-	metadata: CanonicalMetadata<'a>,
+	pub(super) path: &'a [u8],
+	pub(super) mode: u16,
+	pub(super) operation: Operation,
+	pub(super) payload: &'a [u8],
+	pub(super) metadata: CanonicalMetadata<'a>,
 }
 impl<'a> DecodedEntry<'a> {
 	pub fn path(&self) -> &'a [u8] {
@@ -105,10 +105,10 @@ impl structure::View for DecodedEntry<'_> {
 /// application checks. Byte fields borrow the patch; descriptor storage owns.
 #[derive(Debug)]
 pub struct ParsedPatch<'a> {
-	header: Header,
-	rules: Vec<Rule<'a>>,
-	entries: Vec<DecodedEntry<'a>>,
-	root: CanonicalMetadata<'a>,
+	pub(super) header: Header,
+	pub(super) rules: Vec<Rule<'a>>,
+	pub(super) entries: Vec<DecodedEntry<'a>>,
+	pub(super) root: CanonicalMetadata<'a>,
 }
 impl<'a> ParsedPatch<'a> {
 	pub fn header(&self) -> &Header {
