@@ -41,7 +41,7 @@ fn change_meta(entry: &mut Entry<'static>, change: impl FnOnce(&mut Metadata<'st
 	change(&mut raw);
 	entry.metadata = CanonicalMetadata::new(raw).unwrap();
 }
-fn fixture(selector: u8) -> Snapshot<'static> {
+pub(super) fn fixture(selector: u8) -> Snapshot<'static> {
 	if selector == 0 {
 		return Snapshot::default();
 	}

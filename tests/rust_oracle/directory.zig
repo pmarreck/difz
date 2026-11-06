@@ -49,6 +49,23 @@ pub fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const 
             const digest = try directory.treeHashWithRoot(snapshot.entries, snapshot.root);
             return allocator.dupe(u8, &digest);
         },
+        35 => {
+            if (input.len != 1) return error.BadMetadata;
+            const snapshot = try @import("snapshot_fixture.zig").make(allocator, input[0]);
+            try directory.validateSnapshot(snapshot.entries);
+        },
+        36 => {
+            if (input.len < 7) return error.BadMetadata;
+            const kind = std.enums.fromInt(directory.EntryKind, input[0]) orelse return error.BadMetadata;
+            const path_length = std.mem.readInt(u32, input[3..7], .little);
+            if (path_length > input.len - 7) return error.BadMetadata;
+            try directory.validateSnapshot(&.{.{
+                .path = input[7..][0..path_length],
+                .kind = kind,
+                .mode = std.mem.readInt(u16, input[1..3], .little),
+                .data = input[7 + path_length ..],
+            }});
+        },
         else => return error.BadMetadata,
     }
     return &.{};

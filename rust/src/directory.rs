@@ -103,6 +103,9 @@ mod record_tests;
 mod canonical;
 pub use canonical::CanonicalSnapshot;
 
+#[path = "directory_structure.rs"]
+pub(crate) mod structure;
+
 #[cfg(test)]
 #[path = "directory_canonical_tests.rs"]
 mod canonical_tests;

@@ -860,3 +860,42 @@ cases passed their unchanged bounds; growth execution took 22.57 seconds.
 Their [v6 observations](../benchmarks/rust-file-growth-20261106-v6-host-samples.ndjson)
 remain unbaselined. This single run does not establish a reduction in noise
 or explain the earlier failure. No historical epoch is approved.
+
+### Rust path filtering and shared structure checks
+
+Ordered filters now compile globs into Rust tokens and match with two
+dynamic-program rows. They preserve original-action default selection, leading
+negation, later-rule precedence, escapes, literal class hyphens, Unicode
+characters and native newline behavior after the anchoring correction.
+Compilation is linear in pattern bytes, including unterminated classes;
+matching takes O(total pattern bytes times path characters) work and O(path
+bytes) scratch. Allocation is fallible. This adds no production PCRE2
+dependency. The reference helper uses the production PCRE2 fork, headers and
+target ABI through a dedicated Nix-built static reference artifact.
+
+Native comparisons cover representative rules, invalid paths, 1,110 short
+glob patterns, class/escape/Unicode/newline cases, byte paths and adversarial
+repetition. The first differential run caught the native anchoring defect;
+the original v5 host growth failure is retained above. With v6, the filter
+increment independently passes all Nix checks, forty-one core tests and four
+Release controls. Its fresh core run took 6.92 seconds. Filter growth and
+memory qualification remain part of the directory-codec adoption gate.
+
+Structure validation is now shared between expanded snapshots and forthcoming
+wire entries. It checks path, raw mode, directory payload, symlink containment,
+ordering and parents in native order. Expanded sparse/hardlink relations and
+root restrictions remain separate. The canonical snapshot constructor uses
+the shared validator before its existing physical checks. Forty rich native
+fixture comparisons establish this boundary; 450 raw path/mode/kind/payload
+combinations verify wire-view error precedence. Existing snapshot tests still
+exercise both million-entry boundaries through the shared code. Both new test
+groups failed with stubs while the earlier thirty-eight passed.
+
+The combined final tree passed forty-three core tests and four Release
+controls, all three Nix-system evaluations and the complete suite. Source
+inventories require all thirty-three core inputs. Full validation took
+558.06 seconds: 152.70 for Nix preparation/checks and 405.36 for host admission,
+setup and execution. Fresh growth took 22.83 seconds and passed unchanged
+bounds. The filter and structure changes are separate commits; the complete
+host suite validates their combined final tree. No latency-budget or native
+macOS/Windows qualification is implied.

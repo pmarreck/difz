@@ -1,6 +1,6 @@
-use super::{Content, Entry, Error, MAX_ENTRIES, Snapshot, validate_path, validate_symlink_target};
+use super::{Content, Entry, Error, Snapshot, structure};
 use crate::metadata::Metadata;
-use core::cmp::Ordering;
+use structure::find_path;
 
 /// Expanded bytes and all physical metadata relations have been validated.
 /// The immutable view cannot invalidate hierarchy or identity afterward.
@@ -11,38 +11,7 @@ impl<'a> CanonicalSnapshot<'a> {
 	/// file/metadata bytes. Validation and hashing allocate no additional storage.
 	pub fn new(snapshot: Snapshot<'a>) -> Result<Self, Error> {
 		let Snapshot { entries, root } = &snapshot;
-		if entries.len() > MAX_ENTRIES {
-			return Err(Error::TooManyEntries);
-		}
-		for (
-			index,
-			Entry {
-				path,
-				content,
-				metadata: _,
-			},
-		) in entries.iter().enumerate()
-		{
-			validate_path(path)?;
-			match content {
-				Content::Directory { mode: _ } | Content::File { mode: _, bytes: _ } => {}
-				Content::Symlink { target } => validate_symlink_target(path, target)?,
-			}
-			if index > 0 {
-				match entries[index - 1].path.as_ref().cmp(path.as_ref()) {
-					Ordering::Equal => return Err(Error::DuplicatePath),
-					Ordering::Greater => return Err(Error::PathsNotSorted),
-					Ordering::Less => {}
-				}
-			}
-			if let Some(slash) = path.iter().rposition(|byte| *byte == b'/') {
-				let parent =
-					find_path(&entries[..index], &path[..slash]).ok_or(Error::MissingParent)?;
-				if !matches!(entries[parent].content, Content::Directory { mode: _ }) {
-					return Err(Error::ParentNotDirectory);
-				}
-			}
-		}
+		structure::validate(entries)?;
 		for (
 			index,
 			Entry {
@@ -128,12 +97,6 @@ impl<'a> CanonicalSnapshot<'a> {
 		}
 		*hash.finalize().as_bytes()
 	}
-}
-
-fn find_path(entries: &[Entry<'_>], path: &[u8]) -> Option<usize> {
-	entries
-		.binary_search_by(|entry| entry.path.as_ref().cmp(path))
-		.ok()
 }
 
 // Compare canonical fields directly, excluding only the referring link.
