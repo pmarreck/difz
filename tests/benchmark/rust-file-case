@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -u
+probe=${DIFZ_RUST_FILE_PROBE:-}
+[[ -f "$probe" && -x "$probe" ]] || { printf 'Prepared Rust probe required\n' >&2; exit 1; }
+exec scripts/run-tests-isolated -- "$probe" --measure "${1:?operation}" "${2:?sizes}" "${3:?seed}"

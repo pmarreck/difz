@@ -300,7 +300,53 @@ on Linux amd64 only. Directory metadata, filesystem adapters, the exported C
 ABI and the production CLI still require Rust implementations; the production
 entry point remains the preserved implementation during acceptance work.
 
-The new file hot paths next need optimized growth measurements through the
-shared profiler. At fixed compression level, the expected model is linear in
-source plus target/frame size for the declared update fixtures; this is an
-operating expectation to measure, not an asymptotic proof of zstd internals.
+### File growth controls, 2026-11-06
+
+The encode/apply declarations share a Rust macro with their function definitions.
+It derives a closed operation enum and complete operation list; an added
+operation forces the probe's exhaustive dispatch to implement its measurement.
+The compiled list is checked against every configuration case. Six negative
+registry controls reject omissions, duplicates, stale names, incorrect
+models/scopes and sweeps crossing native parameter regimes.
+
+The Release probe uses pinned seeded binary data, scattered edits, and native
+reference patches prepared before timing. Every result must equal its independent
+reference outside timing. Five samples follow warmup; calibrated batches target
+100 ms of process CPU time with a five-call minimum. Monotonic wall and all-thread
+CPU durations are recorded per call. Output Vec destruction is outside timing;
+native context creation and teardown remain inside. Codec and hash primitives
+retain their dependency implementations; SIMD tuning awaits a comparative
+component profile.
+
+The first 256 KiB–2 MiB pilot was inconclusive under short samples. Corrected
+batching exposed a clean growth-bound failure. Independent pinned-SDK diagnostics
+explain the noncommensurate interval: chain/hash logs change from 19/20 to 20/21
+at 512 KiB, and LDM switches on at 1 MiB. The stable 1–8 MiB case keeps chain/hash
+20/21, search 4, minimum match 5, target length 16, strategy 5 and LDM enabled.
+The window scales with input. Independently compiled native parameter records
+are checked before measurement; a mixed-regime configuration fails early.
+Transition sizes remain native byte-equality/cross-apply fixtures, increasing
+the corpus from six to ten pairs. The failed pilot [diagnostics](../benchmarks/rust-file-growth-20261106-diagnostics.ndjson)
+are never baseline observations. The model's operating range is explicit; no
+universal linear bound over codec configuration transitions is claimed.
+
+`./test` runs fresh declared-bound checks within the admitted preventive boundary,
+requesting one and two CPUs explicitly for hosted-CI compatibility. Missing CPUs
+fail without downscaling. `./big_o` runs the shared historical engine over all
+one-, two- and twelve-core cases, with work in confinement and immutable history
+outside the checkout. Twelve-core cases are extended timing cases. Neither runner
+changes the production codec's zero-worker setting. Declared-bound checks do not
+initialize or claim an accepted historical baseline.
+
+The final complete suite passed in 59.65 seconds: 26.25 seconds of Nix work and
+33.40 seconds for host setup/admission/execution. Growth took 25.99 seconds.
+All 255 invalid four-artifact sets are rejected before execution, alongside
+the existing core, CLI, cross-apply and C-ABI suites. This exceeds the five-second
+execution budget; feedback-cost reduction remains open. A serial historical run
+passed work, noise and declared-bound checks for all six cases on the first
+attempt, returning `UNBASELINED`/exit 3 because no epoch was approved. Its
+[raw CPU/wall samples and native parameters](../benchmarks/rust-file-growth-20261106-samples.ndjson)
+are preserved. An earlier overlap of our own profiling jobs made a bounded run
+inconclusive; it is diagnostic evidence. Profiling runs are now serialized.
+Finite sweeps qualify this fixture and range, not application-update performance
+or an asymptotic theorem.

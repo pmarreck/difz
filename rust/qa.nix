@@ -17,6 +17,9 @@ pkgs.rustPlatform.buildRustPackage {
 	doCheck = true;
 	buildPhase = ''
 		runHook preBuild
+		${pkgs.stdenv.cc}/bin/cc consumer/native_params.c -I${zstdz}/include ${zstdz}/lib/libzstd.a -pthread -o native-params
+		./native-params > native-params.json
+		export DIFZ_NATIVE_PARAMS="$PWD/native-params.json"
 		printf '#define ZSTD_STATIC_LINKING_ONLY\n#include <zstd.h>\nenum { DIFZ_ZSTD_WINDOWLOG_MAX = ZSTD_WINDOWLOG_MAX };\n' > bindings.h
 		bindgen bindings.h --use-core --no-layout-tests --formatter none \
 			--allowlist-function 'ZSTD_(getCParams|isError|compressBound|createCCtx|freeCCtx|CCtx_setParameter|CCtx_refPrefix|compress2|createDCtx|freeDCtx|DCtx_setMaxWindowSize|DCtx_refPrefix|decompressDCtx)' \
@@ -29,7 +32,7 @@ pkgs.rustPlatform.buildRustPackage {
 			exit 1
 		fi
 		test_binary=$(jq -er 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null) | .executable' cargo-tests.json)
-		if ! cargo build --locked --offline -p difz-core-consumer --message-format=json > consumer.json; then
+		if ! cargo build --locked --offline --release -p difz-core-consumer --message-format=json > consumer.json; then
 			jq -r 'select(.reason == "compiler-message") | .message.rendered // empty' consumer.json >&2
 			exit 1
 		fi

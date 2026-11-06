@@ -13,32 +13,32 @@ for tool in zig rustc cargo; do
 done
 export DIFZ_RUNNER_RECORD="$record"
 export PATH="$work/tools:$PATH"
-slots=(bin/difz libexec/difz-unit-tests bin/difz-rust-caller)
-for cli in valid missing directory non-executable; do
-	for core in valid missing directory non-executable; do
-		for ffi in valid missing directory non-executable; do
-			# The complete real suite supplies the all-valid positive control.
-			[ "$cli,$core,$ffi" != valid,valid,valid ] || continue
-			prefix="$work/prefix with spaces/$cli-$core-$ffi"
-			mkdir -p "$prefix/bin" "$prefix/libexec" || exit 1
-			shapes=("$cli" "$core" "$ffi")
-			for index in 0 1 2; do
-				path="$prefix/${slots[$index]}"
-				case "${shapes[$index]}" in
-					valid) ln -s "$work/tools/zig" "$path" || exit 1;;
-					missing) :;;
-					directory) mkdir "$path" || exit 1;;
-					non-executable) printf plain > "$path" || exit 1;;
-				esac
-			done
-			DIFZ_HOST_TESTS="$prefix" bash "$root/tests/run-prepared-host" > "$work/out" 2> "$work/err"
-			status=$?
-			if [ "$status" -eq 0 ] || [ -e "$record" ] || [ ! -s "$work/err" ]; then
-				printf 'FAIL prepared artifact classification %s %s %s\n' "$cli" "$core" "$ffi" >&2
-				exit 1
-			fi
-		done
+slots=(bin/difz libexec/difz-unit-tests bin/difz-rust-caller bin/difz-core-consumer)
+states=(valid missing directory non-executable)
+combinations=1
+for _ in "${slots[@]}"; do combinations=$((combinations * ${#states[@]})); done
+# Base-four enumeration covers every invalid combination; real suites supply zero.
+for ((code=1; code<combinations; code++)); do
+	prefix="$work/prefix with spaces/case-$code"
+	mkdir -p "$prefix/bin" "$prefix/libexec" || exit 1
+	remainder=$code
+	for slot in "${slots[@]}"; do
+		path="$prefix/$slot"
+		case "${states[$((remainder % ${#states[@]}))]}" in
+			valid) ln -s "$work/tools/zig" "$path" || exit 1;;
+			missing) :;;
+			directory) mkdir "$path" || exit 1;;
+			non-executable) printf plain > "$path" || exit 1;;
+			*) exit 1;;
+		esac
+		remainder=$((remainder / ${#states[@]}))
 	done
+	DIFZ_HOST_TESTS="$prefix" bash "$root/tests/run-prepared-host" > "$work/out" 2> "$work/err"
+	status=$?
+	if [ "$status" -eq 0 ] || [ -e "$record" ] || [ ! -s "$work/err" ]; then
+		printf 'FAIL prepared artifact classification case %d\n' "$code" >&2
+		exit 1
+	fi
 done
 for shape in missing directory non-executable; do
 	case "$shape" in
@@ -52,4 +52,4 @@ for shape in missing directory non-executable; do
 		printf 'FAIL prepared Rust consumer classification %s\n' "$shape" >&2; exit 1
 	fi
 done
-printf 'PASS prepared runners reject 63 invalid artifact sets and three invalid Rust paths without execution\n'
+printf 'PASS prepared runners reject %d invalid artifact sets and three invalid Rust paths without execution\n' "$((combinations - 1))"

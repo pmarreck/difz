@@ -38,6 +38,23 @@ pub fn window_log(source: u64, target: u64) -> Result<u32, Error> {
 	Ok(difz_zstdz::window_log(source, target)?)
 }
 
+// Each registered operation defines its function and growth declaration together.
+// Adding an operation forces exhaustive consumers to implement its measurement.
+macro_rules! file_operations {
+	($( $variant:ident => $(#[$doc:meta])* pub fn $name:ident($($arg:ident: $ty:ty),*) -> $result:ty $body:block )+) => {
+		#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+		pub enum Operation { $( $variant ),+ }
+		impl Operation {
+			pub const ALL: &'static [Self] = &[$(Self::$variant),+];
+			pub const fn name(self) -> &'static str { match self { $(Self::$variant => stringify!($name)),+ } }
+			pub const fn expected_model(self) -> &'static str { "linear" }
+		}
+		$( $(#[$doc])* pub fn $name($($arg: $ty),*) -> $result $body )+
+	};
+}
+
+file_operations! {
+Encode =>
 /// One ZDIF v4 header and one source-prefix frame; all returned memory is Rust-owned.
 pub fn encode(source: &[u8], target: &[u8]) -> Result<Vec<u8>, Error> {
 	window_log(source.len() as u64, target.len() as u64)?;
@@ -56,6 +73,7 @@ pub fn encode(source: &[u8], target: &[u8]) -> Result<Vec<u8>, Error> {
 	Ok(output)
 }
 
+Apply =>
 /// Validate source and resource limits before allocating reconstruction output.
 /// A zero limit means unlimited within the 2 GiB codec contract.
 pub fn apply(source: &[u8], patch: &[u8], maximum: usize) -> Result<Vec<u8>, Error> {
@@ -75,4 +93,5 @@ pub fn apply(source: &[u8], patch: &[u8], maximum: usize) -> Result<Vec<u8>, Err
 		return Err(Error::TargetHashMismatch);
 	}
 	Ok(output)
+}
 }

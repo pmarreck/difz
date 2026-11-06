@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Historical growth comparison; no implicit baseline approval.
+set -u
+cd "$(dirname "$0")" || exit 1
+prefix=$(nix build --no-update-lock-file --no-link --print-out-paths .#rust-core-tests) || exit 1
+export DIFZ_RUST_FILE_PROBE="$prefix/bin/difz-core-consumer"
+if [[ -z "${PERFORMANCE_HISTORY_URL:-}" ]]; then
+	history=${DIFZ_BENCH_HISTORY:-$HOME/.local/state/performance-history}
+	[[ "$history" = /* ]] || { printf 'Absolute history directory required\n' >&2; exit 1; }
+	mkdir -p "$history" || exit 1
+	export PERFORMANCE_HISTORY_URL="file://$history"
+fi
+command=(nix develop --no-update-lock-file -c bash tests/benchmark/run-rust-big-o "$@")
+if command -v build-budget >/dev/null 2>&1; then exec build-budget --project difz -- "${command[@]}"; fi
+exec "${command[@]}"

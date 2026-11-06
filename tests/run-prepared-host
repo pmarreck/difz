@@ -3,7 +3,7 @@
 set -u
 prefix="${DIFZ_HOST_TESTS:-}"
 [ -n "$prefix" ] || { printf 'FAIL DIFZ_HOST_TESTS is required\n' >&2; exit 1; }
-for executable in bin/difz libexec/difz-unit-tests bin/difz-rust-caller; do
+for executable in bin/difz libexec/difz-unit-tests bin/difz-rust-caller bin/difz-core-consumer; do
 	if [ ! -f "$prefix/$executable" ] || [ ! -x "$prefix/$executable" ]; then
 		printf 'FAIL Nix-prepared host artifact is missing: %s\n' "$executable" >&2
 		exit 1
@@ -36,4 +36,6 @@ if ! run_suite core run_core; then errors=$((errors + 1)); fi
 if ! run_suite cli env -u DIFZ_TEST_DIRECTORY_OMIT DIFZ="$prefix/bin/difz" bash tests/cli/test_cli.bash; then errors=$((errors + 1)); fi
 if ! run_suite cross-apply env DIFZ="$prefix/bin/difz" bash tests/integration/test-cross-apply.bash; then errors=$((errors + 1)); fi
 if ! run_suite rust-ffi env DIFZ_RUST_CALLER="$prefix/bin/difz-rust-caller" bash tests/ffi/test_rust_lib.bash; then errors=$((errors + 1)); fi
+if ! run_suite growth-registry bash tests/benchmark/test-rust-growth-registry.bash "$prefix/bin/difz-core-consumer"; then errors=$((errors + 1)); fi
+if ! run_suite rust-growth luajit tests/benchmark/rust-file-growth.lua "$prefix/bin/difz-core-consumer"; then errors=$((errors + 1)); fi
 exit "$errors"

@@ -16,14 +16,26 @@ fn file_codec_cross_applies_with_the_native_reference() {
 	}
 	let mut moved = repeated.clone();
 	moved.rotate_left(12345);
-	for (source, target) in [
+	let mut cases = vec![
 		(Vec::new(), Vec::new()),
 		(Vec::new(), all.clone()),
 		(all.clone(), Vec::new()),
 		(all.clone(), all.clone()),
 		(repeated.clone(), edited),
 		(repeated.clone(), moved),
-	] {
+	];
+	// Retain native equality at the small-input hash-table/LDM transitions.
+	for n in [1 << 18, 1 << 19, 1 << 20, 1 << 21] {
+		let random = std::env::var_os("DIFZ_RANDOM").unwrap();
+		let source = run(Command::new(random).args(["--seed", "41", "-b", "-c", &n.to_string()]));
+		assert_eq!(source.len(), n);
+		let mut target = source.clone();
+		for byte in target.iter_mut().step_by(4093) {
+			*byte ^= 1;
+		}
+		cases.push((source, target));
+	}
+	for (source, target) in cases {
 		let scratch = Scratch::new();
 		let a = scratch.0.join("source with spaces");
 		let b = scratch.0.join("target-café");

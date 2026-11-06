@@ -20,6 +20,7 @@
 			let
 				pkgs = import nixpkgs { inherit system; };
 				randomPackage = random.packages.${system}.random-luajit;
+				profilingLua = pkgs.luajit.withPackages (p: [ p.lua-cjson p.luv ]);
 				# Local Unix-only fix until the shared profiler supports long cases
 				# and kills the workload's children when its deadline expires.
 				performancePackage = performance-profiling.packages.${system}.default.overrideAttrs (old: {
@@ -177,7 +178,7 @@
 				};
 				hostTests = pkgs.symlinkJoin {
 					name = "difz-host-tests";
-					paths = [ debugTests rustFfiTests ];
+					paths = [ debugTests rustFfiTests rustCoreTests ];
 				};
 				rustCodecTests = pkgs.rustPlatform.buildRustPackage {
 					pname = "difz-rust-codec-tests";
@@ -339,7 +340,7 @@
 						file
 						git
 						jq
-						luajit
+						profilingLua
 						performancePackage
 						randomPackage
 					] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.bubblewrap pkgs.util-linux ];

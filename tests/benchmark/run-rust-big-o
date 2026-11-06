@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -u
+luajit tests/benchmark/rust-file-growth.lua "${DIFZ_RUST_FILE_PROBE:?}" --coverage-only >&2 || exit 1
+exec performance-profile run --config profiling-rust-file.json "$@"

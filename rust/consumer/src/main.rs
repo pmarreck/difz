@@ -1,6 +1,25 @@
 #![forbid(unsafe_code)]
 
+mod measurement;
+
 fn main() {
+	let args: Vec<String> = std::env::args().skip(1).collect();
+	if args.first().map(String::as_str) == Some("--native-parameters") {
+		println!("{}", include_str!(env!("DIFZ_NATIVE_PARAMS")));
+		return;
+	}
+	if args.first().map(String::as_str) == Some("--declarations") {
+		let declarations: Vec<_> = difz_core::file::Operation::ALL
+			.iter()
+			.map(|op| serde_json::json!({"operation":op.name(),"model":op.expected_model()}))
+			.collect();
+		println!("{}", serde_json::to_string(&declarations).unwrap());
+		return;
+	}
+	if args.first().map(String::as_str) == Some("--measure") {
+		measurement::run(&args[1..]);
+		return;
+	}
 	let source = b"binary\0source\xff";
 	let target = b"binary\0TARGET\x80\0";
 	let patch = difz_core::file::encode(source, target).unwrap();

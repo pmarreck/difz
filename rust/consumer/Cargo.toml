@@ -6,3 +6,5 @@ publish = false
 
 [dependencies]
 difz-core = { path = ".." }
+serde_json = "=1.0.145"
+cpu-time = "=1.0.0"

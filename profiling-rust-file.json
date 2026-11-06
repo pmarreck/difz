@@ -1,0 +1,168 @@
+{
+  "schema": "performance-project/v1",
+  "project": "difz_rust_file",
+  "history_url": "file:///var/lib/performance-profiling",
+  "identity": {
+    "runtime": "Rust-1.94.1/zstdz",
+    "build_mode": "release",
+    "concurrency": 1
+  },
+  "cases": [
+    {
+      "name": "encode-1core",
+      "operation": "encode",
+      "model": "linear",
+      "definition": "rust-file-stable-parameters-cpu-v3",
+      "cores": 1,
+      "mode": "cg",
+      "metric": "cpu_ns",
+      "command": [
+        "bash",
+        "tests/benchmark/rust-file-case",
+        "encode",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608
+      ],
+      "bounds": [
+        0.8,
+        2.8
+      ]
+    },
+    {
+      "name": "encode-12core",
+      "operation": "encode",
+      "model": "linear",
+      "definition": "rust-file-stable-parameters-cpu-v3",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "cpu_ns",
+      "command": [
+        "bash",
+        "tests/benchmark/rust-file-case",
+        "encode",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608
+      ],
+      "bounds": [
+        0.8,
+        2.8
+      ]
+    },
+    {
+      "name": "apply-1core",
+      "operation": "apply",
+      "model": "linear",
+      "definition": "rust-file-stable-parameters-cpu-v3",
+      "cores": 1,
+      "mode": "cg",
+      "metric": "cpu_ns",
+      "command": [
+        "bash",
+        "tests/benchmark/rust-file-case",
+        "apply",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608
+      ],
+      "bounds": [
+        0.8,
+        2.8
+      ]
+    },
+    {
+      "name": "apply-12core",
+      "operation": "apply",
+      "model": "linear",
+      "definition": "rust-file-stable-parameters-cpu-v3",
+      "cores": 12,
+      "mode": "bm",
+      "metric": "cpu_ns",
+      "command": [
+        "bash",
+        "tests/benchmark/rust-file-case",
+        "apply",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608
+      ],
+      "bounds": [
+        0.8,
+        2.8
+      ]
+    },
+    {
+      "name": "encode-2core",
+      "operation": "encode",
+      "model": "linear",
+      "definition": "rust-file-stable-parameters-cpu-v3",
+      "cores": 2,
+      "mode": "cg",
+      "metric": "cpu_ns",
+      "command": [
+        "bash",
+        "tests/benchmark/rust-file-case",
+        "encode",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608
+      ],
+      "bounds": [
+        0.8,
+        2.8
+      ]
+    },
+    {
+      "name": "apply-2core",
+      "operation": "apply",
+      "model": "linear",
+      "definition": "rust-file-stable-parameters-cpu-v3",
+      "cores": 2,
+      "mode": "cg",
+      "metric": "cpu_ns",
+      "command": [
+        "bash",
+        "tests/benchmark/rust-file-case",
+        "apply",
+        "{sizes}",
+        "{seed}"
+      ],
+      "sizes": [
+        1048576,
+        2097152,
+        4194304,
+        8388608
+      ],
+      "bounds": [
+        0.8,
+        2.8
+      ]
+    }
+  ]
+}
