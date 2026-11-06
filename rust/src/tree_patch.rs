@@ -23,6 +23,7 @@ pub enum Error {
 	Metadata(crate::metadata::Error),
 	Snapshot(crate::directory::Error),
 	Filter(crate::path_filter::Error),
+	File(crate::file::Error),
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EnvelopeLimits {
@@ -162,3 +163,6 @@ mod tests;
 #[path = "tree_patch_decode.rs"]
 mod decode;
 pub use decode::{DecodedEntry, Limits, Operation, ParsedPatch};
+#[path = "tree_patch_encode.rs"]
+mod encode;
+pub use encode::{CreateOptions, create};

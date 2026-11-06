@@ -40,6 +40,17 @@ pub fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const 
     if (mode == 40) {
         if (input.len == 0 or input.len > 2) return error.BadFixture;
         if (input[0] == 4) return rich(allocator, if (input.len == 2) input[1] else 0);
+        if (input[0] == 5 and input.len == 1) {
+            const source = [_]directory.Entry{
+                .{ .path = "x", .kind = .directory, .mode = 0o700 },
+                .{ .path = "y", .kind = .file, .mode = 0o640, .data = "old" },
+            };
+            const target = [_]directory.Entry{
+                .{ .path = "x", .kind = .file, .mode = 0o644, .data = "new\x00\xff" },
+                .{ .path = "y", .kind = .symlink, .mode = 0o777, .data = "x" },
+            };
+            return patch.createPatch(allocator, &source, &target, .{ .source_root = .{ .times = .{ .mtime = .{ .sec = -1, .nsec = 7 } } } });
+        }
         if (input.len != 1 or input[0] > 3) return error.BadFixture;
         const entries = [_]directory.Entry{.{ .path = "x", .kind = .file, .mode = 0o640, .data = "\x00\xffbody" }};
         const root_attrs = [_]reference.metadata.Xattr{.{ .class = .logical, .name = "root", .value = "\x00\xff" }};

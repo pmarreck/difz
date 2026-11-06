@@ -925,3 +925,30 @@ checks, followed by 650.31 for host admission, setup and execution. Fresh file
 growth took 22.98 seconds and passed the unchanged bounds. The historical
 cohorts remain unbaselined; these results do not qualify native macOS/Windows
 execution or the pending directory growth and memory contracts.
+
+## Rust DIFZTREE encoder, 2026-11-06
+
+The Rust encoder accepts validated snapshots and emits only DIFZTREE v2.
+It chooses unchanged-file copies, single-frame source-prefix deltas, new-file
+raw data and canonical hardlinks, plus directories and symlinks. Ordered rules
+are recorded after compilation; filesystem selection remains the adapter's
+responsibility. Omission projects canonical metadata before hashing both trees,
+borrowing file and metadata buffers and fallibly allocating only retained
+descriptors. Default omission avoids the projection allocation entirely.
+Every append checks the complete patch bound before growing output; metadata
+lengths are checked against both payload and u32 wire bounds.
+
+Exact native-byte comparisons pass for all sixty-four omission masks and the
+four smaller fixtures, covering every operation, binary data, all metadata
+families and root presence. A separate fixture checks type changes and source
+root identity. Additional controls verify borrowed file/metadata buffers,
+canonical projection, rule-count/pattern limits and output-growth rejection.
+The stub failed the native-byte comparison while forty-seven tests passed.
+
+The final increment passes fifty core tests and four Release controls, all
+three Nix-system evaluations and the complete suite. Fresh core execution took
+7.11 seconds. Full validation took 65.09 seconds: 34.60 for Nix preparation and
+checks and 30.49 for host admission, setup and execution. Fresh file growth
+took 22.95 seconds and passed unchanged bounds. Directory application and its
+growth/memory qualification remain pending; production entry points are still
+the existing implementation.

@@ -298,6 +298,8 @@ pub use record::{Ace, Hole, Metadata, NativeAcl, Permissions, Times, Xattr};
 #[path = "metadata_canonical.rs"]
 mod canonical;
 pub use canonical::CanonicalMetadata;
+#[path = "metadata_borrow.rs"]
+mod borrowing;
 
 #[path = "metadata_decode.rs"]
 mod decode;
