@@ -283,6 +283,10 @@ pub fn decode_modification_override(bytes: &[u8]) -> Result<ModificationOverride
 	Ok(ModificationOverride { original, observed })
 }
 
+#[path = "metadata_record.rs"]
+mod record;
+pub use record::{Ace, Hole, Metadata, NativeAcl, Permissions, Times, Xattr};
+
 #[cfg(test)]
 #[path = "metadata_tests.rs"]
 mod tests;

@@ -535,3 +535,86 @@ fn streaming_reference_matches_one_shot_and_rejects_truncated_or_oversize_reques
 		assert!(result.stdout.is_empty());
 	}
 }
+
+#[test]
+fn portable_permissions_match_native_wire_decoding_over_every_byte() {
+	let mut reference = Reference::start();
+	for bits in 0..=255u8 {
+		compare(
+			&mut reference,
+			Permissions::from_bits(bits),
+			10,
+			&[bits],
+			|p| vec![p.bits()],
+		);
+		if bits < 8 {
+			let p = Permissions::from_bits(bits).unwrap();
+			for (permission, bit) in [
+				(Permissions::READ, 1),
+				(Permissions::WRITE, 2),
+				(Permissions::EXECUTE, 4),
+			] {
+				assert_eq!(p.contains(permission), bits & bit != 0);
+			}
+		}
+	}
+}
+
+fn record_for_presence(selector: u8) -> Result<Metadata<'static>, Error> {
+	use alloc::borrow::Cow;
+	let mut meta = Metadata::default();
+	match selector {
+		0 => {}
+		1 => meta.xattrs.push(Xattr {
+			class: XattrClass::Logical,
+			name: Cow::Borrowed(b"x"),
+			value: Cow::Borrowed(b""),
+		}),
+		2 => meta.aces.push(Ace {
+			tag: AceTag::Owner,
+			permissions: Permissions::default(),
+			name: Cow::Borrowed(b""),
+		}),
+		3 => {
+			meta.native_acl = Some(NativeAcl {
+				origin: Os::Linux,
+				bytes: Cow::Borrowed(b""),
+			})
+		}
+		4 => meta.times.mtime = Some(Time { sec: 0, nsec: 0 }),
+		5 => meta.times.atime = Some(Time { sec: 0, nsec: 0 }),
+		6 => meta.times.btime = Some(Time { sec: 0, nsec: 0 }),
+		7 => meta.finder_flags = 1,
+		8 => meta.finder_info = Some([0; 32]),
+		9 => meta.holes.push(Hole {
+			offset: 0,
+			length: 1,
+		}),
+		10 => meta.hardlink_to = Some(Cow::Borrowed(b"")),
+		_ => return Err(Error::BadMetadata),
+	}
+	Ok(meta)
+}
+
+#[test]
+fn metadata_presence_distinguishes_absence_from_present_zero_values() {
+	let mut reference = Reference::start();
+	for selector in 0..=255u8 {
+		compare(
+			&mut reference,
+			record_for_presence(selector).map(|m| m.is_empty()),
+			11,
+			&[selector],
+			|empty| vec![u8::from(empty)],
+		);
+	}
+	let empty = Metadata::default();
+	assert_eq!(
+		(
+			empty.xattrs.capacity(),
+			empty.aces.capacity(),
+			empty.holes.capacity()
+		),
+		(0, 0, 0)
+	);
+}

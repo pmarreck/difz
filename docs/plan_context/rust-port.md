@@ -465,3 +465,25 @@ complete the five-platform library qualification or the remaining Rust port.
 The complete suite passed with fresh SDK/Rust checks and confined host execution.
 Preparation/checks took 30.62 seconds; the host phase, including admission, took
 97.66 seconds, for 128.28 seconds total. Growth execution took 24.21 seconds.
+
+### Metadata record ownership and presence
+
+The raw Rust record model covers xattrs, portable/native ACLs, all three times,
+Finder fields, sparse holes and hardlink references. Descriptor vectors own
+their storage. Byte fields use `Cow<[u8]>` so a decoded record can borrow its
+input and a captured record can own its bytes. The default record allocates no
+descriptor storage. This is an unvalidated model; it does not authorize
+canonical encoding, hashing or restoration.
+
+Portable permissions admit only the three defined bits. All 256 input bytes
+are compared with the native canonical decoder and encoder. A second native
+fixture checks empty records and each field's presence, including present zero
+timestamps, zero Finder data, and present empty fields that later validation
+must reject. Exhaustive record destructuring makes a newly added field require
+review of the presence check. Both new tests failed with stubs while the prior
+eighteen passed; all twenty pass after implementation, in 3.67 seconds.
+
+The required Nix checks and source contracts pass. All four host binaries are
+byte-identical to the complete passing SDK run, and host test sources are
+unchanged. That host verdict is reused; the duplicate queued attempt was
+canceled and is not reported as a new passing host run.

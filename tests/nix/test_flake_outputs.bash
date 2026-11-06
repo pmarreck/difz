@@ -77,7 +77,7 @@ require_json '.buildWrapperCheck | type == "string" and length > 0' 'Nix build a
 require_json '.debugPackages | length == 3 and all(.[]; . == true)' 'debug builds select the checked Nix artifact on every native system'
 require_json '(.buildWrapperSource.required | length == 2 and all(.[]; . == true)) and (.buildWrapperSource.excluded | length == 5 and all(.[]; . == false))' 'build adapter source membership excludes unrelated path sets'
 require_json '.rustCoreOutputs | length == 3 and all(.[]; . == true)' 'Rust core artifacts are declared for every native system'
-require_json '(.rustCoreSource.required | length == 15 and all(.[]; . == true)) and (.rustCoreSource.excluded | length == 8 and all(.[]; . == false))' 'Rust core source membership includes metadata, native adapter and consumer, excluding unrelated path sets'
+require_json '(.rustCoreSource.required | length == 16 and all(.[]; . == true)) and (.rustCoreSource.excluded | length == 8 and all(.[]; . == false))' 'Rust core source membership includes metadata, native adapter and consumer, excluding unrelated path sets'
 require_json '.crossApplyCheck | type == "string" and length > 0' 'cross-implementation acceptance has a declared Nix check'
 require_json '(.crossApplySource.required | length == 2 and all(.[]; . == true)) and (.crossApplySource.excluded | length == 6 and all(.[]; . == false))' 'cross-apply source membership excludes unrelated path sets'
 ci_targets=$(awk '{sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); if ($0 != "" && $0 !~ /^#/) print}' "$ROOT_DIR/.mechatron-prime/targets") || exit 1

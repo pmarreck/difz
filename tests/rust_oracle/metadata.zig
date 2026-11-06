@@ -44,6 +44,35 @@ fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const u8 {
             const os = std.enums.fromInt(metadata.Os, input[0]) orelse return error.BadMetadata;
             return allocator.dupe(u8, &.{@intFromBool(metadata.rawAccepted(os, input[1..]))});
         },
+        10 => {
+            if (input.len != 1) return error.BadMetadata;
+            var wire = [_]u8{0} ** 26;
+            wire[4] = 1; // One owner ACE with no name.
+            wire[8] = 1;
+            wire[9] = input[0];
+            const parsed = try metadata.decodeCanonical(allocator, &wire);
+            const encoded = try metadata.encodeCanonical(allocator, parsed);
+            return encoded[9..10];
+        },
+        11 => {
+            if (input.len != 1) return error.BadMetadata;
+            var record: metadata.Metadata = .{};
+            switch (input[0]) {
+                0 => {},
+                1 => record.xattrs = &.{.{ .class = .logical, .name = "x", .value = "" }},
+                2 => record.aces = &.{.{ .tag = .owner }},
+                3 => record.native_acl = .{ .origin = .linux, .bytes = "" },
+                4 => record.times.mtime = .{},
+                5 => record.times.atime = .{},
+                6 => record.times.btime = .{},
+                7 => record.finder_flags = 1,
+                8 => record.finder_info = [_]u8{0} ** 32,
+                9 => record.holes = &.{.{ .offset = 0, .length = 1 }},
+                10 => record.hardlink_to = "",
+                else => return error.BadMetadata,
+            }
+            return allocator.dupe(u8, &.{@intFromBool(record.isEmpty())});
+        },
         else => return error.BadMetadata,
     }
 }
