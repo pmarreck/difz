@@ -716,3 +716,36 @@ The complete suite passed in 452.04 seconds: 30.82 for preparation/checks and
 421.22 for host admission/setup/execution. Growth execution took 21.98 seconds.
 Raw snapshots still require hierarchy, symlink and physical metadata relation
 validation. This step adds no production snapshot hash or directory codec.
+
+### Validated snapshots and directory identity
+
+`CanonicalSnapshot` consumes raw records after checking structure, physical
+metadata relationships and root restrictions in native order. Parent lookup
+uses the already ordered prefix. Sparse extents must belong to regular files,
+stay within expanded data and cover zero bytes. Hardlinks require an earlier
+canonical regular file with matching mode, bytes and every metadata field
+except the referring link. Shared metadata compares canonical fields directly.
+Root sparse extents and hardlink references are rejected. The returned view
+is immutable; consuming it explicitly returns the raw record.
+
+Identity streams the native `DIFZTREE-ID\x02` layout, each canonical metadata
+hash, and a `DIFZTREE-ROOT\x01` suffix only for nonempty root metadata.
+Validation and hashing allocate no additional storage. Expected validation
+work is O(n log n) path comparisons plus scanned path, extent and shared
+file/metadata bytes; hashing is linear in file/path and canonical metadata bytes. Directory
+growth qualification remains open before production adoption.
+
+Forty-two independent native fixtures cover valid rich/empty/root-only trees,
+ordering and hierarchy errors, sparse bounds/content, hardlink kinds, cycles
+and chains, mode/data mismatches, every shared metadata family, explicit-zero
+presence and mixed-error precedence. Real arrays with 1,000,000 and 1,000,001
+entries verify both sides of the count boundary before duplicate checks.
+Ownership controls preserve borrowed file storage through validation. Both new
+tests failed with stubs while the prior thirty-three passed. All thirty-five
+core tests and three Release controls pass; the expanded fresh core run took
+8.45 seconds. No execution-budget pass is implied.
+
+The complete suite passed in 860.02 seconds: 10.40 for preparation/checks and
+849.62 for host admission/setup/execution. Growth execution took 22.32 seconds.
+All three native Nix systems evaluate. Directory patch encoding/decoding,
+filesystem adapters and the remaining Rust entry points are still pending.

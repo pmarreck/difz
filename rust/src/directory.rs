@@ -98,3 +98,11 @@ pub use record::{Content, Entry, Mode, Snapshot};
 #[cfg(test)]
 #[path = "directory_record_tests.rs"]
 mod record_tests;
+
+#[path = "directory_canonical.rs"]
+mod canonical;
+pub use canonical::CanonicalSnapshot;
+
+#[cfg(test)]
+#[path = "directory_canonical_tests.rs"]
+mod canonical_tests;

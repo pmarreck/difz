@@ -43,6 +43,12 @@ pub fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const 
             const digest = try directory.treeHashWithRoot(&.{entry}, root);
             return allocator.dupe(u8, &digest);
         },
+        34 => {
+            if (input.len != 1) return error.BadMetadata;
+            const snapshot = try @import("snapshot_fixture.zig").make(allocator, input[0]);
+            const digest = try directory.treeHashWithRoot(snapshot.entries, snapshot.root);
+            return allocator.dupe(u8, &digest);
+        },
         else => return error.BadMetadata,
     }
     return &.{};

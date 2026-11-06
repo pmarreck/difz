@@ -111,7 +111,7 @@ fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const u8 {
             return metadata.encodeCanonical(allocator, normalized);
         },
         20, 21, 22 => return @import("restore.zig").run(allocator, mode, input),
-        30, 31, 32, 33 => return @import("directory.zig").run(allocator, mode, input),
+        30, 31, 32, 33, 34 => return @import("directory.zig").run(allocator, mode, input),
         else => return error.BadMetadata,
     }
 }
