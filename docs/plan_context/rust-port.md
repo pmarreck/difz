@@ -635,3 +635,37 @@ declared growth checks and remain `UNBASELINED`/exit 3. Encode on one core used
 its single permitted noise retry; that first attempt remains diagnostic data.
 No epoch was approved. These finite sweeps establish the declared bounds for
 their observed workloads, not an asymptotic proof or a speedup claim.
+
+### Metadata restore planning
+
+The Rust restore planner accepts validated canonical metadata and explicit
+filesystem capabilities. It returns immutable action and ordered compromise
+views without allocation. Missing native support requires an available
+transport destination. Capabilities use the existing conservative OS defaults;
+filesystem probes may override individual flags. `RestoreError` is separate
+from the metadata grammar's errors.
+
+The compromise enum carries ACL origin and portable-application status only
+for its native-ACL variant. Restore reports combine the ten native effect
+codes idempotently, including the symlink-parent and modification-time
+transport effects that later filesystem adapters will report. A compile-time
+check keeps every effect code inside the report's bitset.
+
+The independent native helper serializes all action fields by reflection and
+includes warning code, family, ACL status and origin. Tests compare 19,200
+scenarios: all 256 capability masks on all three OSes for sixteen native
+fixtures, four raw-name cases and five isolated timestamp/Finder records.
+Isolated present-zero fields prevent another populated field from masking a
+missing action. A second control compares the default capabilities and all
+1,024 report combinations, including repeated effects. The planner control
+failed with a stub; both controls pass with the implementation. These are
+pure capability-table comparisons executed on Linux, not native filesystem
+qualification for macOS or Windows. All twenty-nine core tests and three
+Release probe controls pass on the normalization base. The complete suite
+passed in 944.45 seconds: 51.07 for preparation/checks and 893.38 for host
+admission/setup/execution. Growth execution took 22.16 seconds. All three native
+Nix systems evaluate; native execution remains qualified on Linux amd64.
+
+The original CDC design is also published on
+`old-cdc-plus-compression-probe-design` at `a83c041`, after preparing that
+revision's original checks. An independent fetch confirms the remote ref.

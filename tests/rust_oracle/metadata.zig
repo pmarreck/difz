@@ -110,6 +110,7 @@ fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const u8 {
             const normalized = try metadata.canonicalize(allocator, .{ .holes = holes }, .{});
             return metadata.encodeCanonical(allocator, normalized);
         },
+        20, 21, 22 => return @import("restore.zig").run(allocator, mode, input),
         else => return error.BadMetadata,
     }
 }

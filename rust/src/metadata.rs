@@ -302,6 +302,13 @@ pub use canonical::CanonicalMetadata;
 #[path = "metadata_decode.rs"]
 mod decode;
 
+#[path = "metadata_restore.rs"]
+mod restore;
+pub use restore::{
+	Capabilities, Compromise, CompromiseCode, RestoreActions, RestoreError, RestorePlan,
+	RestoreReport,
+};
+
 #[cfg(test)]
 #[path = "metadata_tests.rs"]
 mod tests;

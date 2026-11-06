@@ -4,7 +4,7 @@ pkgs.stdenv.mkDerivation {
     version = "0.1.0";
     src = pkgs.lib.fileset.toSource {
         root = ./.;
-        fileset = pkgs.lib.fileset.unions [ ./metadata.zig ./metadata_fixture.zig ./main.c ];
+        fileset = pkgs.lib.fileset.unions [ ./metadata.zig ./metadata_fixture.zig ./restore.zig ./main.c ];
     };
     nativeBuildInputs = [ pkgs.zig ];
     dontConfigure = true;

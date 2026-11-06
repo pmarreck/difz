@@ -1,6 +1,8 @@
 use super::*;
 #[path = "metadata_canonical_tests.rs"]
 mod canonical;
+#[path = "metadata_restore_tests.rs"]
+mod restore;
 use std::{
 	io::{BufReader, Read, Write},
 	process::{Child, ChildStdin, ChildStdout, Command, Stdio},
