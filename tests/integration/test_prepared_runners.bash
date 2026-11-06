@@ -13,7 +13,7 @@ for tool in zig rustc cargo; do
 done
 export DIFZ_RUNNER_RECORD="$record"
 export PATH="$work/tools:$PATH"
-slots=(bin/difz libexec/difz-unit-tests bin/difz-rust-caller bin/difz-core-consumer)
+slots=(bin/difz libexec/difz-unit-tests bin/difz-rust-caller bin/difz-core-consumer bin/difz-platform-tests)
 states=(valid missing directory non-executable)
 combinations=1
 for _ in "${slots[@]}"; do combinations=$((combinations * ${#states[@]})); done

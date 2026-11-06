@@ -16,6 +16,7 @@ use std::{
 pub enum Error {
 	Io(io::Error),
 	InvalidBasename,
+	InvalidAttributeName,
 	WrongKind,
 	OutOfMemory,
 	LimitExceeded,
@@ -146,3 +147,5 @@ mod names;
 pub use names::Names;
 #[cfg(test)]
 mod names_tests;
+#[cfg(target_os = "linux")]
+pub mod xattr;

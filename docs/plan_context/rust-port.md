@@ -1187,3 +1187,40 @@ native execution remains unqualified. The units retain separate focused Nix
 checks and separate commits; this complete host run covers their combined
 final tree. The earlier inspection-only run was stopped while still queued
 to avoid repeating the unchanged host suites.
+
+## Linux descriptor-based attribute reads, 2026-11-06
+
+The experimental platform adapter reads raw attribute values and names through
+a borrowed File descriptor. Attribute names retain their native namespace and
+raw bytes; canonical classification belongs to the later metadata capture
+layer. Values preserve arbitrary bytes and distinguish an empty value from
+ENODATA. Linux uses ENODATA for an absent or inaccessible attribute. Unsupported
+filesystems and other errors remain explicit IO failures.
+
+Buffer growth handles ERANGE without trusting a prior size query. Fallible
+allocation and caller ceilings bound returned bytes, and listing additionally
+bounds name count. A successful xattr call returns the whole value; an
+insufficient buffer produces ERANGE. The names wrapper validates termination
+and nonempty native names before exposing borrowed byte slices. Name inputs
+reject NUL, empty names and lengths beyond the native limit before allocation.
+
+The initial injected buffer/parser control failed against stubs. The three
+OS fixtures initially failed during setup because this Nix sandbox rejects
+attribute writes with EOPNOTSUPP; those failures do not qualify a behavioral
+red result for the adapter. The tests remain mandatory in the confined host
+phase of `./test`, using the exact binary prepared and installed by Nix.
+Nix runs the buffer/parser controls and explicitly filters the three named
+OS fixtures. Host execution checks that all three are present and runs the
+entire platform binary without a filter. The prepared-runner gate also requires
+that binary before any suite starts.
+
+The complete suite passes in 613.00 seconds: 50.11 seconds of Nix preparation
+and checks, followed by 562.89 seconds of host admission, setup and execution.
+All eighteen platform tests pass in the required host phase, including binary
+attribute names/values, empty/missing values, exact limits and opened-file
+identity after path replacement. The platform suite took 40 milliseconds.
+The prepared-runner control rejects all 1023 invalid five-artifact sets and
+three invalid Rust paths before execution; it took 9.62 seconds. Fresh file
+growth took 22.52 seconds and passed unchanged limits. Historical cohorts
+remain unbaselined. Attribute restoration, canonical capture integration,
+macOS and Windows implementation/qualification remain pending.

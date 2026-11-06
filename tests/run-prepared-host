@@ -3,7 +3,7 @@
 set -u
 prefix="${DIFZ_HOST_TESTS:-}"
 [ -n "$prefix" ] || { printf 'FAIL DIFZ_HOST_TESTS is required\n' >&2; exit 1; }
-for executable in bin/difz libexec/difz-unit-tests bin/difz-rust-caller bin/difz-core-consumer; do
+for executable in bin/difz libexec/difz-unit-tests bin/difz-rust-caller bin/difz-core-consumer bin/difz-platform-tests; do
 	if [ ! -f "$prefix/$executable" ] || [ ! -x "$prefix/$executable" ]; then
 		printf 'FAIL Nix-prepared host artifact is missing: %s\n' "$executable" >&2
 		exit 1
@@ -33,6 +33,19 @@ run_core() {
 	(cd "$TEST_WORKSPACE" && DIFZ_REQUIRE_XATTR_TESTS=1 "$prefix/libexec/difz-unit-tests")
 }
 if ! run_suite core run_core; then errors=$((errors + 1)); fi
+# shellcheck disable=SC2329
+run_platform() {
+	if [ "$(uname -s)" = Linux ]; then
+		local count
+		count=$("$prefix/bin/difz-platform-tests" --list | grep -c '^xattr::tests::native_.*: test$') || return 1
+		if [ "$count" -ne 3 ]; then
+			printf 'FAIL expected all three native Rust attribute fixtures\n' >&2
+			return 1
+		fi
+	fi
+	"$prefix/bin/difz-platform-tests" --test-threads=1 --include-ignored
+}
+if ! run_suite rust-platform run_platform; then errors=$((errors + 1)); fi
 if ! run_suite cli env -u DIFZ_TEST_DIRECTORY_OMIT DIFZ="$prefix/bin/difz" bash tests/cli/test_cli.bash; then errors=$((errors + 1)); fi
 if ! run_suite cross-apply env DIFZ="$prefix/bin/difz" bash tests/integration/test-cross-apply.bash; then errors=$((errors + 1)); fi
 if ! run_suite rust-ffi env DIFZ_RUST_CALLER="$prefix/bin/difz-rust-caller" bash tests/ffi/test_rust_lib.bash; then errors=$((errors + 1)); fi

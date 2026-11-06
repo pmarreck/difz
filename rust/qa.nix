@@ -81,8 +81,10 @@ pkgs.rustPlatform.buildRustPackage {
 		test "$c_api_test_count" -ge 2
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$c_api_tests" --test-threads=1 --include-ignored
 		platform_test_count=$("$platform_tests" --list | grep -c ': test$')
-		test "$platform_test_count" -ge ${if pkgs.stdenv.hostPlatform.isLinux then "14" else "12"}
-		${pkgs.coreutils}/bin/timeout --kill-after=5s 30s "$platform_tests" --test-threads=1 --include-ignored
+		test "$platform_test_count" -ge ${if pkgs.stdenv.hostPlatform.isLinux then "18" else "12"}
+		# Nix can reject xattr writes. These three OS fixtures are required by
+		# the confined host phase of ./test, using this exact prepared binary.
+		${pkgs.coreutils}/bin/timeout --kill-after=5s 30s "$platform_tests" --test-threads=1 --include-ignored --skip xattr::tests::native_
 		if CARGO_TARGET_DIR="$TMPDIR/c-api-abort" cargo rustc --locked --offline --release -p difz-c-api --lib -- -C panic=abort > "$TMPDIR/c-api-abort-log" 2>&1; then
 			printf 'FAIL aborting Rust C boundary was accepted\n' >&2
 			exit 1
@@ -173,6 +175,7 @@ EOF
 		install -Dm755 "$test_binary" "$out/bin/difz-rust-core-tests"
 		install -Dm755 "$consumer" "$out/bin/difz-core-consumer"
 		install -Dm755 ./c-api-consumer "$out/bin/difz-rust-c-api-consumer"
+		install -Dm755 "$platform_tests" "$out/bin/difz-platform-tests"
 		install -Dm644 "$c_api" "$out/lib/libdifz_rust.a"
 		install -Dm644 c-api/include/difz-rust.h "$out/include/difz-rust.h"
 		runHook postInstall
