@@ -991,3 +991,43 @@ and 828.82 for host admission, setup and execution. Fresh file growth took
 24.04 seconds and passed unchanged bounds. Most elapsed time was admission
 waiting, not test execution. Directory growth, hardlink memory use, filesystem
 integration and native macOS/Windows execution remain unqualified.
+
+## Rust file C boundary, 2026-11-06
+
+The experimental `difz-c-api` crate implements the file C boundary in Rust
+and uses the selected static zstdz SDK. Its header is
+`rust/c-api/include/difz-rust.h`; the prepared Nix artifact includes that header
+and `libdifz_rust.a`. This is not a replacement production library yet.
+Filesystem entry points and full target qualification remain pending.
+
+Inputs use pointer/length pairs, including omission text. Empty input permits
+a null pointer; nonempty null input and lengths beyond `isize::MAX` fail before
+slice construction. Returned buffers use an opaque owner retaining the complete
+Vec and actual capacity. Callers query immutable data/length and free the owner
+exactly once, without supplying allocation metadata. Owner allocation is
+fallible. Output slots are written only after successful production and owner
+allocation, preserving caller sentinels on errors.
+
+The narrow unsafe boundary documents pointer validity and ownership; the
+functional core still forbids unsafe code. Rust panics become a distinct
+status, and a compile guard rejects an aborting panic configuration. Tests
+inject a panic, preserve caller output, and check nontrivial Vec capacity.
+Native zstdz process failures, invalid caller pointers and OS/allocator aborts
+remain outside panic containment; no process-isolation claim is made.
+
+A separately compiled C11 caller checks binary and empty data, limits, wrong
+sources, invalid arguments, exact buffer release and embedded-NUL omission
+rejection. Its patches are applied by the existing executable; it also applies
+native-created patches and compares the independently specified target bytes.
+The caller failed against stubs while fifty-four core tests and four Release
+controls passed. Nix now passes that caller, bidirectional file exchange,
+fifty-four core tests, four Release controls and two boundary controls. A
+separate aborting build must fail with the specific compile-guard diagnostic.
+All three native-system configurations evaluate; native execution here is
+Linux x86_64 only. The linked consumer has no dynamic difz/zstd dependency.
+
+The complete suite passed in 996.27 seconds: 8.52 for Nix preparation/checks
+and 987.75 for host admission, setup and execution. Fresh file growth took
+22.44 seconds and passed unchanged bounds. Most elapsed time was waiting for
+shared admission. Production entry points and native target qualification
+remain unchanged by this experimental boundary.

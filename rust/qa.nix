@@ -4,7 +4,7 @@ pkgs.rustPlatform.buildRustPackage {
 	version = "0.1.0";
 	src = pkgs.lib.fileset.toSource {
 		root = ./.;
-		fileset = pkgs.lib.fileset.unions [ ./Cargo.toml ./Cargo.lock ./src ./zstdz ./consumer ];
+		fileset = pkgs.lib.fileset.unions [ ./Cargo.toml ./Cargo.lock ./src ./zstdz ./consumer ./c-api ];
 	};
 	cargoLock.lockFile = ./Cargo.lock;
 	strictDeps = true;
@@ -38,6 +38,17 @@ pkgs.rustPlatform.buildRustPackage {
 			exit 1
 		fi
 		consumer_tests=$(jq -er 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null) | .executable' consumer-tests.json)
+		if ! cargo build --locked --offline --release -p difz-c-api --message-format=json > c-api.json; then
+			jq -r 'select(.reason == "compiler-message") | .message.rendered // empty' c-api.json >&2
+			exit 1
+		fi
+		c_api=$(jq -er 'select(.reason == "compiler-artifact" and .target.name == "difz_rust") | .filenames[] | select(endswith(".a"))' c-api.json)
+		cargo test --locked --offline -p difz-c-api --no-run --message-format=json > c-api-tests.json
+		c_api_tests=$(jq -er 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null) | .executable' c-api-tests.json)
+		${pkgs.stdenv.cc}/bin/cc -std=c11 -Wall -Wextra -Werror c-api/tests/caller.c \
+			-Ic-api/include "$c_api" -lpthread -lm \
+			${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "-ldl -lrt -lutil"} \
+			${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin "-liconv -lresolv"} -o c-api-consumer
 		runHook postBuild
 	'';
 	checkPhase = ''
@@ -55,6 +66,20 @@ pkgs.rustPlatform.buildRustPackage {
 		consumer_test_count=$("$consumer_tests" --list | grep -c ': test$')
 		test "$consumer_test_count" -ge 4
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$consumer_tests" --test-threads=1 --include-ignored
+		mkdir "$TMPDIR/c-api-files"
+		./c-api-consumer "$TMPDIR/c-api-files"
+		${oracle}/bin/difz --patch --no-progress "$TMPDIR/c-api-files/source" "$TMPDIR/c-api-files/rust.patch" -o "$TMPDIR/c-api-files/native.output"
+		cmp "$TMPDIR/c-api-files/target" "$TMPDIR/c-api-files/native.output"
+		${oracle}/bin/difz --no-progress "$TMPDIR/c-api-files/source" "$TMPDIR/c-api-files/target" -o "$TMPDIR/c-api-files/native.patch"
+		./c-api-consumer --apply-native "$TMPDIR/c-api-files/native.patch"
+		c_api_test_count=$("$c_api_tests" --list | grep -c ': test$')
+		test "$c_api_test_count" -ge 2
+		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$c_api_tests" --test-threads=1 --include-ignored
+		if CARGO_TARGET_DIR="$TMPDIR/c-api-abort" cargo rustc --locked --offline --release -p difz-c-api --lib -- -C panic=abort > "$TMPDIR/c-api-abort-log" 2>&1; then
+			printf 'FAIL aborting Rust C boundary was accepted\n' >&2
+			exit 1
+		fi
+		grep -F 'difz C boundary requires unwind' "$TMPDIR/c-api-abort-log"
 		"$consumer"
 		( unset DIFZ_ZSTDZ_ROOT; source ${sdk}/nix-support/setup-hook; test "$DIFZ_ZSTDZ_ROOT" = ${sdk}; source ${sdk}/nix-support/setup-hook )
 		if ( export DIFZ_ZSTDZ_ROOT=conflicting-sdk; source ${sdk}/nix-support/setup-hook ) 2> "$TMPDIR/sdk-conflict-error"; then
@@ -131,6 +156,7 @@ EOF
 			nm "$consumer" | grep -E ' T ZSTD_compress2$'
 			nm "$consumer" | grep -E ' T ZSTD_decompressDCtx$'
 			if readelf -d "$consumer" | grep NEEDED | grep -Ei 'zstd|difz'; then exit 1; fi
+			if readelf -d ./c-api-consumer | grep NEEDED | grep -Ei 'zstd|difz'; then exit 1; fi
 		''}
 		runHook postCheck
 	'';
@@ -138,6 +164,9 @@ EOF
 		runHook preInstall
 		install -Dm755 "$test_binary" "$out/bin/difz-rust-core-tests"
 		install -Dm755 "$consumer" "$out/bin/difz-core-consumer"
+		install -Dm755 ./c-api-consumer "$out/bin/difz-rust-c-api-consumer"
+		install -Dm644 "$c_api" "$out/lib/libdifz_rust.a"
+		install -Dm644 c-api/include/difz-rust.h "$out/include/difz-rust.h"
 		runHook postInstall
 	'';
 }

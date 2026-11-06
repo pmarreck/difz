@@ -1,0 +1,13 @@
+[package]
+name = "difz-c-api"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+publish = false
+
+[dependencies]
+difz-core = { path = ".." }
+
+[lib]
+name = "difz_rust"
+crate-type = ["staticlib"]

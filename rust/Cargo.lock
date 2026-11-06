@@ -60,6 +60,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "difz-c-api"
+version = "0.1.0"
+dependencies = [
+ "difz-core",
+]
+
+[[package]]
 name = "difz-core"
 version = "0.1.0"
 dependencies = [
