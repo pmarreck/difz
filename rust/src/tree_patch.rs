@@ -13,6 +13,16 @@ pub enum Error {
 	PatchHashMismatch,
 	ReaderTooOld,
 	UnsupportedFlags,
+	InvalidRule,
+	InvalidOperation,
+	InvalidPath,
+	InvalidPayload,
+	OmittedMetadataPresent,
+	TrailingData,
+	OutOfMemory,
+	Metadata(crate::metadata::Error),
+	Snapshot(crate::directory::Error),
+	Filter(crate::path_filter::Error),
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EnvelopeLimits {
@@ -148,3 +158,7 @@ fn checksum(prefix: &[u8], body: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 #[path = "tree_patch_tests.rs"]
 mod tests;
+
+#[path = "tree_patch_decode.rs"]
+mod decode;
+pub use decode::{DecodedEntry, Limits, Operation, ParsedPatch};

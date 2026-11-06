@@ -899,3 +899,29 @@ setup and execution. Fresh growth took 22.83 seconds and passed unchanged
 bounds. The filter and structure changes are separate commits; the complete
 host suite validates their combined final tree. No latency-budget or native
 macOS/Windows qualification is implied.
+
+## Rust DIFZTREE body decoder, 2026-11-06
+
+The Rust parser validates v2 rules, six closed operations, canonical entry and
+root metadata, omitted-family absence, payload grammar, trailing bytes and the
+shared hierarchy rules. It checks envelope integrity and conservative count
+bounds before descriptor allocation. Paths, names and file payloads borrow the
+patch. Delta expansion, sparse/hardlink byte relations and source/target
+identities remain application checks. Expected work is linear in patch and
+pattern bytes plus ordered hierarchy lookups; directory growth qualification
+remains open before production adoption.
+
+The independent reference compiles unchanged native codec sources. Five
+fixtures cover every operation and all metadata families; the rich fixture is
+also produced with all sixty-four omission masks. Comparisons cover every
+truncation, resealed body-byte mutations, trailing bytes, all operation,
+reserved, mode and selected length/path byte values, and 305 configurable
+limit cases. The stub failed two new groups while forty-three earlier tests
+passed. The implemented parser passes forty-six core tests and four Release
+controls through Nix; all three native-system configurations evaluate.
+
+The complete suite passed in 660.23 seconds: 9.92 for Nix preparation and
+checks, followed by 650.31 for host admission, setup and execution. Fresh file
+growth took 22.98 seconds and passed the unchanged bounds. The historical
+cohorts remain unbaselined; these results do not qualify native macOS/Windows
+execution or the pending directory growth and memory contracts.
