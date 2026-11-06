@@ -82,6 +82,28 @@ fn opposite(action: Action) Action {
     };
 }
 
+test "glob matching consumes the complete path including a final newline" {
+    const cases = [_]struct { pattern: []const u8, path: []const u8, included: bool }{
+        .{ .pattern = "*a", .path = "a", .included = true },
+        .{ .pattern = "*a", .path = "a\n", .included = false },
+        .{ .pattern = "*a", .path = "a\n\n", .included = false },
+        .{ .pattern = "a", .path = "a\n", .included = false },
+        .{ .pattern = "[a]", .path = "a\n", .included = false },
+        .{ .pattern = "**a", .path = "a\n", .included = false },
+        .{ .pattern = "a*", .path = "a\n", .included = true },
+        .{ .pattern = "a?", .path = "a\n", .included = true },
+        .{ .pattern = "a\n", .path = "a\n", .included = true },
+        .{ .pattern = "a\n", .path = "a\n\n", .included = false },
+        .{ .pattern = "**", .path = "a\n", .included = false },
+        .{ .pattern = "*", .path = "a\n\n", .included = true },
+    };
+    for (cases) |case| {
+        var filter = try Filter.compile(testing.allocator, &.{.{ .action = .include, .pattern = case.pattern }});
+        defer filter.deinit();
+        try testing.expectEqual(case.included, try filter.includes(case.path));
+    }
+}
+
 test "ordered glob rules classify a representative path set" {
     const rules = [_]Rule{
         .{ .action = .include, .pattern = "**" },

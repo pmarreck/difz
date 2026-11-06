@@ -779,3 +779,25 @@ passed in 334.25 seconds: 33.35 for preparation/checks and 300.90 for host
 admission/setup/execution. Growth execution took 22.52 seconds; historical
 baselines remain unapproved. Directory body decoding, encoding, application
 and filesystem adapters remain pending.
+
+### Whole-path glob anchoring regression
+
+Rust filter comparison exposed a native inconsistency: the glob `*a` accepted
+the valid path bytes `a\n`, while `a` and `**a` rejected them. The reproduction
+also fails against the production Zig build with its pinned PCRE2 fork,
+independently of the Rust implementation and reference-helper dependency.
+The new native regression failed with `expected false, found true`; the prior
+tests passed or retained their sandbox-dependent skips.
+
+Glob conversion now uses absolute `\A` and `\z` anchors. This preserves the
+intended complete-path match instead of depending on `$` and an additional
+matcher flag to agree about a final newline. The [PCRE2 pattern
+reference](https://www.pcre2.org/doc/pcre2pattern/) specifies the absolute
+anchors. Twelve native cases distinguish an unconsumed final newline from
+newlines actually consumed by a wildcard or an explicit pattern character.
+Rule storage and the DIFZTREE v2 wire format are unchanged.
+
+The complete suite passed in 761.72 seconds: 166.61 for Nix preparation/checks
+and 595.11 for host admission/setup/execution. The confined native run passed
+ninety-six tests with one platform skip. Growth execution took 30.24 seconds;
+declared bounds pass and historical baselines remain unapproved.

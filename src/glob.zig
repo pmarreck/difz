@@ -4,7 +4,7 @@ const std = @import("std");
 pub fn toRegex(allocator: std.mem.Allocator, glob: []const u8) ![]u8 {
     var result: std.ArrayListUnmanaged(u8) = .empty;
     defer result.deinit(allocator);
-    try result.append(allocator, '^');
+    try result.appendSlice(allocator, "\\A");
 
     var i: usize = 0;
     while (i < glob.len) {
@@ -78,7 +78,7 @@ pub fn toRegex(allocator: std.mem.Allocator, glob: []const u8) ![]u8 {
         i += 1;
     }
 
-    try result.append(allocator, '$');
+    try result.appendSlice(allocator, "\\z");
     return result.toOwnedSlice(allocator);
 }
 
@@ -100,10 +100,10 @@ fn appendClassLiteral(allocator: std.mem.Allocator, result: *std.ArrayListUnmana
 
 test "escaped wildcard conversion follows the documented dirtree contract" {
     const cases = [_]struct { glob: []const u8, regex: []const u8 }{
-        .{ .glob = "\\*", .regex = "^\\*$" },
-        .{ .glob = "a\\*b", .regex = "^a\\*b$" },
-        .{ .glob = "file\\?.txt", .regex = "^file\\?\\.txt$" },
-        .{ .glob = "literal\\[x", .regex = "^literal\\[x$" },
+        .{ .glob = "\\*", .regex = "\\A\\*\\z" },
+        .{ .glob = "a\\*b", .regex = "\\Aa\\*b\\z" },
+        .{ .glob = "file\\?.txt", .regex = "\\Afile\\?\\.txt\\z" },
+        .{ .glob = "literal\\[x", .regex = "\\Aliteral\\[x\\z" },
     };
     for (cases) |case| {
         const regex = try toRegex(std.testing.allocator, case.glob);
