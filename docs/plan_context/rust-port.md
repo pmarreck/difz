@@ -487,3 +487,39 @@ The required Nix checks and source contracts pass. All four host binaries are
 byte-identical to the complete passing SDK run, and host test sources are
 unchanged. That host verdict is reused; the duplicate queued attempt was
 canceled and is not reported as a new passing host run.
+
+### Growth calibration and seed transport
+
+The v4 measurement definition keeps five samples, three warmups and a 100 ms
+estimated CPU-work target. Batch size now rounds up and uses the smallest
+bounded count that reaches this target. It retains the 512-call cap and permits
+one call for an operation already taking at least 100 ms. The prior formula
+could undershoot the target, such as seven 13 ms calls, or force extra work,
+such as five 70 ms calls. A required Release consumer test checks both work and
+minimality across duration boundaries; it failed with the old formula.
+
+The first historical invocation of v4 exposed a separate adapter bug before
+timing: the shared profiler's default seed is 32 hexadecimal digits, while the
+probe parsed a decimal u64. All six attempts were `INVALID`, not growth
+observations. The probe now preserves the reported seed string and adapts the
+shared hexadecimal representation to the pinned generator's `0x` syntax.
+Direct provider comparisons cover decimal, explicit hexadecimal and shared
+128-bit seeds. A high-bit distinction control rejects accidental truncation.
+The calculation and provider tests are part of the required Nix check.
+
+Before that seed fix, the complete v4 suite passed in 468.14 seconds, including
+458.36 seconds for host admission/setup/execution. Growth execution took
+22.90 seconds, versus 24.21 seconds in the preceding SDK run. These are observed
+feedback times, not a statistical speedup claim. The five-second budget remains
+open. Historical cohorts still require independent approval.
+
+After correcting seed transport, the default-seed historical command passed
+work, variation and growth checks for all six cases on the first attempt.
+All return `UNBASELINED`/exit 3; no epoch was approved. The successful
+[v4 samples](../benchmarks/rust-file-growth-20261106-v4-samples.ndjson) and all six
+[failed-seed diagnostics](../benchmarks/rust-file-growth-20261106-v4-diagnostics.ndjson)
+remain separate. The final complete suite passed in 40.37 seconds: 9.07 seconds
+of preparation/checks and 31.30 seconds of host admission/setup/execution.
+The growth portion took 23.90 seconds. Twenty core tests and both required
+Release measurement controls pass. The remaining feedback-budget work stays
+open; this change does not qualify new metadata codec performance.

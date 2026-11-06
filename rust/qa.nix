@@ -32,6 +32,11 @@ pkgs.rustPlatform.buildRustPackage {
 			exit 1
 		fi
 		consumer=$(jq -er 'select(.reason == "compiler-artifact" and .target.name == "difz-core-consumer" and .executable != null) | .executable' consumer.json)
+		if ! cargo test --locked --offline --release -p difz-core-consumer --no-run --message-format=json > consumer-tests.json; then
+			jq -r 'select(.reason == "compiler-message") | .message.rendered // empty' consumer-tests.json >&2
+			exit 1
+		fi
+		consumer_tests=$(jq -er 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null) | .executable' consumer-tests.json)
 		runHook postBuild
 	'';
 	checkPhase = ''
@@ -46,6 +51,9 @@ pkgs.rustPlatform.buildRustPackage {
 		test "$test_count" -ge 20
 		# Include the reference children in a bounded process group if IPC stalls.
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$test_binary" --test-threads=1 --include-ignored
+		consumer_test_count=$("$consumer_tests" --list | grep -c ': test$')
+		test "$consumer_test_count" -ge 2
+		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$consumer_tests" --test-threads=1 --include-ignored
 		"$consumer"
 		( unset DIFZ_ZSTDZ_ROOT; source ${sdk}/nix-support/setup-hook; test "$DIFZ_ZSTDZ_ROOT" = ${sdk}; source ${sdk}/nix-support/setup-hook )
 		if ( export DIFZ_ZSTDZ_ROOT=conflicting-sdk; source ${sdk}/nix-support/setup-hook ) 2> "$TMPDIR/sdk-conflict-error"; then
