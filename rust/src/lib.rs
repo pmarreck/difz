@@ -5,6 +5,7 @@ extern crate alloc;
 pub mod directory;
 pub mod file;
 pub mod metadata;
+pub mod path_filter;
 pub mod tree_patch;
 
 const MAGIC: &[u8; 5] = b"ZDIF\x04";

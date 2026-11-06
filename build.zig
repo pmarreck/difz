@@ -26,6 +26,10 @@ pub fn build(b: *std.Build) void {
         .@"code-unit-width" = .@"8",
     });
     const pcre2_lib = pcre2_dep.artifact("pcre2-8");
+    // Test references use the production pin, headers and target ABI too.
+    const install_pcre2 = b.addInstallArtifact(pcre2_lib, .{});
+    const pcre2_reference = b.step("pcre2-reference", "Install the pinned PCRE2 library and headers for test references");
+    pcre2_reference.dependOn(&install_pcre2.step);
 
     // zstdz is the only compressor. File patches are level-9 prefix frames.
     const zstd_lib = b.dependency("zstdz", .{

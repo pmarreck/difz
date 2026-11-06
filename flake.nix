@@ -224,12 +224,29 @@
 						runHook postInstall
 					'';
 				};
+				pcre2Reference = pkgs.stdenv.mkDerivation {
+					pname = "difz-pcre2-reference";
+					version = "0.1.0";
+					src = zigSource;
+					nativeBuildInputs = [ pkgs.zig ];
+					dontConfigure = true;
+					dontInstall = true;
+					buildPhase = ''
+						export HOME="$TMPDIR/home" ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-cache"
+						mkdir -p "$HOME" "$ZIG_GLOBAL_CACHE_DIR"
+						cp -r ${zigDeps}/. "$ZIG_GLOBAL_CACHE_DIR/"
+						chmod -R u+w "$ZIG_GLOBAL_CACHE_DIR"
+						zig build pcre2-reference -Dtarget=${if pkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-gnu" else "x86_64-linux-gnu"} \
+							-Doptimize=ReleaseFast --prefix "$out"
+					'';
+				};
 				metadataOracle = import ./tests/rust_oracle/default.nix {
 					inherit pkgs;
 					metadataSource = ./src/metadata.zig;
 					directorySource = ./src/directory.zig;
 					patchSources = [ ./src/directory_patch.zig ./src/path_filter.zig ./src/glob.zig ./src/pcre2.zig ./src/zstd_patch.zig ./src/patch.zig ];
 					zstdz = zstdBenchmark;
+					pcre2 = pcre2Reference;
 				};
 				rustZstdzSdk = import ./rust/zstdz-sdk.nix { inherit pkgs; zstdz = zstdBenchmark; };
 				rustCoreTests = import ./rust/qa.nix { inherit pkgs metadataOracle; oracle = releaseFast; zstdz = zstdBenchmark; sdk = rustZstdzSdk; random = randomPackage; };
