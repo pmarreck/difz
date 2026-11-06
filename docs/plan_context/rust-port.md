@@ -1031,3 +1031,51 @@ and 987.75 for host admission, setup and execution. Fresh file growth took
 22.44 seconds and passed unchanged bounds. Most elapsed time was waiting for
 shared admission. Production entry points and native target qualification
 remain unchanged by this experimental boundary.
+
+## Parent symlink transport and Linux ACL codecs, 2026-11-06
+
+Rust now implements the approved `difz.symlinks` parent attribute with the
+existing DIFZLINK format. Immutable records enforce sorted child basenames,
+timestamp absence/observation relations, ACL/Finder override flags and symlink
+metadata restrictions. Decoding borrows names and metadata values and checks
+record counts before allocating descriptors. Encoding preflights the complete
+64 KiB ceiling through an allocation-free metadata length count, before
+allocating either output or temporary metadata blobs. Lookup uses binary search;
+encoding and decoding are linear in the bounded representation.
+
+Native comparisons cover all 1,408 presence/absence/override combinations,
+Unicode, timestamp/ACL/Finder records, every truncation and body-byte mutation,
+trailing bytes, invalid basenames and symlink metadata, real descriptor-count
+boundaries and values immediately around 65,536 complete encoded bytes. The
+stub failed both initial groups while fifty-four earlier tests passed. The
+standalone transport increment passes fifty-seven core tests, four Release
+controls, two C-boundary controls and all three Nix-system evaluations. Its
+fresh core execution took 7.89 seconds.
+
+The Linux ACL layer validates kernel version, entry size/order, permission bits,
+principal IDs, required base entries and the mask required for named entries.
+It preserves access/default bytes in the existing DIFZACL container and converts
+portable ACEs in both directions. Numeric names retain the pinned native
+converter's signed-zero, leading-plus and digit-separator grammar, overflow
+rejection, numeric kernel ordering and duplicate-ID checks. Conversion uses
+fallible descriptor/name allocation; validation and container decoding borrow
+input. Linear byte/entry work and sorting for reverse conversion remain subject
+to the metadata growth/memory qualification gate.
+
+The independent reference calls the actual production Linux converter, whose
+only production change is making the pure reverse-conversion helper public.
+Tests exhaust the 512 base-permission combinations, vary tags/IDs and extended
+permission values, compare malformed/truncated containers, and cover numeric
+aliases, invalid names and missing required entries. Stubs failed two groups
+while the earlier fifty-seven passed. The final codec tree passes sixty core
+tests, four Release controls, two C-boundary controls and all three system
+evaluations; the fresh core run took 8.28 seconds. These pure wire conversions
+do not establish native filesystem ACL capture or restore qualification.
+
+The complete suite validates the combined final transport/ACL tree. It passed
+in 1,333.27 seconds: 135.81 for Nix preparation/checks and 1,197.46 for host
+admission, setup and execution. Fresh file growth took 22.45 seconds and passed
+unchanged bounds; historical cohorts remain unbaselined. The two codec changes
+are separate commits, with standalone transport Nix evidence and full host
+validation for their combined tree. Filesystem integration, metadata/directory
+growth and memory, and native macOS/Windows qualification remain pending.

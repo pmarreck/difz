@@ -268,7 +268,7 @@ fn setLinuxAttribute(path: []const u8, name: []const u8, bytes: []const u8) !voi
     };
 }
 
-fn encodePortableLinux(allocator: std.mem.Allocator, aces: []const metadata.Ace) ![]const u8 {
+pub fn encodePortableLinux(allocator: std.mem.Allocator, aces: []const metadata.Ace) ![]const u8 {
     if (aces.len == 0) return &.{};
     const Entry = struct { tag: u16, perm: u16, id: u32 };
     const entries = try allocator.alloc(Entry, aces.len);

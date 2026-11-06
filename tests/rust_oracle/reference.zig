@@ -4,3 +4,4 @@ pub const directory = @import("directory.zig");
 pub const tree_patch = @import("directory_patch.zig");
 pub const path_filter = @import("path_filter.zig");
 pub const symlink_transport = @import("symlink_transport.zig");
+pub const linux_acl = @import("native_acl.zig");

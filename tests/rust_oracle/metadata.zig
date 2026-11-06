@@ -114,6 +114,7 @@ fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const u8 {
         30, 31, 32, 33, 34, 35, 36 => return @import("directory.zig").run(allocator, mode, input),
         40, 41, 42, 44, 45 => return @import("tree_patch.zig").run(allocator, mode, input),
         46, 47 => return @import("symlink_transport.zig").run(allocator, mode, input),
+        48, 49, 52, 53 => return @import("linux_acl.zig").run(allocator, mode, input),
         50, 51 => return @import("path_filter.zig").run(allocator, mode, input),
         else => return error.BadMetadata,
     }

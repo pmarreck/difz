@@ -4,6 +4,7 @@
 extern crate alloc;
 pub mod directory;
 pub mod file;
+pub mod linux_acl;
 pub mod metadata;
 pub mod path_filter;
 pub mod symlink_transport;
