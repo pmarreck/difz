@@ -29,6 +29,12 @@ pub enum Error {
 	InvalidRawName,
 	InvalidHardlink,
 	InvalidAceName,
+	OutOfMemory,
+	DuplicateXattr,
+	DuplicateAce,
+	EmptyNativeAcl,
+	ZeroLengthHole,
+	HoleOverflow,
 }
 
 macro_rules! wire_enum {
@@ -286,6 +292,10 @@ pub fn decode_modification_override(bytes: &[u8]) -> Result<ModificationOverride
 #[path = "metadata_record.rs"]
 mod record;
 pub use record::{Ace, Hole, Metadata, NativeAcl, Permissions, Times, Xattr};
+
+#[path = "metadata_canonical.rs"]
+mod canonical;
+pub use canonical::CanonicalMetadata;
 
 #[cfg(test)]
 #[path = "metadata_tests.rs"]

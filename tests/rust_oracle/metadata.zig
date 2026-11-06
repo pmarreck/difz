@@ -1,5 +1,6 @@
 const std = @import("std");
 const metadata = @import("metadata");
+const fixtures = @import("metadata_fixture.zig");
 
 fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const u8 {
     switch (mode) {
@@ -72,6 +73,15 @@ fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const u8 {
                 else => return error.BadMetadata,
             }
             return allocator.dupe(u8, &.{@intFromBool(record.isEmpty())});
+        },
+        12, 13 => {
+            if (input.len != 1) return error.BadMetadata;
+            const raw = try fixtures.make(allocator, input[0]);
+            const encoded = try metadata.encodeCanonical(allocator, raw);
+            const parsed = try metadata.decodeCanonical(allocator, encoded);
+            if (mode == 12) return encoded;
+            const digest = metadata.canonicalHash(parsed);
+            return allocator.dupe(u8, &digest);
         },
         else => return error.BadMetadata,
     }

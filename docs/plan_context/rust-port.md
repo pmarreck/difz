@@ -523,3 +523,36 @@ of preparation/checks and 31.30 seconds of host admission/setup/execution.
 The growth portion took 23.90 seconds. Twenty core tests and both required
 Release measurement controls pass. The remaining feedback-budget work stays
 open; this change does not qualify new metadata codec performance.
+
+### Canonical metadata validation, encoding and identity
+
+`CanonicalMetadata` consumes a raw record after validating field limits,
+names, ordering, duplicates, nanoseconds and sparse extents. Its record view
+is immutable. Encoding and BLAKE3 identity use one field writer with exhaustive
+record destructuring. Counts and variable field lengths fit the format's u32
+fields before serialization; total output length is checked before fallible
+reservation. Hashing streams the same bytes after `DIFZMETA\x01` without an
+intermediate encoded allocation. Expected work is linear in descriptors/names
+for validation and in encoded bytes for encoding/hashing; growth qualification
+remains an open production-adoption gate.
+
+A separate native fixture generator constructs records with every family,
+binary values, all three ACL origins, signed-second extremes and explicit
+presence. Native encoding/decoding and canonical hashing supply the expected
+wire bytes, digests and errors. The Rust fixtures are constructed independently.
+All 256 selector values cover the valid fixtures and reject unknown selectors;
+invalid fixtures cover duplicates, order, names, empty ACLs, timestamps, zero,
+overlapping, adjacent and overflowing extents, and hardlink paths. The two new
+tests failed with stubs while the prior twenty passed; all twenty-two now pass.
+
+A Linux consumer control aliases 64 MiB across attributes, yielding an encoded
+size exceeding 4 GiB. Under the existing 128 MiB virtual-memory cap, encoding
+returns `OutOfMemory` instead of aborting or publishing partial output. Both
+Release measurement controls and the transitive-consumer/provider checks also
+pass. This step does not implement canonical decoding, omission/normalization,
+directory patches, filesystem restoration or the remaining Rust entry points.
+
+The complete suite passed: 28.69 seconds for Nix preparation/checks and
+297.93 seconds for host admission/setup/execution, totaling 326.62 seconds.
+Growth execution took 21.97 seconds. All three native Nix systems evaluate;
+native execution remains qualified on Linux amd64 only.
