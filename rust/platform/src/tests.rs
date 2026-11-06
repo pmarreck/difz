@@ -307,3 +307,72 @@ fn entry_inspection_and_symlink_reads_keep_the_opened_parent_identity() {
 	assert_eq!(selected.inspect(b"data").unwrap(), original);
 	assert_eq!(selected.read_symlink(b"link", 3).unwrap(), b"old");
 }
+
+#[test]
+fn entry_times_match_independent_metadata_at_negative_seconds_and_nanosecond_precision() {
+	use std::{
+		fs::FileTimes,
+		os::unix::fs::MetadataExt,
+		time::{Duration, SystemTime},
+	};
+	let fixture = Fixture::new();
+	let path = fixture.0.join("data");
+	fs::write(&path, b"bytes").unwrap();
+	let file = OpenOptions::new().write(true).open(&path).unwrap();
+	let time = SystemTime::UNIX_EPOCH - Duration::new(10, 123_456_789);
+	file.set_times(FileTimes::new().set_modified(time)).unwrap();
+	let expected = fs::symlink_metadata(&path).unwrap();
+	let root = Directory::open(&fixture.0).unwrap();
+	let actual = root.inspect(b"data").unwrap();
+	assert_eq!(
+		actual.mtime,
+		difz_core::metadata::Time {
+			sec: -11,
+			nsec: 876_543_211
+		}
+	);
+	assert_eq!(actual.mtime.sec, expected.mtime());
+	assert_eq!(i64::from(actual.mtime.nsec), expected.mtime_nsec());
+	let expected_birth = expected.created().ok().map(|time| {
+		let value = time.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+		difz_core::metadata::Time {
+			sec: value.as_secs() as i64,
+			nsec: value.subsec_nanos(),
+		}
+	});
+	assert_eq!(actual.birth, expected_birth);
+	assert_eq!(EntryInfo::for_file(&file).unwrap(), actual);
+}
+
+#[test]
+fn root_and_file_inspection_keep_open_descriptors_after_path_replacement() {
+	let fixture = Fixture::new();
+	let outside = Fixture::new();
+	fs::create_dir(fixture.0.join("selected")).unwrap();
+	fs::write(fixture.0.join("selected/data"), b"original").unwrap();
+	fs::write(outside.0.join("data"), b"different outside bytes").unwrap();
+	let selected = Directory::open(&fixture.0.join("selected")).unwrap();
+	let file = selected.open_regular_file(b"data").unwrap();
+	let root_info = selected.inspect_self().unwrap();
+	let file_info = EntryInfo::for_file(&file).unwrap();
+	assert_eq!(root_info.kind, Kind::Directory);
+	assert_eq!(file_info.length, 8);
+	fs::rename(
+		fixture.0.join("selected/data"),
+		fixture.0.join("selected/moved"),
+	)
+	.unwrap();
+	symlink(outside.0.join("data"), fixture.0.join("selected/data")).unwrap();
+	fs::rename(fixture.0.join("selected"), fixture.0.join("moved")).unwrap();
+	symlink(&outside.0, fixture.0.join("selected")).unwrap();
+	assert_eq!(
+		selected.inspect_self().unwrap().identity,
+		root_info.identity
+	);
+	assert_eq!(EntryInfo::for_file(&file).unwrap(), file_info);
+	assert_eq!(selected.inspect(b"data").unwrap().kind, Kind::Symlink);
+	assert!(matches!(
+		selected.inspect(b"."),
+		Err(Error::InvalidBasename)
+	));
+}

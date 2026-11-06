@@ -81,7 +81,7 @@ pkgs.rustPlatform.buildRustPackage {
 		test "$c_api_test_count" -ge 2
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$c_api_tests" --test-threads=1 --include-ignored
 		platform_test_count=$("$platform_tests" --list | grep -c ': test$')
-		test "$platform_test_count" -ge ${if pkgs.stdenv.hostPlatform.isLinux then "18" else "12"}
+		test "$platform_test_count" -ge ${if pkgs.stdenv.hostPlatform.isLinux then "21" else "14"}
 		# Nix can reject xattr writes. These three OS fixtures are required by
 		# the confined host phase of ./test, using this exact prepared binary.
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 30s "$platform_tests" --test-threads=1 --include-ignored --skip xattr::tests::native_

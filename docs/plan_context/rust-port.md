@@ -1224,3 +1224,37 @@ three invalid Rust paths before execution; it took 9.62 seconds. Fresh file
 growth took 22.52 seconds and passed unchanged limits. Historical cohorts
 remain unbaselined. Attribute restoration, canonical capture integration,
 macOS and Windows implementation/qualification remain pending.
+
+## Rust native timestamps and opened-object inspection, 2026-11-06
+
+Entry inspection now includes modification time, optional creation time and
+native Darwin flags. Directory roots and already-open File objects have an
+inspection path independent of their current filesystem name. The Linux GNU
+adapter uses one statx call for each observation, requesting the exact required
+fields plus optional creation time. It checks the returned mask and rejects
+missing required fields. Unreported creation storage is ignored; a reported
+zero timestamp remains present. Linux's existing native reference also uses
+statx for creation time. The macOS source uses the pinned libc stat layout,
+with fstat for opened objects and no-follow fstatat for children.
+
+All native nanoseconds are validated before entering portable Time records.
+The new information still precedes timestamp transport overrides. Native
+metadata is an observation, not an atomic snapshot or a transaction with
+later reads; opened objects retain identity after path replacement.
+
+Two tests failed against timestamp/root/file stubs while the existing fourteen
+passed. Real scratch fixtures set a pre-epoch modification time with fractional
+seconds and compare it and creation time with independent standard-library
+metadata. Open roots and files retain their identity after their names are
+replaced with outside symlinks. A Linux response-mask control checks every
+required bit, ignored unreported creation bytes, present zero creation time
+and invalid nanoseconds. Seventeen Linux platform tests pass in the focused
+Nix run; macOS requires fourteen, with native execution still unqualified.
+The complete suite integrating attribute reads passes in 1549.70 seconds:
+44.76 seconds for Nix preparation/checks and 1504.94 seconds for host admission,
+setup and execution. The long admission wait is included, not attributed to
+test execution. All twenty-one platform tests pass in the required host phase.
+Fresh file growth took 22.75 seconds and passed unchanged limits on the first
+attempt for every case; historical cohorts remain unbaselined. This qualifies
+the Linux primitives, while full metadata capture/restore and native macOS or
+Windows qualification remain pending.
