@@ -61,16 +61,7 @@ impl Directory {
 		read_limited(&mut self.open_regular_file(name)?, maximum)
 	}
 	fn open_child(&self, name: &[u8], kind: Child) -> Result<File, Error> {
-		difz_core::directory::validate_path(name).map_err(|_| Error::InvalidBasename)?;
-		if name.contains(&b'/') {
-			return Err(Error::InvalidBasename);
-		}
-		let mut terminated = Vec::new();
-		terminated
-			.try_reserve_exact(name.len() + 1)
-			.map_err(|_| Error::OutOfMemory)?;
-		terminated.extend_from_slice(name);
-		terminated.push(0);
+		let terminated = basename(name)?;
 		let extra = match kind {
 			Child::Directory => libc::O_DIRECTORY,
 			Child::RegularFile => libc::O_NONBLOCK,
@@ -102,6 +93,23 @@ impl Directory {
 		Ok(file)
 	}
 }
+
+fn basename(name: &[u8]) -> Result<Vec<u8>, Error> {
+	difz_core::directory::validate_path(name).map_err(|_| Error::InvalidBasename)?;
+	if name.contains(&b'/') {
+		return Err(Error::InvalidBasename);
+	}
+	let mut terminated = Vec::new();
+	terminated
+		.try_reserve_exact(name.len() + 1)
+		.map_err(|_| Error::OutOfMemory)?;
+	terminated.extend_from_slice(name);
+	terminated.push(0);
+	Ok(terminated)
+}
+
+mod entry;
+pub use entry::{EntryInfo, Identity, Kind};
 
 fn read_limited(reader: &mut impl Read, maximum: usize) -> Result<Vec<u8>, Error> {
 	let mut bytes = Vec::new();

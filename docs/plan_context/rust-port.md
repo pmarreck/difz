@@ -1123,3 +1123,29 @@ are retained. All final ratios pass unchanged bounds, and cohorts remain
 unbaselined. The CI-documentation and filesystem changes are separate commits;
 their combined final tree received full host validation. Production entry
 points, Windows support and native macOS qualification remain pending.
+
+## Rust entry inspection and symlink reads, 2026-11-06
+
+The filesystem adapter can inspect a child without following a symlink and
+read raw symlink bytes through the already-open parent directory. Inspection
+returns a closed file/directory/symlink/other kind, portable permission bits,
+length and device/inode identity for hardlink detection. Special permission
+bits are excluded; symlink mode is the format's canonical 0777. Inspection
+and subsequent opens are separate observations, and opened handles still
+validate their actual kind.
+
+Symlink reads use fallible allocation and a caller byte ceiling. A buffer
+equal to the returned length may be truncated, so the reader grows it and
+allows one extra byte to distinguish an exact-limit result from an exceeded
+limit. It does not trust a prior stat size. Binary targets remain byte buffers;
+the core applies target grammar and containment with the full entry path.
+
+Three initial tests failed against stubs while the existing seven passed.
+Scratch fixtures compare inspection with independent standard-library kernel
+metadata for files, directories, dangling links and a socket, including
+hardlink identity and permission masking. Symlink cases include non-UTF-8
+targets, growth past the initial buffer, exact and exceeded limits, invalid
+basenames and wrong object kinds. A renamed parent replaced by an outside
+symlink leaves inspection and link reads attached to the original directory.
+Native execution remains qualified on Linux only; macOS and Windows remain
+open migration work.

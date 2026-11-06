@@ -204,3 +204,106 @@ fn injected_reader_proves_bounded_requests_interrupt_retry_and_error_handling() 
 		matches!(read_limited(&mut Failed,4),Err(Error::Io(error)) if error.kind()==io::ErrorKind::PermissionDenied)
 	);
 }
+
+#[test]
+fn no_follow_entry_inspection_matches_independent_kernel_metadata() {
+	use std::os::unix::fs::{MetadataExt, PermissionsExt};
+	use std::os::unix::net::UnixListener;
+	let fixture = Fixture::new();
+	fs::write(fixture.0.join("data"), b"\0\xffdata").unwrap();
+	fs::set_permissions(fixture.0.join("data"), fs::Permissions::from_mode(0o1640)).unwrap();
+	fs::hard_link(fixture.0.join("data"), fixture.0.join("alias")).unwrap();
+	fs::create_dir(fixture.0.join("sub")).unwrap();
+	symlink("missing", fixture.0.join("link")).unwrap();
+	let _socket = UnixListener::bind(fixture.0.join("socket")).unwrap();
+	let root = Directory::open(&fixture.0).unwrap();
+	for (name, kind) in [
+		("data", Kind::File),
+		("alias", Kind::File),
+		("sub", Kind::Directory),
+		("link", Kind::Symlink),
+		("socket", Kind::Other),
+	] {
+		let expected = fs::symlink_metadata(fixture.0.join(name)).unwrap();
+		let actual = root.inspect(name.as_bytes()).unwrap();
+		assert_eq!(actual.kind, kind);
+		assert_eq!(actual.length, expected.len());
+		assert_eq!(
+			actual.identity,
+			Identity {
+				device: expected.dev(),
+				inode: expected.ino()
+			}
+		);
+		assert_eq!(
+			actual.mode.bits(),
+			if kind == Kind::Symlink {
+				0o777
+			} else {
+				(expected.mode() & 0o777) as u16
+			}
+		);
+	}
+	assert_eq!(
+		root.inspect(b"data").unwrap().identity,
+		root.inspect(b"alias").unwrap().identity
+	);
+	assert!(root.inspect(b"missing").is_err());
+}
+
+#[test]
+fn symlink_reads_are_binary_bounded_and_detect_buffer_truncation() {
+	use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+	let fixture = Fixture::new();
+	let root = Directory::open(&fixture.0).unwrap();
+	symlink(OsStr::from_bytes(b"raw\xff"), fixture.0.join("binary")).unwrap();
+	let long = "a".repeat(300);
+	symlink(&long, fixture.0.join("long")).unwrap();
+	fs::write(fixture.0.join("regular"), b"contents").unwrap();
+	fs::create_dir(fixture.0.join("directory")).unwrap();
+	assert_eq!(root.read_symlink(b"binary", 4).unwrap(), b"raw\xff");
+	assert!(matches!(
+		root.read_symlink(b"binary", 3),
+		Err(Error::LimitExceeded)
+	));
+	assert!(matches!(
+		root.read_symlink(b"binary", 0),
+		Err(Error::LimitExceeded)
+	));
+	assert_eq!(root.read_symlink(b"long", 300).unwrap(), long.as_bytes());
+	assert!(matches!(
+		root.read_symlink(b"long", 299),
+		Err(Error::LimitExceeded)
+	));
+	for name in [b"regular".as_slice(), b"directory", b"missing"] {
+		assert!(matches!(root.read_symlink(name, 1024), Err(Error::Io(_))));
+	}
+	assert!(matches!(
+		root.read_symlink(b"binary", usize::MAX),
+		Err(Error::LimitExceeded)
+	));
+	for name in [b"".as_slice(), b"a/b", b"a\0b", b"..", b"\xff"] {
+		assert!(matches!(root.inspect(name), Err(Error::InvalidBasename)));
+		assert!(matches!(
+			root.read_symlink(name, 1024),
+			Err(Error::InvalidBasename)
+		));
+	}
+}
+
+#[test]
+fn entry_inspection_and_symlink_reads_keep_the_opened_parent_identity() {
+	let fixture = Fixture::new();
+	let outside = Fixture::new();
+	fs::create_dir(fixture.0.join("selected")).unwrap();
+	fs::write(fixture.0.join("selected/data"), b"original").unwrap();
+	symlink("old", fixture.0.join("selected/link")).unwrap();
+	fs::write(outside.0.join("data"), b"outside").unwrap();
+	symlink("new", outside.0.join("link")).unwrap();
+	let selected = Directory::open(&fixture.0.join("selected")).unwrap();
+	let original = selected.inspect(b"data").unwrap();
+	fs::rename(fixture.0.join("selected"), fixture.0.join("moved")).unwrap();
+	symlink(&outside.0, fixture.0.join("selected")).unwrap();
+	assert_eq!(selected.inspect(b"data").unwrap(), original);
+	assert_eq!(selected.read_symlink(b"link", 3).unwrap(), b"old");
+}
