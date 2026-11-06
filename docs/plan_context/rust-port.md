@@ -396,3 +396,23 @@ The complete suite passed with fresh Nix checks and confined host execution:
 65.74 seconds total. The host phase includes admission and environment setup;
 the declared growth checks took 25.55 seconds. No feedback-budget improvement
 or native macOS/Windows qualification is claimed by this step.
+
+### Metadata names and identities
+
+Rust now validates logical and raw xattr names, reserved transport names,
+hardlink paths, and ACL entry identities. Closed wire enums cover xattr classes,
+ACL tags and the three OS tags; ACL origins reuse the OS representation. The
+platform eligibility helper deliberately retains its separate contract:
+eligibility alone does not authorize storing a structurally invalid raw name.
+
+Three more differential tests call the existing canonicalizer and platform
+helpers, covering every byte in short binary names, length boundaries,
+Unicode, case-sensitive transport recognition, reserved prefixes, relative
+paths, and every ACL/OS tag byte. Nonfunctional stubs failed these tests while
+the preceding fourteen passed; the completed implementation passes all
+seventeen. These are pure format rules, not native filesystem qualification.
+
+The complete suite passed again: Nix preparation/checks took 9.51 seconds;
+the host phase, including its shared-slot queue, took 262.89 seconds. The fresh
+growth checks took 24.44 seconds. Total elapsed time was 272.40 seconds; that
+total is not a measurement of test execution alone.

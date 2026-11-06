@@ -22,13 +22,33 @@ fn run(allocator: std.mem.Allocator, mode: u32, input: []const u8) ![]const u8 {
             var buffer: [25]u8 = undefined;
             return allocator.dupe(u8, try metadata.encodeModificationOverride(parsed, &buffer));
         },
+        4, 5 => {
+            const xattrs = [_]metadata.Xattr{.{ .class = if (mode == 4) .logical else .raw, .name = input, .value = "" }};
+            _ = try metadata.canonicalize(allocator, .{ .xattrs = &xattrs }, .{});
+            return &.{};
+        },
+        6 => {
+            _ = try metadata.canonicalize(allocator, .{ .hardlink_to = input }, .{});
+            return &.{};
+        },
+        7 => {
+            if (input.len == 0) return error.BadMetadata;
+            const tag = std.enums.fromInt(metadata.AceTag, input[0]) orelse return error.BadMetadata;
+            const aces = [_]metadata.Ace{.{ .tag = tag, .name = input[1..] }};
+            _ = try metadata.canonicalize(allocator, .{ .aces = &aces }, .{});
+            return &.{};
+        },
+        8 => return allocator.dupe(u8, &.{@intFromBool(metadata.isTransportName(input))}),
+        9 => {
+            if (input.len == 0) return error.BadMetadata;
+            const os = std.enums.fromInt(metadata.Os, input[0]) orelse return error.BadMetadata;
+            return allocator.dupe(u8, &.{@intFromBool(metadata.rawAccepted(os, input[1..]))});
+        },
         else => return error.BadMetadata,
     }
 }
 
-export fn difz_metadata_oracle(mode: u32, input: [*]const u8, input_len: usize,
-    output: [*]u8, output_capacity: usize, error_out: [*]u8,
-    error_capacity: usize, error_len: *usize) usize {
+export fn difz_metadata_oracle(mode: u32, input: [*]const u8, input_len: usize, output: [*]u8, output_capacity: usize, error_out: [*]u8, error_capacity: usize, error_len: *usize) usize {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     error_len.* = 0;

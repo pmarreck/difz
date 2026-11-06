@@ -176,3 +176,169 @@ fn modification_override_binds_original_and_observed_values_with_exact_lengths()
 		}
 	}
 }
+
+#[test]
+fn attribute_names_match_reference_for_binary_bytes_reserved_names_and_size_limits() {
+	for byte in 0..=255u8 {
+		let name = [b'a', byte, b'b'];
+		for (class, mode) in [(XattrClass::Logical, 4), (XattrClass::Raw, 5)] {
+			compare(validate_xattr_name(class, &name), mode, &name, |()| vec![]);
+		}
+	}
+	for length in [0, 1, 126, 127, 128, 254, 255, 256] {
+		let name = vec![b'a'; length];
+		for (class, mode) in [(XattrClass::Logical, 4), (XattrClass::Raw, 5)] {
+			compare(validate_xattr_name(class, &name), mode, &name, |()| vec![]);
+		}
+	}
+	for name in [
+		"name",
+		" name",
+		"name ",
+		"name.",
+		"User.attr",
+		"COM.APPLE.attr",
+		"$name",
+		"ZONE.IDENTIFIER",
+		"a:b",
+		"属性",
+		"e\u{301}",
+	] {
+		for (class, mode) in [(XattrClass::Logical, 4), (XattrClass::Raw, 5)] {
+			compare(
+				validate_xattr_name(class, name.as_bytes()),
+				mode,
+				name.as_bytes(),
+				|()| vec![],
+			);
+		}
+	}
+	assert_eq!(TRANSPORT_NAMES.len(), 10);
+	for reserved in [
+		"difz.btime",
+		"difz.mtime",
+		"difz.finder-info",
+		"difz.bsd-flags",
+		"difz.native-acl",
+		"difz.portable-acl",
+		"difz.sparse-holes",
+		"difz.hardlink-to",
+		"difz.raw-xattrs",
+		"difz.symlinks",
+	] {
+		assert!(TRANSPORT_NAMES.contains(&reserved.as_bytes()));
+		for name in [
+			reserved.to_owned(),
+			format!("user.{reserved}"),
+			reserved.to_uppercase(),
+			format!("USER.{reserved}"),
+			format!("{reserved}x"),
+		] {
+			assert_eq!(
+				vec![u8::from(is_transport_name(name.as_bytes()))],
+				native(8, name.as_bytes()).unwrap()
+			);
+			for (class, mode) in [(XattrClass::Logical, 4), (XattrClass::Raw, 5)] {
+				compare(
+					validate_xattr_name(class, name.as_bytes()),
+					mode,
+					name.as_bytes(),
+					|()| vec![],
+				);
+			}
+		}
+	}
+}
+
+#[test]
+fn hardlink_and_acl_identity_validation_matches_reference() {
+	for path in [
+		"",
+		"a",
+		"a/b",
+		"/a",
+		"a/",
+		"a//b",
+		".",
+		"..",
+		"a/./b",
+		"a/../b",
+		"a\\b",
+		"C:a",
+		"z:/a",
+		"0:a",
+		"a:b",
+		"路径/文件",
+		"a\0b",
+	] {
+		compare(
+			validate_hardlink(path.as_bytes()),
+			6,
+			path.as_bytes(),
+			|()| vec![],
+		);
+	}
+	for length in [4095, 4096, 4097] {
+		let path = vec![b'a'; length];
+		compare(validate_hardlink(&path), 6, &path, |()| vec![]);
+	}
+	for byte in 0..=255u8 {
+		let name = [b'a', byte, b'b'];
+		compare(validate_hardlink(&name), 6, &name, |()| vec![]);
+	}
+	for tag in 0..=255u8 {
+		for name in [b"".as_slice(), b"name", b"a/b", b"a\0b", b"\xff", b"a\\b"] {
+			let mut input = vec![tag];
+			input.extend(name);
+			compare(
+				AceTag::try_from(tag).and_then(|tag| validate_ace_name(tag, name)),
+				7,
+				&input,
+				|()| vec![],
+			);
+		}
+	}
+}
+
+#[test]
+fn raw_attribute_platform_eligibility_keeps_its_separate_structural_contract() {
+	assert_eq!(Os::ALL.len(), 3);
+	for tag in 0..=255u8 {
+		let actual = Os::try_from(tag).map(|os| vec![u8::from(raw_accepted(os, b"user.name"))]);
+		let mut input = vec![tag];
+		input.extend(b"user.name");
+		compare(actual, 9, &input, |value| value);
+	}
+	for os in Os::ALL.iter().copied() {
+		for name in [
+			b"".as_slice(),
+			b"user.name",
+			b"system.name",
+			b"security.name",
+			b"trusted.name",
+			b"user.",
+			b"User.name",
+			b"other.name",
+			b"a/b",
+			b"a\\b",
+			b"a:b",
+			b"a\0b",
+			b"\xff",
+		] {
+			let mut input = vec![os as u8];
+			input.extend(name);
+			assert_eq!(
+				vec![u8::from(raw_accepted(os, name))],
+				native(9, &input).unwrap()
+			);
+		}
+		for length in [127, 128, 255, 256] {
+			let mut input = vec![os as u8];
+			input.extend(vec![b'a'; length]);
+			assert_eq!(
+				vec![u8::from(raw_accepted(os, &input[1..]))],
+				native(9, &input).unwrap()
+			);
+		}
+	}
+}

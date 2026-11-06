@@ -23,6 +23,130 @@ pub enum Error {
 	DuplicateFamily,
 	InvalidNsec,
 	BadMetadata,
+	EmptyName,
+	InvalidLogicalName,
+	ReservedTransportName,
+	InvalidRawName,
+	InvalidHardlink,
+	InvalidAceName,
+}
+
+macro_rules! wire_enum {
+	($name:ident { $( $variant:ident = $tag:literal ),+ $(,)? }) => {
+		#[repr(u8)]
+		#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+		pub enum $name { $( $variant = $tag ),+ }
+		impl $name { pub const ALL: &'static [Self] = &[$(Self::$variant),+]; }
+		impl TryFrom<u8> for $name {
+			type Error = Error;
+			fn try_from(tag: u8) -> Result<Self, Error> {
+				match tag { $( $tag => Ok(Self::$variant), )+ _ => Err(Error::BadMetadata) }
+			}
+		}
+	};
+}
+wire_enum! { Os { Linux = 1, Macos = 2, Mswin = 3 } }
+pub type AclOrigin = Os;
+wire_enum! { XattrClass { Logical = 1, Raw = 2 } }
+wire_enum! { AceTag { Owner = 1, Group = 2, Everyone = 3, NamedUser = 4, NamedGroup = 5, Mask = 6 } }
+
+pub const TRANSPORT_NAMES: &[&[u8]] = &[
+	b"difz.btime",
+	b"difz.mtime",
+	b"difz.finder-info",
+	b"difz.bsd-flags",
+	b"difz.native-acl",
+	b"difz.portable-acl",
+	b"difz.sparse-holes",
+	b"difz.hardlink-to",
+	b"difz.raw-xattrs",
+	b"difz.symlinks",
+];
+
+pub fn is_transport_name(name: &[u8]) -> bool {
+	let bare = name.strip_prefix(b"user.").unwrap_or(name);
+	TRANSPORT_NAMES.contains(&bare)
+}
+const FORBIDDEN: &[u8] = b"/\\:*?\"<>|";
+pub fn validate_xattr_name(class: XattrClass, name: &[u8]) -> Result<(), Error> {
+	if is_transport_name(name) {
+		return Err(Error::ReservedTransportName);
+	}
+	if name.is_empty() {
+		return Err(Error::EmptyName);
+	}
+	match class {
+		XattrClass::Logical => {
+			if name.len() > 127
+				|| name
+					.iter()
+					.any(|byte| *byte < 0x20 || *byte == 0x7f || FORBIDDEN.contains(byte))
+				|| core::str::from_utf8(name).is_err()
+				|| name[0] == b' '
+				|| name.ends_with(b" ")
+				|| name.ends_with(b".")
+				|| [b"user.".as_slice(), b"com.apple.", b"$"]
+					.iter()
+					.any(|prefix| {
+						name.get(..prefix.len())
+							.is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+					}) || name.eq_ignore_ascii_case(b"zone.identifier")
+			{
+				return Err(Error::InvalidLogicalName);
+			}
+		}
+		XattrClass::Raw => {
+			if name.len() > 255 || name.iter().any(|byte| matches!(byte, 0 | b'/' | b'\\')) {
+				return Err(Error::InvalidRawName);
+			}
+		}
+	}
+	Ok(())
+}
+pub fn validate_hardlink(path: &[u8]) -> Result<(), Error> {
+	if path.is_empty()
+		|| path.len() > 4096
+		|| core::str::from_utf8(path).is_err()
+		|| path.starts_with(b"/")
+		|| path.contains(&b'\\')
+		|| path.contains(&0)
+		|| (path.len() >= 2 && path[0].is_ascii_alphabetic() && path[1] == b':')
+		|| path
+			.split(|byte| *byte == b'/')
+			.any(|part| part.is_empty() || part == b"." || part == b"..")
+	{
+		return Err(Error::InvalidHardlink);
+	}
+	Ok(())
+}
+pub fn validate_ace_name(tag: AceTag, name: &[u8]) -> Result<(), Error> {
+	let valid = match tag {
+		AceTag::NamedUser | AceTag::NamedGroup => {
+			!name.is_empty()
+				&& core::str::from_utf8(name).is_ok()
+				&& !name.contains(&b'/')
+				&& !name.contains(&0)
+		}
+		AceTag::Owner | AceTag::Group | AceTag::Everyone | AceTag::Mask => name.is_empty(),
+	};
+	if !valid {
+		return Err(Error::InvalidAceName);
+	}
+	Ok(())
+}
+/// Platform eligibility only. Callers must first validate the raw xattr name.
+pub fn raw_accepted(os: Os, name: &[u8]) -> bool {
+	match os {
+		Os::Linux => [b"user.".as_slice(), b"system.", b"security.", b"trusted."]
+			.iter()
+			.any(|prefix| name.starts_with(prefix) && name.len() > prefix.len()),
+		Os::Macos => !name.is_empty() && name.len() <= 127 && !name.contains(&b'/'),
+		Os::Mswin => {
+			!name.is_empty()
+				&& name.len() <= 255
+				&& !name.iter().any(|byte| FORBIDDEN.contains(byte))
+		}
+	}
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
