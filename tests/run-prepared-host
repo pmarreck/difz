@@ -38,8 +38,8 @@ run_platform() {
 	if [ "$(uname -s)" = Linux ]; then
 		local count
 		count=$("$prefix/bin/difz-platform-tests" --list | grep -c '^xattr::tests::native_.*: test$') || return 1
-		if [ "$count" -ne 3 ]; then
-			printf 'FAIL expected all three native Rust attribute fixtures\n' >&2
+		if [ "$count" -ne 5 ]; then
+			printf 'FAIL expected all five native Rust attribute fixtures\n' >&2
 			return 1
 		fi
 	fi

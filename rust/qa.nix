@@ -81,8 +81,8 @@ pkgs.rustPlatform.buildRustPackage {
 		test "$c_api_test_count" -ge 2
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$c_api_tests" --test-threads=1 --include-ignored
 		platform_test_count=$("$platform_tests" --list | grep -c ': test$')
-		test "$platform_test_count" -ge ${if pkgs.stdenv.hostPlatform.isLinux then "21" else "14"}
-		# Nix can reject xattr writes. These three OS fixtures are required by
+		test "$platform_test_count" -ge ${if pkgs.stdenv.hostPlatform.isLinux then "23" else "14"}
+		# Nix can reject xattr writes. These five OS fixtures are required by
 		# the confined host phase of ./test, using this exact prepared binary.
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 30s "$platform_tests" --test-threads=1 --include-ignored --skip xattr::tests::native_
 		if CARGO_TARGET_DIR="$TMPDIR/c-api-abort" cargo rustc --locked --offline --release -p difz-c-api --lib -- -C panic=abort > "$TMPDIR/c-api-abort-log" 2>&1; then

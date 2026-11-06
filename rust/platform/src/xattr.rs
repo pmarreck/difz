@@ -30,15 +30,7 @@ impl Names {
 /// ENODATA means absent or inaccessible according to the kernel. Unsupported
 /// filesystems and other OS failures remain explicit IO errors.
 pub fn get(file: &File, name: &[u8], maximum: usize) -> Result<Option<Vec<u8>>, Error> {
-	if name.is_empty() || name.len() > 255 || name.contains(&0) {
-		return Err(Error::InvalidAttributeName);
-	}
-	let mut terminated = Vec::new();
-	terminated
-		.try_reserve_exact(name.len() + 1)
-		.map_err(|_| Error::OutOfMemory)?;
-	terminated.extend_from_slice(name);
-	terminated.push(0);
+	let terminated = terminated_name(name)?;
 	let result = read_buffer(maximum, |output| {
 		// The descriptor is borrowed from a live File, the name is terminated,
 		// and value storage is initialized and writable for the explicit length.
@@ -56,6 +48,53 @@ pub fn get(file: &File, name: &[u8], maximum: usize) -> Result<Option<Vec<u8>>, 
 		Err(Error::Io(error)) if error.raw_os_error() == Some(libc::ENODATA) => Ok(None),
 		Err(error) => Err(error),
 	}
+}
+/// Create or replace a raw attribute on the object owned by the open handle.
+/// Values have an explicit byte length and may be empty or contain NUL.
+pub fn set(file: &File, name: &[u8], value: &[u8]) -> Result<(), Error> {
+	let name = terminated_name(name)?;
+	// All buffers and the borrowed descriptor remain live. The kernel copies
+	// exactly value.len() bytes and does not retain these pointers.
+	let result = unsafe {
+		libc::fsetxattr(
+			file.as_raw_fd(),
+			name.as_ptr().cast(),
+			value.as_ptr().cast(),
+			value.len(),
+			0,
+		)
+	};
+	if result < 0 {
+		return Err(io::Error::last_os_error().into());
+	}
+	Ok(())
+}
+/// Remove a raw attribute. False means the kernel reported it absent.
+pub fn remove(file: &File, name: &[u8]) -> Result<bool, Error> {
+	let name = terminated_name(name)?;
+	// The descriptor and terminated name are live for this synchronous call.
+	let result = unsafe { libc::fremovexattr(file.as_raw_fd(), name.as_ptr().cast()) };
+	if result == 0 {
+		return Ok(true);
+	}
+	let error = io::Error::last_os_error();
+	if error.raw_os_error() == Some(libc::ENODATA) {
+		Ok(false)
+	} else {
+		Err(error.into())
+	}
+}
+fn terminated_name(name: &[u8]) -> Result<Vec<u8>, Error> {
+	if name.is_empty() || name.len() > 255 || name.contains(&0) {
+		return Err(Error::InvalidAttributeName);
+	}
+	let mut terminated = Vec::new();
+	terminated
+		.try_reserve_exact(name.len() + 1)
+		.map_err(|_| Error::OutOfMemory)?;
+	terminated.extend_from_slice(name);
+	terminated.push(0);
+	Ok(terminated)
 }
 /// List the kernel-visible raw names. Each name still includes its native
 /// namespace prefix; canonical classification belongs to metadata capture.

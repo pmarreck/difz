@@ -174,3 +174,70 @@ fn kernel_buffer_and_name_parser_controls_reject_invalid_results() {
 		assert!(Names::parse(invalid.to_vec(), 10).is_err());
 	}
 }
+
+fn kernel_get(file: &File, name: &[u8]) -> io::Result<Vec<u8>> {
+	let name = CString::new(name).unwrap();
+	let mut bytes = vec![0; 1024];
+	// Independent fixed-buffer kernel readback of test-owned attributes.
+	let result = unsafe {
+		libc::fgetxattr(
+			file.as_raw_fd(),
+			name.as_ptr(),
+			bytes.as_mut_ptr().cast(),
+			bytes.len(),
+		)
+	};
+	if result < 0 {
+		return Err(io::Error::last_os_error());
+	}
+	assert!(result as usize <= bytes.len());
+	bytes.truncate(result as usize);
+	Ok(bytes)
+}
+#[test]
+fn native_attribute_writes_preserve_binary_empty_replacement_and_removal_semantics() {
+	let fixture = Fixture::new();
+	fs::write(fixture.0.join("data"), b"").unwrap();
+	let file = File::open(fixture.0.join("data")).unwrap();
+	let name = b"user.difz-\xff";
+	let value: Vec<u8> = (0..=255).cycle().take(600).collect();
+	super::set(&file, name, &value).unwrap();
+	assert_eq!(kernel_get(&file, name).unwrap(), value);
+	super::set(&file, name, b"").unwrap();
+	assert_eq!(kernel_get(&file, name).unwrap(), b"");
+	super::set(&file, name, b"changed\0\xff").unwrap();
+	for invalid in [b"".as_slice(), b"user.difz-\xff\0tail", &[b'a'; 256]] {
+		assert!(matches!(
+			super::set(&file, invalid, b"bad"),
+			Err(Error::InvalidAttributeName)
+		));
+		assert!(matches!(
+			super::remove(&file, invalid),
+			Err(Error::InvalidAttributeName)
+		));
+	}
+	assert_eq!(kernel_get(&file, name).unwrap(), b"changed\0\xff");
+	assert!(super::remove(&file, name).unwrap());
+	assert_eq!(
+		kernel_get(&file, name).unwrap_err().raw_os_error(),
+		Some(libc::ENODATA)
+	);
+	assert!(!super::remove(&file, name).unwrap());
+}
+#[test]
+fn native_attribute_writes_follow_the_handle_and_leave_replacement_targets_unchanged() {
+	let fixture = Fixture::new();
+	let outside = Fixture::new();
+	fs::write(fixture.0.join("data"), b"").unwrap();
+	fs::write(outside.0.join("data"), b"").unwrap();
+	let file = File::open(fixture.0.join("data")).unwrap();
+	let other = File::open(outside.0.join("data")).unwrap();
+	set(&other, b"user.difz-value", b"outside");
+	fs::rename(fixture.0.join("data"), fixture.0.join("moved")).unwrap();
+	symlink(outside.0.join("data"), fixture.0.join("data")).unwrap();
+	super::set(&file, b"user.difz-value", b"original").unwrap();
+	assert_eq!(kernel_get(&file, b"user.difz-value").unwrap(), b"original");
+	assert_eq!(kernel_get(&other, b"user.difz-value").unwrap(), b"outside");
+	assert!(super::remove(&file, b"user.difz-value").unwrap());
+	assert_eq!(kernel_get(&other, b"user.difz-value").unwrap(), b"outside");
+}

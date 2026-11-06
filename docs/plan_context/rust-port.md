@@ -1282,4 +1282,34 @@ unchanged failure buffers and borrowed inverse results. The focused core run
 took 7.80 seconds, followed by four Release, two C-boundary and fifteen platform
 controls; three native attribute fixtures remain in the required host phase.
 All three Nix systems evaluate. These pure policy comparisons do not qualify
-native macOS/Windows filesystem execution. The complete suite remains pending.
+native macOS/Windows filesystem execution. Combined complete validation with
+attribute writing is recorded below.
+
+## Linux descriptor-based attribute writes, 2026-11-06
+
+The platform candidate can create/replace and remove raw attributes through
+a borrowed File. Name validation and fallible termination storage are shared
+with reading. Values have explicit byte lengths and may be binary or empty.
+Removal distinguishes a removed value from kernel-reported absence; other
+OS failures remain explicit IO errors. Each operation acts on the opened
+object independently of subsequent path replacement.
+
+Two additional mandatory native fixtures compare writes and removal with
+direct kernel readback, cover empty/binary replacement, invalid names that
+could truncate to an existing attribute, repeated removal, and a file path
+replaced by an outside symlink. The host phase requires all five native
+attribute fixtures before running the entire prepared platform binary. Nix
+compiles all twenty platform tests and executes the fifteen controls that
+do not require attribute writes. The initial preparation passes sixty core, four Release,
+two C-boundary and fifteen platform controls. This is a Linux primitive for
+metadata restoration, not a complete restore implementation.
+
+The combined name-mapping/write tree passes the complete suite in 538.82
+seconds: 49.57 seconds in Nix preparation/checks and 489.25 seconds in host
+admission, setup and execution. All twenty-three platform tests pass in the
+required host phase, including all five native attribute fixtures. Nix passes
+sixty-two core tests, four Release controls, two C-boundary controls and eighteen
+platform controls. Fresh file growth took 23.43 seconds, with every case passing
+unchanged limits on its first attempt; historical cohorts remain unbaselined.
+The name mapper and attribute writer have separate focused checks and commits;
+the complete host run covers their combined final tree.
