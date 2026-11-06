@@ -693,3 +693,26 @@ The complete suite passed in 197.66 seconds: 49.60 for preparation/checks and
 148.06 for host admission/setup/execution. Growth execution took 24.20 seconds.
 This step does not implement tree records, snapshot identity or directory
 patching in Rust.
+
+### Expanded tree records
+
+Raw snapshots own their entry descriptors and may borrow or own path/content
+bytes. Each entry and the root hold validated canonical metadata. The content
+enum separates directories, regular files and symlinks: directories carry no
+data, and symlink views always use mode 0777. Portable file/directory modes
+admit only their nine permission bits. Exhaustive field/variant matches make
+new representations require review. Default empty snapshots and record views
+allocate no storage.
+
+A native comparison covers all 65,536 mode values. Independent client
+serialization of record views matches the native tree hash for empty trees,
+each kind, binary file content, entry metadata and nonempty root metadata.
+Ownership controls retain borrowed and owned byte addresses. Both new tests
+failed with stubs while the prior thirty-one passed. All thirty-three core
+tests and three Release controls pass. The fresh core tests took 5.02 seconds;
+the existing feedback-time budget remains open.
+
+The complete suite passed in 452.04 seconds: 30.82 for preparation/checks and
+421.22 for host admission/setup/execution. Growth execution took 21.98 seconds.
+Raw snapshots still require hierarchy, symlink and physical metadata relation
+validation. This step adds no production snapshot hash or directory codec.

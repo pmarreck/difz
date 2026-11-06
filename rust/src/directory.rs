@@ -90,3 +90,11 @@ pub fn validate_symlink_target(link_path: &[u8], target: &[u8]) -> Result<(), Er
 #[cfg(test)]
 #[path = "directory_tests.rs"]
 mod tests;
+
+#[path = "directory_record.rs"]
+mod record;
+pub use record::{Content, Entry, Mode, Snapshot};
+
+#[cfg(test)]
+#[path = "directory_record_tests.rs"]
+mod record_tests;
