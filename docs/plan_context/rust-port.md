@@ -350,3 +350,24 @@ are preserved. An earlier overlap of our own profiling jobs made a bounded run
 inconclusive; it is diagnostic evidence. Profiling runs are now serialized.
 Finite sweeps qualify this fixture and range, not application-update performance
 or an asymptotic theorem.
+
+### Cargo native-provider protection
+
+The codec adapter declares `links = "zstd"`, matching the native C namespace it
+provides. A parent with a second Cargo-managed provider of that namespace fails
+dependency resolution, so archive order cannot silently select a different
+codec. The Nix check first resolves a parent with an unrelated native provider,
+then changes only that fixture's native link key and requires Cargo's explicit
+duplicate-provider error. The control failed with the old adapter-specific key
+and passed with `zstd`. A parent needing another native zstd wrapper must unify
+its provider graph. This protects Cargo-managed providers; arbitrary external
+linker inputs remain the consuming application's responsibility.
+
+All eleven Rust tests, the transitive consumer, allocation controls and binary
+inspection passed after this packaging change. The consumer is byte-identical
+to the complete passing growth-gate revision `997f63e`, with SHA-256
+`2a5ae8d289cc2895dfa5e3f3eaecb5b2bc7df8d5476d4844b22af9efa6e6a3e8`.
+The host runners and executed test sources are unchanged. Its earlier complete
+host verdict is reused; the duplicate queued host attempt was canceled and is
+not reported as a new passing run. Native-provider qualification on other
+platforms and the remaining Rust migration stay open.

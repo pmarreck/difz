@@ -51,6 +51,37 @@ pkgs.rustPlatform.buildRustPackage {
 		test "$test_count" -ge 11
 		"$test_binary" --test-threads=1 --include-ignored
 		"$consumer"
+		# A parent must not silently link two providers of the ZSTD C namespace.
+		control="$TMPDIR/native-provider-control"
+		mkdir -p "$control/src" "$control/other/src"
+		cat > "$control/Cargo.toml" <<EOF
+[package]
+name = "difz-native-provider-control"
+version = "0.0.0"
+edition = "2024"
+[workspace]
+[dependencies]
+difz-core = { path = "$PWD" }
+other-provider = { path = "other" }
+EOF
+		cat > "$control/other/Cargo.toml" <<'EOF'
+[package]
+name = "other-provider"
+version = "0.0.0"
+edition = "2024"
+links = "unrelated_native"
+EOF
+		printf 'fn main() {}\n' > "$control/other/build.rs"
+		printf '// independent native provider fixture\n' > "$control/other/src/lib.rs"
+		printf 'fn main() {}\n' > "$control/src/main.rs"
+		cargo metadata --offline --format-version 1 --manifest-path "$control/Cargo.toml" > "$control/positive.json"
+		substituteInPlace "$control/other/Cargo.toml" --replace-fail '"unrelated_native"' '"zstd"'
+		if cargo metadata --locked --offline --format-version 1 --manifest-path "$control/Cargo.toml" > "$control/negative.json" 2> "$control/error"; then
+			printf 'FAIL competing native zstd provider was accepted\n' >&2
+			exit 1
+		fi
+		grep -F 'Only one package' "$control/error"
+		grep -F 'zstd' "$control/error" > /dev/null
 		${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
 			(ulimit -v 131072; "$consumer" --allocation-proof)
 			nm "$consumer" | grep -E ' T ZSTD_compress2$'
