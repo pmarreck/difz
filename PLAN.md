@@ -11,17 +11,17 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 
 - [ ] Deliver a Rust implementation of difz, using the existing tests and executable as independent oracles. (context: docs/plan_context/rust-port.md)
 	- [x] Retain single-threaded production encoding and application after reviewing the parallel experiment; preserve the prototype and measurements for future review. (done 2026-10-25 16:53 EDT; context: docs/plan_context/parallel-zstd-apply.md)
-	- [x] Measure actual 1/4/8-worker zstdz decode against monolithic streams on mixed and repeated-new inputs; preserve all 540 samples, size/CPU/RSS/I/O costs, and transfer break-even calculations. (done 2026-10-25 11:23 EDT; context: docs/plan_context/parallel-zstd-apply.md)
-	- [ ] Select the shipped codec for the full Rust port from the measured zstdz, Structured, and Rusty tradeoffs; keep production entry points unchanged pending that decision. (context: docs/plan_context/rust-codec-measurements.md)
+	- [x] Select the shipped codec for the full Rust port. Answer: Retain zstdz through its statically linked C API; accept native-code process-failure risk while rewriting difz itself in Rust. (done 2026-11-06 09:04 EST; context: docs/plan_context/rust-port.md)
 	- [ ] Qualify bounded hostile-prefix decoding and complete output/window resource contracts before adopting a Rust codec or multi-frame encoding.
 	- [ ] Establish product-wide differential acceptance tests before replacing any production entry point; qualify codec output limits and performance separately.
 		- [x] Qualify a reusable file and portable-tree cross-apply gate, seven broken adapters, 15 invalid artifact pairs, and complete native CI registration. (done 2026-11-02 20:51 EST; context: docs/plan_context/rust-port.md)
-	- [ ] If the hybrid route is selected, qualify transitive Cargo linking, foreign-buffer ownership, and concurrent/reentrant callback behavior before publishing a Rust library.
+	- [ ] Qualify static zstdz linking and Rust buffer/context ownership on all supported targets before publishing the Rust library; the selected codec adapter has no global progress callbacks.
 	- [ ] Port the file codec, directory metadata and format, filesystem adapters, C API, and CLI while preserving the declared behavior and platform scope.
+		- [x] Implement the Rust ZDIF v4 file codec with a statically linked zstdz adapter, independent cross-apply and hostile-input controls, and a transitive Cargo consumer; native Linux qualification passes. (done 2026-11-06 09:18 EST; context: docs/plan_context/rust-port.md)
+		- [ ] Enforce declared linear growth for the Rust file encode/apply hot paths through the shared profiler, with optimized in-memory measurements and independent result checks.
 		- [x] Port allocation-free ZDIF v4 header parsing and encoding to Rust, using native headers and independent BLAKE3 identities as acceptance controls. (done 2026-11-02 21:24 EST; context: docs/plan_context/rust-port.md)
 - [ ] Conform the build to the cross-platform-project-build-arch skill, including canonical implementation selection where applicable, PF/VARIANT/profile outputs, safe host publication, the five-platform matrix, and Nix/native agreement.
 	- [x] Require Nix for optimized and Debug builds, select the exact returned artifact, and verify refusal and preparation-failure preservation through the real build adapter in disposable projects. (done 2026-11-02 21:28 EST; context: docs/plan_context/test-preparation.md)
-	- [x] Batch flake-contract evaluation and bound benchmark sources; preserve fresh/cached feedback measurements and verify planning edits leave the benchmark derivation unchanged. (done 2026-10-25 01:04 EDT; context: docs/plan_context/test-preparation.md)
 	- [ ] Qualify native macOS and Windows preventive test boundaries before claiming complete native test execution there. (context: docs/plan_context/test-preparation.md)
 - [ ] Qualify metadata capture and restore on native macOS and Windows hosts; cross-builds establish compilation only. (context: docs/plan_context/metadata-v2.md)
 	- [ ] Resolve native-runner resource policy before scheduling additional remote build waves.

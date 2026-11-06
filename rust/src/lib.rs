@@ -1,6 +1,9 @@
 #![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]
 
+extern crate alloc;
+pub mod file;
+
 const MAGIC: &[u8; 5] = b"ZDIF\x04";
 const HASH_LEN: usize = 32;
 const SOURCE_HASH: usize = MAGIC.len();

@@ -5,5 +5,13 @@ edition = "2024"
 rust-version = "1.94"
 publish = false
 
+[workspace]
+members = ["zstdz", "consumer"]
+resolver = "3"
+
+[dependencies]
+blake3 = { version = "=1.8.2", default-features = false, features = ["pure"] }
+difz-zstdz = { path = "zstdz" }
+
 [lib]
 path = "src/lib.rs"

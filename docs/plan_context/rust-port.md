@@ -1,6 +1,6 @@
 # Rust migration
 
-The requested direction is a Rust build of the complete product: file and directory cores, filesystem metadata adapters, the C ABI implementation, and the CLI. The existing Zig/C implementation and tests are independent oracles during migration. This follows the 2026-10-23 direction from BDFN (Benevolent Dictator For Now). A later clarification leaves combined Zig/Rust packaging under investigation; production entry points stay unchanged while that boundary is settled.
+The requested direction is a Rust build of the complete product: file and directory cores, filesystem metadata adapters, the C ABI implementation, and the CLI. The existing Zig/C implementation and tests are independent oracles during migration. On 2026-11-06 the owner selected zstdz, statically linked through its C API, and explicitly accepted native-code process-failure risk. Difz itself moves to Rust; wrapping the entire existing Zig core is not the selected implementation. Production entry points change only after the Rust replacement passes acceptance.
 
 The source reference is preserved at `zig-zstdz-oracle-20261023` (`62973d6`). The earlier CDC engine remains on `old-cdc-plus-compression-probe-design`. The migration keeps ZDIF v4, DIFZTREE v2, BLAKE3 identities, staged verification, and the five supported platform targets. Byte-identical compressed frames are not required; reconstructed bytes, canonical metadata, and declared failure behavior are.
 
@@ -116,7 +116,7 @@ On 2026-10-23, the Linux x86_64 GNU Debug consumer passed binary and empty buffe
 
 The Rust codec checks in `tests/codec_rust/` are QA-only dependencies. On the same host, all three tests passed with Rust 1.94.1 and Rusty_zstd 0.4.1. They compare native zstdz and Rust frames in both directions across eight input pairs, retaining the native oracle's container header to isolate codec behavior. The source-prefix fixture uses the first 64 KiB of a 2 MiB random source, including dictionary magic, and has a no-prefix negative control. A separate small fixture exercises a 2 GiB advertised window. That fixture does not qualify actual 2 GiB inputs. These checks do not implement a new Rust difz core or establish performance parity.
 
-The remaining owner decision is the shipped codec for the full Rust difz port: retain zstdz through its C ABI, adopt Structured-zstd with its measured costs and 1 GiB encoder-history limit, or continue qualifying Rusty_zstd with its higher measured encode cost and unresolved bounded-prefix API. The static-link proof establishes a local packaging mechanism, not a codec choice or a five-platform release. Production entry points remain unchanged while this decision is pending.
+The shipped-codec decision is resolved: retain zstdz through its statically linked C API, including raw source prefixes, single-threaded encoding and the 2 GiB window contract. Structured-zstd and Rusty_zstd remain QA comparisons. The prior whole-library static-link proof establishes a packaging mechanism, not a Rust core or a five-platform release. The Rust codec adapter needs its own ownership, transitive-link and resource controls before production replacement.
 
 The complete `./test` passed on that host after these additions, including the existing Debug core, 92 host CLI checks, the Nix Debug and installed-C checks, 25 benchmark-contract checks, and the Windows GNU cross-build. Rust formatting and Bash syntax checks also passed. Windows compilation here covers the existing Zig/C executable, not the Rust consumer.
 
@@ -206,7 +206,7 @@ incomplete and is not substituted for the final passing run. The missing-gate
 Nix failure and the incomplete-CI-manifest failure were both observed before
 their corresponding implementations passed.
 
-### Rust header core
+### Rust header core, 2026-11-02
 
 `rust/` now starts the Rust functional core with ZDIF v4 header encoding and
 prefix parsing. The library uses `no_std`, forbids unsafe code, copies the
@@ -243,3 +243,64 @@ runner, confinement helper and exercised host test source is unchanged. A
 duplicate full-entrypoint attempt completed its Nix phase in 9.95 seconds and
 was canceled during host admission after 869.80 seconds. Its interrupted status
 is not a new passing host verdict; the earlier exact-artifact result is reused.
+
+### Statically linked zstdz file codec, 2026-11-06
+
+The owner selected zstdz and accepted the native codec's process-failure risk.
+`difz-core::file` now implements ZDIF v4 encoding and bounded application in
+Rust. It retains level 9, zero compression workers, the reference's parameter
+selection and long-distance-matching threshold, raw binary source prefixes,
+and the 2 GiB input/window contract. The safe core still forbids unsafe code.
+File identities use locked BLAKE3 1.8.2 with its `pure` feature; Cargo is built
+with C/C++ compilation disabled, so this adds no other native codec or hash
+implementation.
+
+The small `difz-zstdz` workspace dependency contains the native boundary.
+Bindings are generated from the pinned zstdz header and linked to its static
+archive, both supplied by the same Nix derivation. Its build script propagates
+the static library through Cargo. A consuming Rust crate depends only on
+`difz-core`; it does not manually add a native link flag. The Nix build supplies
+`DIFZ_ZSTDZ_ROOT` and generated `DIFZ_ZSTDZ_BINDINGS` when building from source.
+These are declared builder inputs, not runtime configuration or machine-local
+dependency paths. Ordinary project builds remain locked and offline.
+
+Each operation owns and frees its own native context. Prefix slices remain
+borrowed through synchronous codec execution and context teardown. Returned
+bytes use Rust allocations; no C-owned buffer becomes a Rust Vec. The native
+adapter writes only into reserved capacity and publishes initialized bytes
+after checking the native result and exact decode length. Wrong-source and
+output-limit checks precede reconstruction allocation. There are no shared
+progress callbacks or persistent native handles in this adapter.
+
+The six existing header tests and five new file tests pass in the Debug Rust
+check. Six file pairs cross-apply in both directions with the native reference;
+the tested patches also match its bytes exactly and repeated encoding is
+deterministic. Additional controls cover every truncation of a small patch,
+identity mutations, output limits, u64 length forgeries, all power-of-two
+window boundaries through 2 GiB without allocating those inputs, and four
+concurrent callers. A deterministic 2 MiB high-entropy prefix beginning with
+dictionary magic reconstructs a changed 64 KiB target; encoding without the
+prefix is much larger and decoding without it fails. These fixtures do not
+qualify actual 2 GiB inputs or all possible compressed-byte identities.
+
+The separate Cargo consumer passes ordinary binary reconstruction and failures.
+On Linux it also runs under a 128 MiB address-space limit: a forged 1 GiB output
+still returns source/limit errors first, while an otherwise valid unlimited
+request reports allocation failure. Binary inspection finds defined
+`ZSTD_compress2` and `ZSTD_decompressDCtx` symbols and no dynamic zstd or difz
+dependency. System runtime dependencies may remain dynamic.
+
+The complete `./test` passed with fresh confined host execution: 95 core passes,
+one platform-specific skip, 92 CLI passes, the acceptance-gate controls and the
+existing C ABI consumer. Nix preparation/checks took 15.52 seconds and the host
+phase took 5.82 seconds, totaling 21.34 seconds. That host total includes setup
+and admission; no five-second full-suite conformance is claimed. Evaluation
+passed for all three declared Nix systems. Native Rust execution is qualified
+on Linux amd64 only. Directory metadata, filesystem adapters, the exported C
+ABI and the production CLI still require Rust implementations; the production
+entry point remains the preserved implementation during acceptance work.
+
+The new file hot paths next need optimized growth measurements through the
+shared profiler. At fixed compression level, the expected model is linear in
+source plus target/frame size for the declared update fixtures; this is an
+operating expectation to measure, not an asymptotic proof of zstd internals.

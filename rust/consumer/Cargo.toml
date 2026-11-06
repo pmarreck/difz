@@ -1,0 +1,8 @@
+[package]
+name = "difz-core-consumer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+difz-core = { path = ".." }

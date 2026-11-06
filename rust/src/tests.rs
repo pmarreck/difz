@@ -4,6 +4,9 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[path = "file_tests.rs"]
+mod file_tests;
+
 fn sample() -> Header {
 	Header {
 		source_hash: std::array::from_fn(|i| i as u8),

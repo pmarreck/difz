@@ -169,3 +169,8 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 - [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Qualify Structured-zstd prefix cross-apply, caller-output bounds, checksum verification, and window behavior in Nix; retain complete hostile-input qualification as an adoption gate. (done 2026-10-25 00:28 EDT; context: docs/plan_context/rust-codec-measurements.md)
 - [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Compare optimized zstdz, Rusty, and Structured codecs on verified 4/16/64 MiB prefix deltas, including source-ownership controls and all 258 timed samples. (done 2026-10-25 00:28 EDT; context: docs/plan_context/rust-codec-measurements.md)
 - [x] [Active › Conform the build to the cross-platform-project-build-arch s…] Move host-side Zig tests and Rust FFI probes onto Nix-prepared artifacts with preventive Linux filesystem isolation and separate preparation/execution timing. (done 2026-10-25 00:46 EDT; context: docs/plan_context/test-preparation.md)
+
+## Retired 2026-11-06
+
+- [x] [Active › Deliver a Rust implementation of difz, using the existing te…] Measure actual 1/4/8-worker zstdz decode against monolithic streams on mixed and repeated-new inputs; preserve all 540 samples, size/CPU/RSS/I/O costs, and transfer break-even calculations. (done 2026-10-25 11:23 EDT; context: docs/plan_context/parallel-zstd-apply.md)
+- [x] [Active › Conform the build to the cross-platform-project-build-arch s…] Batch flake-contract evaluation and bound benchmark sources; preserve fresh/cached feedback measurements and verify planning edits leave the benchmark derivation unchanged. (done 2026-10-25 01:04 EDT; context: docs/plan_context/test-preparation.md)
