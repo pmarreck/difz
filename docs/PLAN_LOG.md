@@ -213,3 +213,4 @@ Completed PLAN.md items retired by plan-retire, oldest retirement first.
 ## Retired 2026-11-18
 
 - [x] [Active › Deliver a Rust implementation of difz, using the existing te… › Port the file codec, directory metadata and format, filesyst…] Port bounded parent symlink transport with exact native encodings, all presence/absence/override combinations and byte/count boundary controls; full host validation covers the combined transport/ACL tree. (done 2026-11-06 17:19 EST; commit 4dc3993; context: docs/plan_context/rust-port.md)
+- [x] [Active › Deliver a Rust implementation of difz, using the existing te… › Port the file codec, directory metadata and format, filesyst…] Port bidirectional Linux ACL wire conversion and access/default containers with native permission/ID/name grammar controls; the combined complete suite passes without claiming filesystem restore qualification. (done 2026-11-06 17:20 EST; context: docs/plan_context/rust-port.md)

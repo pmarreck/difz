@@ -1382,3 +1382,46 @@ The project agent owns the assessment and implementation; scheduling is
 deferred to the coordinator/owner after recovering the current port checkpoint.
 The next step is to restore a verified baseline, then schedule a separate
 compiler-provider change. No toolchain pin was changed for this assessment.
+
+## Linux canonical transport capture, 2026-11-18
+
+Commit d37d24c merges raw-attribute transport into native capture, with native
+raw values taking precedence, bounded combined count/byte storage and owned
+payloads that survive transport-buffer release. Native Linux ACL capture keeps
+access/default bytes in DIFZACL and derives portable access ACEs. Separate
+canonical transport records override native ACL, portable ACEs, Finder flags,
+Finder information and hardlink references. Field-only transports reject
+unrelated families; explicit empty ACL/Finder values preserve absence.
+
+The initial host run exposed a fixture defect: its arbitrary named UID was
+unmapped inside the isolated user namespace, so the kernel rejected ACL setup.
+The fixture now uses the mapped current UID and checks the independently
+formatted principal, exact kernel bytes and explicit-empty overrides. Other
+controls cover native/raw precedence, binary/foreign owned fields, malformed
+transport, combined limits and opened-file identity after path replacement.
+
+Complete Linux ./test passes: sixty-two core tests, four Release controls,
+two C-boundary controls, all thirty-four platform tests including thirteen
+mandatory native fixtures, ninety-two CLI cases and the complete existing
+acceptance/runner/growth controls. Nix executes twenty-one platform controls
+and prepares the thirteen native cases for the mandatory confined host phase.
+Total time is 618.98 seconds: 47.23 seconds preparing/checking through Nix and
+571.75 seconds in host admission/setup/execution. Timed runtime suites total
+36.18 seconds plus isolation qualification. Fresh file growth takes 22.66
+seconds and passes unchanged bounds; historical cohorts remain unbaselined.
+This is capture plumbing, not complete snapshot traversal or restoration.
+
+## Native qualification resource dependency, 2026-11-18
+
+Infrastructure verified a reachable native macOS ARM64 Nix builder, but its
+concurrency limit does not enforce per-job memory or runtime bounds. It is
+therefore not an approved bounded native qualification route yet. Windows
+AMD64 has no verified command/admission route, and no Windows ARM64 runner is
+available. Linux has the verified bounded local route. No remote build wave
+was started for this inquiry.
+
+The infrastructure owner owns establishing bounded native execution and
+verifying available Windows routes. The project agent must then qualify native
+test confinement before running filesystem/ABI/CLI acceptance there. These
+specific dependencies hold native claims and remote waves; they do not block
+independent Linux implementation or portable core work.
