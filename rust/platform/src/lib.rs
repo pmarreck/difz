@@ -147,7 +147,11 @@ mod tests;
 mod names;
 pub use names::Names;
 #[cfg(target_os = "linux")]
+pub mod linux_capture;
+#[cfg(target_os = "linux")]
 pub mod linux_metadata;
+#[cfg(target_os = "linux")]
+pub mod linux_transport;
 #[cfg(test)]
 mod names_tests;
 #[cfg(target_os = "linux")]
