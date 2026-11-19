@@ -1313,3 +1313,72 @@ platform controls. Fresh file growth took 23.43 seconds, with every case passing
 unchanged limits on its first attempt; historical cohorts remain unbaselined.
 The name mapper and attribute writer have separate focused checks and commits;
 the complete host run covers their combined final tree.
+
+## Linux timestamp capture with transport, 2026-11-06
+
+The platform candidate combines opened-object modification/creation times
+with bounded transport reads from the same File handle. Explicit absent
+creation time replaces a native value, and a modification override applies
+only while its observed timestamp matches the current native timestamp.
+Stale witnesses preserve the current native value. Access time stays absent,
+matching the existing directory snapshot implementation. Unsupported attribute
+storage is treated as no optional transport; malformed records and other OS
+failures remain explicit errors. Canonical timestamp attribute names now have
+shared constants used by the reservation list and Linux reader.
+
+A required Nix control captures native times without transport. Two additional
+mandatory native fixtures cover file/root overrides, explicit absence, stale
+witnesses, malformed presence and excessive transport length. Their value
+codecs already have independent native-oracle coverage. This captures the
+timestamp family, not a complete filesystem snapshot.
+
+The same increment captures kernel-visible attributes with bounded name-list,
+count and aggregate retained name/value storage. Portable `user.` names map
+to logical attributes; other names remain raw. Transport, resource-fork and
+native ACL records remain with their designated metadata families. Two native
+fixtures check binary names/values, family exclusions and count/byte ceilings.
+Raw-attribute transport merging is a separate following increment.
+
+Commit 0b271e5 passes complete Linux ./test on 2026-11-18. Nix passes sixty-two
+core tests, four Release controls, two C-boundary controls and nineteen
+platform controls. The required host phase passes all twenty-eight platform
+tests, including nine native attribute fixtures, ninety-two CLI cases, the
+native suite and ABI/cross-apply/runner/growth controls. Total elapsed time is
+8944.52 seconds: 16.74 seconds in Nix preparation and 8927.78 seconds in host
+admission, setup and execution. Timed runtime suites total 43.28 seconds plus
+isolation qualification; waiting dominates feedback. Fresh file growth takes
+29.35 seconds and passes unchanged limits after a bounded noisy-sample retry.
+Historical cohorts remain unbaselined. No native macOS or Windows execution
+qualification is claimed.
+
+## Compiler upgrade assessment, 2026-11-18
+
+The selected Nix rustc, Cargo and rustfmt are 1.94.1 on all three declared
+flake systems. Native Rust packages and test packages use the same pinned
+`pkgs.rustPlatform`; the standalone Rust FFI consumer uses that pin's
+`pkgs.rustc`. The workspace declares a 1.94 MSRV and edition 2024. There is
+no Rust Windows cross-build route yet: the existing Windows check builds
+the original Zig implementation. These are provider/evaluation findings,
+not new native macOS or Windows execution results.
+
+[Rust 1.100 release notes](https://doc.rust-lang.org/releases.html#version-11000-2026-11-12)
+identify inference, Infallible/never-type, trait-object and Cargo intermediate
+layout changes that need qualification. Cargo artifacts here are discovered
+through JSON compiler messages, and the workspace already uses edition 2024;
+neither fact proves compatibility of all dependencies. The core uses
+Infallible for infallible serialization. No new compiler has been built or
+tested, so there is no qualified 1.100 compatibility claim.
+
+A controlled compiler update is suitable follow-up work. The current provider
+selects 1.94.1, so an upgrade needs a narrow provider-input change rather than
+a shell override or unrelated nixpkgs refresh. Keep Cargo.lock and the MSRV
+unless an independently demonstrated incompatibility requires changing them.
+Qualification must include canonical Nix builds, complete ./test, configured
+format/lint checks and external ABI consumers, with native target results
+reported separately from cross-compilation. Preserve the existing platform
+resource holds.
+
+The project agent owns the assessment and implementation; scheduling is
+deferred to the coordinator/owner after recovering the current port checkpoint.
+The next step is to restore a verified baseline, then schedule a separate
+compiler-provider change. No toolchain pin was changed for this assessment.
