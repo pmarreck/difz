@@ -241,3 +241,141 @@ fn native_attribute_writes_follow_the_handle_and_leave_replacement_targets_uncha
 	assert!(super::remove(&file, b"user.difz-value").unwrap());
 	assert_eq!(kernel_get(&other, b"user.difz-value").unwrap(), b"outside");
 }
+
+#[test]
+fn native_timestamp_capture_preserves_overrides_and_rejects_stale_modification_witnesses() {
+	use difz_core::metadata::{self, ModificationOverride, Time};
+	let fixture = Fixture::new();
+	fs::write(fixture.0.join("data"), b"").unwrap();
+	let file = fs::OpenOptions::new()
+		.write(true)
+		.open(fixture.0.join("data"))
+		.unwrap();
+	let native = crate::EntryInfo::for_file(&file).unwrap();
+	let initial = crate::linux_metadata::capture_times(&file).unwrap();
+	assert_eq!(initial.mtime, Some(native.mtime));
+	assert_eq!(initial.btime, native.birth);
+	assert_eq!(initial.atime, None);
+	let original = Time { sec: -4, nsec: 123 };
+	let birth = Time {
+		sec: -100,
+		nsec: 456,
+	};
+	set(
+		&file,
+		b"user.difz.btime",
+		metadata::encode_time_override(Some(birth))
+			.unwrap()
+			.as_bytes(),
+	);
+	set(
+		&file,
+		b"user.difz.mtime",
+		metadata::encode_modification_override(ModificationOverride {
+			original: Some(original),
+			observed: native.mtime,
+		})
+		.unwrap()
+		.as_bytes(),
+	);
+	let kept = crate::linux_metadata::capture_times(&file).unwrap();
+	assert_eq!(kept.mtime, Some(original));
+	assert_eq!(kept.btime, Some(birth));
+	let changed = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::new(42, 789);
+	file.set_times(fs::FileTimes::new().set_modified(changed))
+		.unwrap();
+	let stale = crate::linux_metadata::capture_times(&file).unwrap();
+	assert_eq!(stale.mtime, Some(Time { sec: 42, nsec: 789 }));
+	assert_eq!(stale.btime, Some(birth));
+}
+#[test]
+fn native_root_timestamp_capture_preserves_absence_and_rejects_malformed_transport() {
+	use difz_core::metadata::{self, ModificationOverride};
+	let fixture = Fixture::new();
+	let root = Directory::open(&fixture.0).unwrap();
+	let native = root.inspect_self().unwrap();
+	set(
+		&root.file,
+		b"user.difz.btime",
+		metadata::encode_time_override(None).unwrap().as_bytes(),
+	);
+	set(
+		&root.file,
+		b"user.difz.mtime",
+		metadata::encode_modification_override(ModificationOverride {
+			original: None,
+			observed: native.mtime,
+		})
+		.unwrap()
+		.as_bytes(),
+	);
+	let kept = root.capture_times().unwrap();
+	assert_eq!(kept.mtime, None);
+	assert_eq!(kept.btime, None);
+	assert_eq!(kept.atime, None);
+	set(&root.file, b"user.difz.btime", &[2]);
+	assert!(matches!(
+		root.capture_times(),
+		Err(Error::Metadata(metadata::Error::BadMetadata))
+	));
+	set(&root.file, b"user.difz.btime", &[0; 14]);
+	assert!(matches!(root.capture_times(), Err(Error::LimitExceeded)));
+}
+
+#[test]
+fn timestamp_capture_without_transport_matches_native_object_times() {
+	let fixture = Fixture::new();
+	fs::write(fixture.0.join("data"), b"").unwrap();
+	let file = File::open(fixture.0.join("data")).unwrap();
+	let native = crate::EntryInfo::for_file(&file).unwrap();
+	let captured = crate::linux_metadata::capture_times(&file).unwrap();
+	assert_eq!(captured.mtime, Some(native.mtime));
+	assert_eq!(captured.btime, native.birth);
+	assert_eq!(captured.atime, None);
+}
+
+#[test]
+fn native_attribute_capture_maps_names_and_excludes_other_family_records() {
+	use difz_core::metadata::{self, XattrClass};
+	let fixture = Fixture::new();
+	fs::write(fixture.0.join("data"), b"").unwrap();
+	let file = File::open(fixture.0.join("data")).unwrap();
+	set(&file, b"user.capture", b"\0\xfflogical");
+	set(&file, b"user.raw\xff", b"raw\0bytes");
+	// Invalid timestamp bytes must remain outside this family's parsing.
+	set(&file, b"user.difz.btime", &[2]);
+	set(&file, b"user.com.apple.ResourceFork", b"excluded");
+	let captured = crate::linux_metadata::capture_native_xattrs(&file, 128, 4096).unwrap();
+	let logical = captured
+		.iter()
+		.find(|attr| attr.class == XattrClass::Logical && attr.name.as_ref() == b"capture")
+		.unwrap();
+	assert_eq!(logical.value.as_ref(), b"\0\xfflogical");
+	let raw = captured
+		.iter()
+		.find(|attr| attr.class == XattrClass::Raw && attr.name.as_ref() == b"user.raw\xff")
+		.unwrap();
+	assert_eq!(raw.value.as_ref(), b"raw\0bytes");
+	assert!(
+		captured
+			.iter()
+			.all(|attr| !metadata::is_transport_name(&attr.name)
+				&& attr.name.as_ref() != b"user.com.apple.ResourceFork")
+	);
+}
+#[test]
+fn native_attribute_capture_enforces_count_and_aggregate_value_limits() {
+	let fixture = Fixture::new();
+	fs::write(fixture.0.join("data"), b"").unwrap();
+	let file = File::open(fixture.0.join("data")).unwrap();
+	set(&file, b"user.capture", &[0xff; 1200]);
+	assert!(crate::linux_metadata::capture_native_xattrs(&file, 128, 4096).is_ok());
+	assert!(matches!(
+		crate::linux_metadata::capture_native_xattrs(&file, 0, 4096),
+		Err(Error::LimitExceeded)
+	));
+	assert!(matches!(
+		crate::linux_metadata::capture_native_xattrs(&file, 128, 1000),
+		Err(Error::LimitExceeded)
+	));
+}

@@ -58,9 +58,11 @@ pub type AclOrigin = Os;
 wire_enum! { XattrClass { Logical = 1, Raw = 2 } }
 wire_enum! { AceTag { Owner = 1, Group = 2, Everyone = 3, NamedUser = 4, NamedGroup = 5, Mask = 6 } }
 
+pub const BIRTH_TIME_ATTRIBUTE: &[u8] = b"difz.btime";
+pub const MODIFICATION_TIME_ATTRIBUTE: &[u8] = b"difz.mtime";
 pub const TRANSPORT_NAMES: &[&[u8]] = &[
-	b"difz.btime",
-	b"difz.mtime",
+	BIRTH_TIME_ATTRIBUTE,
+	MODIFICATION_TIME_ATTRIBUTE,
 	b"difz.finder-info",
 	b"difz.bsd-flags",
 	b"difz.native-acl",

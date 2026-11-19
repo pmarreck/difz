@@ -20,6 +20,7 @@ pub enum Error {
 	WrongKind,
 	OutOfMemory,
 	LimitExceeded,
+	Metadata(difz_core::metadata::Error),
 }
 impl From<io::Error> for Error {
 	fn from(error: io::Error) -> Self {
@@ -145,6 +146,8 @@ mod tests;
 
 mod names;
 pub use names::Names;
+#[cfg(target_os = "linux")]
+pub mod linux_metadata;
 #[cfg(test)]
 mod names_tests;
 #[cfg(target_os = "linux")]
