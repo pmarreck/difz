@@ -25,6 +25,7 @@ impl View for Entry<'_> {
 		let (kind, mode, data) = match content {
 			Content::Directory { mode } => (Kind::Directory, mode.bits(), b"".as_slice()),
 			Content::File { mode, bytes } => (Kind::File, mode.bits(), bytes.as_ref()),
+			Content::FileAlias { mode, target: _ } => (Kind::File, mode.bits(), b"".as_slice()),
 			Content::Symlink { target } => (Kind::Symlink, 0o777, target.as_ref()),
 		};
 		Record {

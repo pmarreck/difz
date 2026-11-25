@@ -80,26 +80,35 @@ pub fn create(
 				}
 				(Operation::Symlink, Cow::Borrowed(target.as_ref()))
 			}
+			Content::FileAlias { mode: _, target: _ } => (
+				Operation::FileHardlink,
+				Cow::Borrowed(metadata.metadata().hardlink_to.as_deref().ok_or(
+					Error::Snapshot(crate::directory::Error::InvalidHardlinkRelation),
+				)?),
+			),
 			Content::File { mode: _, bytes } => {
 				if let Some(link) = &metadata.metadata().hardlink_to {
 					(Operation::FileHardlink, Cow::Borrowed(link.as_ref()))
 				} else {
-					let old = find_path(&source.snapshot().entries, path)
-						.map(|i| &source.snapshot().entries[i].content);
+					let old =
+						find_path(&source.snapshot().entries, path).and_then(|index| match &source
+							.snapshot()
+							.entries[index]
+							.content
+						{
+							Content::File { mode: _, bytes: _ }
+							| Content::FileAlias { mode: _, target: _ } => source.snapshot().entry_bytes(index),
+							Content::Directory { mode: _ } | Content::Symlink { target: _ } => None,
+						});
 					match old {
-						Some(Content::File {
-							mode: _,
-							bytes: previous,
-						}) if previous == bytes => (Operation::FileCopy, Cow::Borrowed(b"".as_slice())),
-						Some(Content::File {
-							mode: _,
-							bytes: previous,
-						}) => (
+						Some(previous) if previous == bytes.as_ref() => {
+							(Operation::FileCopy, Cow::Borrowed(b"".as_slice()))
+						}
+						Some(previous) => (
 							Operation::FileDelta,
 							Cow::Owned(crate::file::encode(previous, bytes).map_err(Error::File)?),
 						),
-						Some(Content::Directory { mode: _ } | Content::Symlink { target: _ })
-						| None => (Operation::FileRaw, Cow::Borrowed(bytes.as_ref())),
+						None => (Operation::FileRaw, Cow::Borrowed(bytes.as_ref())),
 					}
 				}
 			}
@@ -132,17 +141,26 @@ pub(super) fn project<'a>(
 	projected
 		.try_reserve_exact(entries.len())
 		.map_err(|_| Error::OutOfMemory)?;
-	for Entry {
-		path,
-		content,
-		metadata,
-	} in entries
+	for (
+		index,
+		Entry {
+			path,
+			content,
+			metadata,
+		},
+	) in entries.iter().enumerate()
 	{
 		let content = match content {
 			Content::Directory { mode } => Content::Directory { mode: *mode },
 			Content::File { mode, bytes } => Content::File {
 				mode: *mode,
 				bytes: Cow::Borrowed(bytes),
+			},
+			Content::FileAlias { mode, target: _ } => Content::File {
+				mode: *mode,
+				bytes: Cow::Borrowed(source.snapshot().entry_bytes(index).ok_or(
+					Error::Snapshot(crate::directory::Error::InvalidHardlinkRelation),
+				)?),
 			},
 			Content::Symlink { target } => Content::Symlink {
 				target: Cow::Borrowed(target),

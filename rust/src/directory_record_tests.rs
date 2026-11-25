@@ -26,18 +26,22 @@ fn identity_from_views(snapshot: &Snapshot<'_>) -> [u8; 32] {
 	let mut hash = blake3::Hasher::new();
 	hash.update(b"DIFZTREE-ID\x02");
 	hash.update(&(entries.len() as u32).to_le_bytes());
-	for Entry {
-		path,
-		content,
-		metadata,
-	} in entries
+	for (
+		index,
+		Entry {
+			path,
+			content,
+			metadata,
+		},
+	) in entries.iter().enumerate()
 	{
 		hash.update(&[content.kind_tag()]);
 		hash.update(&content.mode().bits().to_le_bytes());
 		hash.update(&(path.len() as u32).to_le_bytes());
 		hash.update(path);
-		hash.update(&(content.bytes().len() as u64).to_le_bytes());
-		hash.update(content.bytes());
+		let bytes = snapshot.entry_bytes(index).unwrap();
+		hash.update(&(bytes.len() as u64).to_le_bytes());
+		hash.update(bytes);
 		hash.update(&metadata.hash());
 	}
 	if !root.metadata().is_empty() {
@@ -118,11 +122,11 @@ fn snapshot_record_views_match_native_kinds_bytes_modes_and_metadata_identity() 
 		mode: Mode::from_bits(0o600).unwrap(),
 		bytes: Cow::Owned(owned),
 	};
-	assert_eq!(content.bytes().as_ptr(), pointer);
-	assert_eq!(content.bytes(), [0, 255, 42]);
+	assert_eq!(content.bytes().unwrap().as_ptr(), pointer);
+	assert_eq!(content.bytes().unwrap(), [0, 255, 42]);
 	let borrowed = b"target";
 	let content = Content::Symlink {
 		target: Cow::Borrowed(borrowed),
 	};
-	assert_eq!(content.bytes().as_ptr(), borrowed.as_ptr());
+	assert_eq!(content.bytes().unwrap().as_ptr(), borrowed.as_ptr());
 }

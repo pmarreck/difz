@@ -28,12 +28,26 @@ pub fn apply<'a>(
 		patch: patch_limits,
 		max_output_bytes,
 	} = limits;
+	apply_decoded(
+		source,
+		ParsedPatch::decode(patch, patch_limits)?,
+		max_output_bytes,
+	)
+}
+
+/// Consume already validated descriptors without decoding or hashing the patch
+/// a second time. Filesystem adapters inspect the stored rules before capture.
+pub fn apply_decoded<'a>(
+	source: &'a CanonicalSnapshot<'_>,
+	parsed: ParsedPatch<'a>,
+	max_output_bytes: u64,
+) -> Result<CanonicalSnapshot<'a>, Error> {
 	let ParsedPatch {
 		header,
 		rules: _,
 		entries: encoded,
 		root,
-	} = ParsedPatch::decode(patch, patch_limits)?;
+	} = parsed;
 	let projected;
 	let masked = if header.omit.bits() == 0 {
 		source
@@ -76,13 +90,19 @@ pub fn apply<'a>(
 			Operation::FileCopy | Operation::FileDelta => {
 				let index =
 					find_path(&source.snapshot().entries, path).ok_or(Error::MissingSourceEntry)?;
-				let Content::File { mode: _, bytes } = &source.snapshot().entries[index].content
-				else {
-					return Err(Error::SourceKindMismatch);
+				let bytes = match &source.snapshot().entries[index].content {
+					Content::File { mode: _, bytes: _ }
+					| Content::FileAlias { mode: _, target: _ } => source
+						.snapshot()
+						.entry_bytes(index)
+						.ok_or(Error::SourceKindMismatch)?,
+					Content::Directory { mode: _ } | Content::Symlink { target: _ } => {
+						return Err(Error::SourceKindMismatch);
+					}
 				};
 				let bytes = if operation == Operation::FileCopy {
 					account(&mut remaining, bytes.len())?;
-					Cow::Borrowed(bytes.as_ref())
+					Cow::Borrowed(bytes)
 				} else {
 					let bytes = delta(bytes, payload, remaining)?;
 					account(&mut remaining, bytes.len())?;
@@ -106,19 +126,10 @@ pub fn apply<'a>(
 					));
 				};
 				account(&mut remaining, bytes.len())?;
-				let bytes = match bytes {
-					Cow::Borrowed(bytes) => Cow::Borrowed(*bytes),
-					Cow::Owned(bytes) => {
-						// A returned snapshot cannot borrow another entry's owned Vec.
-						// Keep ownership explicit and fallible until shared buffers are qualified.
-						let mut copy = Vec::new();
-						copy.try_reserve_exact(bytes.len())
-							.map_err(|_| Error::OutOfMemory)?;
-						copy.extend_from_slice(bytes);
-						Cow::Owned(copy)
-					}
-				};
-				Content::File { mode, bytes }
+				Content::FileAlias {
+					mode,
+					target: index,
+				}
 			}
 		};
 		entries.push(Entry {

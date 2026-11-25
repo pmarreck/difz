@@ -5,6 +5,68 @@ use crate::metadata::{
 };
 use alloc::borrow::Cow;
 
+#[test]
+fn hardlink_aliases_require_the_exact_earlier_file_and_share_owned_bytes_after_vector_growth() {
+	let expected = CanonicalSnapshot::new(fixture(1)).unwrap().hash();
+	for target in [0, 1, 2, 3, 4, usize::MAX] {
+		let mut raw = fixture(1);
+		raw.entries[3].content = Content::FileAlias {
+			mode: Mode::from_bits(0o644).unwrap(),
+			target,
+		};
+		let result = CanonicalSnapshot::new(raw);
+		if target == 1 {
+			assert_eq!(result.unwrap().hash(), expected);
+		} else {
+			assert_eq!(result, Err(Error::InvalidHardlinkRelation));
+		}
+	}
+	let mut raw = fixture(1);
+	let bytes = vec![0, 0, b'X', 0];
+	let pointer = bytes.as_ptr();
+	raw.entries[1].content = Content::File {
+		mode: Mode::from_bits(0o644).unwrap(),
+		bytes: Cow::Owned(bytes),
+	};
+	let canonical = CanonicalSnapshot::new(raw).unwrap();
+	assert!(matches!(
+		canonical.snapshot().entries[3].content,
+		Content::FileAlias { target: 1, .. }
+	));
+	let mut raw = canonical.into_snapshot();
+	raw.entries.reserve(10_000);
+	let canonical = CanonicalSnapshot::new(raw).unwrap();
+	assert_eq!(canonical.hash(), expected);
+	for index in [1, 3] {
+		assert_eq!(
+			canonical.snapshot().entry_bytes(index).unwrap().as_ptr(),
+			pointer
+		);
+	}
+	assert_eq!(canonical.snapshot().entries[3].content.bytes(), None);
+	let mut raw = canonical.into_snapshot();
+	change_meta(&mut raw.entries[3], |value| value.hardlink_to = None);
+	assert_eq!(
+		CanonicalSnapshot::new(raw),
+		Err(Error::InvalidHardlinkRelation)
+	);
+	let mut raw = fixture(1);
+	raw.entries[2].content = Content::FileAlias {
+		mode: Mode::from_bits(0o644).unwrap(),
+		target: 1,
+	};
+	raw.entries[2].metadata = file_meta(Some(b"a/base"));
+	raw.entries[3].content = Content::FileAlias {
+		mode: Mode::from_bits(0o644).unwrap(),
+		target: 2,
+	};
+	raw.entries[3].metadata = file_meta(Some(b"a/link"));
+	assert_eq!(
+		CanonicalSnapshot::new(raw),
+		Err(Error::InvalidHardlinkRelation)
+	);
+}
+
 fn file_meta(link: Option<&'static [u8]>) -> CanonicalMetadata<'static> {
 	CanonicalMetadata::new(Metadata {
 		xattrs: vec![Xattr {
@@ -303,11 +365,8 @@ fn canonical_snapshot_identity_preserves_borrows_and_binds_root_and_hardlink_pre
 			..
 		}
 	));
-	let pointer = baseline.snapshot().entries[1].content.bytes().as_ptr();
+	let pointer = baseline.snapshot().entry_bytes(1).unwrap().as_ptr();
 	let raw = baseline.into_snapshot();
 	let again = CanonicalSnapshot::new(raw).unwrap();
-	assert_eq!(
-		again.snapshot().entries[1].content.bytes().as_ptr(),
-		pointer
-	);
+	assert_eq!(again.snapshot().entry_bytes(1).unwrap().as_ptr(), pointer);
 }

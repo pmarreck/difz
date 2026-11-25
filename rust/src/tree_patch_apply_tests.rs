@@ -6,7 +6,7 @@ use crate::{
 	tree_patch::{CreateOptions, create, encode::tests::fixture},
 };
 use alloc::borrow::Cow;
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::{format, string::String, vec};
 
 fn native_error(error: Error) -> String {
 	match error {
@@ -165,17 +165,26 @@ fn apply_borrows_inputs_and_bounds_delta_before_decompression() {
 			Content::File { mode: _, bytes } | Content::Symlink { target: bytes } => {
 				assert!(matches!(bytes, Cow::Borrowed(_)))
 			}
-			Content::Directory { mode: _ } => panic!("fixture must contain file/symlink bytes"),
+			Content::Directory { mode: _ } | Content::FileAlias { mode: _, target: _ } => {
+				panic!("fixture must contain file/symlink bytes")
+			}
 		}
 	}
 	assert_eq!(
-		rows[4].content.bytes().as_ptr(),
-		source.snapshot().entries[3].content.bytes().as_ptr()
+		output.snapshot().entry_bytes(4).unwrap().as_ptr(),
+		source.snapshot().entry_bytes(3).unwrap().as_ptr()
 	);
-	assert_eq!(rows[1].content.bytes(), rows[5].content.bytes());
-	assert_ne!(
-		rows[1].content.bytes().as_ptr(),
-		rows[5].content.bytes().as_ptr()
+	assert_eq!(
+		output.snapshot().entry_bytes(1),
+		output.snapshot().entry_bytes(5)
+	);
+	assert!(matches!(
+		rows[5].content,
+		Content::FileAlias { target: 1, .. }
+	));
+	assert_eq!(
+		output.snapshot().entry_bytes(1).unwrap().as_ptr(),
+		output.snapshot().entry_bytes(5).unwrap().as_ptr()
 	);
 	let parsed = crate::tree_patch::ParsedPatch::decode(&bytes, Limits::default()).unwrap();
 	let offset = parsed.entries()[1].payload().as_ptr() as usize - bytes.as_ptr() as usize;

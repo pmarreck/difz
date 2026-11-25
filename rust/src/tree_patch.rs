@@ -172,4 +172,4 @@ mod encode;
 pub use encode::{CreateOptions, create};
 #[path = "tree_patch_apply.rs"]
 mod apply;
-pub use apply::{ApplyLimits, apply};
+pub use apply::{ApplyLimits, apply, apply_decoded};

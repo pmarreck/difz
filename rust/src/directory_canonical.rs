@@ -9,7 +9,7 @@ pub struct CanonicalSnapshot<'a>(Snapshot<'a>);
 impl<'a> CanonicalSnapshot<'a> {
 	/// Expected O(n log n) path comparisons plus scanned path, extent and shared
 	/// file/metadata bytes. Validation and hashing allocate no additional storage.
-	pub fn new(snapshot: Snapshot<'a>) -> Result<Self, Error> {
+	pub fn new(mut snapshot: Snapshot<'a>) -> Result<Self, Error> {
 		let Snapshot { entries, root } = &snapshot;
 		structure::validate(entries)?;
 		for (
@@ -21,9 +21,26 @@ impl<'a> CanonicalSnapshot<'a> {
 			},
 		) in entries.iter().enumerate()
 		{
+			if let Content::FileAlias { target, mode: _ } = content {
+				if metadata
+					.metadata()
+					.hardlink_to
+					.as_ref()
+					.and_then(|path| find_path(&entries[..index], path))
+					!= Some(*target)
+				{
+					return Err(Error::InvalidHardlinkRelation);
+				}
+			}
 			for hole in &metadata.metadata().holes {
-				let Content::File { mode: _, bytes } = content else {
-					return Err(Error::InvalidSparseExtent);
+				let bytes = match content {
+					Content::File { mode: _, bytes } => bytes.as_ref(),
+					Content::FileAlias { mode: _, target: _ } => snapshot
+						.entry_bytes(index)
+						.ok_or(Error::InvalidHardlinkRelation)?,
+					Content::Directory { mode: _ } | Content::Symlink { target: _ } => {
+						return Err(Error::InvalidSparseExtent);
+					}
 				};
 				let length = bytes.len() as u64;
 				if hole.offset > length || hole.length > length - hole.offset {
@@ -36,8 +53,17 @@ impl<'a> CanonicalSnapshot<'a> {
 				}
 			}
 			if let Some(path) = &metadata.metadata().hardlink_to {
-				let Content::File { mode, bytes } = content else {
-					return Err(Error::InvalidHardlinkRelation);
+				let (mode, bytes) = match content {
+					Content::File { mode, bytes } => (mode, bytes.as_ref()),
+					Content::FileAlias { mode, target: _ } => (
+						mode,
+						snapshot
+							.entry_bytes(index)
+							.ok_or(Error::InvalidHardlinkRelation)?,
+					),
+					Content::Directory { mode: _ } | Content::Symlink { target: _ } => {
+						return Err(Error::InvalidHardlinkRelation);
+					}
 				};
 				let target =
 					find_path(&entries[..index], path).ok_or(Error::InvalidHardlinkRelation)?;
@@ -51,7 +77,7 @@ impl<'a> CanonicalSnapshot<'a> {
 				};
 				if target.metadata.metadata().hardlink_to.is_some()
 					|| mode != target_mode
-					|| bytes != target_bytes
+					|| bytes != target_bytes.as_ref()
 					|| !shared_metadata_equal(metadata.metadata(), target.metadata.metadata())
 				{
 					return Err(Error::InvalidHardlinkRelation);
@@ -63,6 +89,18 @@ impl<'a> CanonicalSnapshot<'a> {
 		}
 		if root.metadata().hardlink_to.is_some() {
 			return Err(Error::InvalidHardlinkRelation);
+		}
+		// Normalize every validated hardlink to one earlier canonical buffer.
+		// Drop duplicate owned payloads instead of requiring reference counts or
+		// borrowing another entry's movable Vec. All indices are already proven.
+		for index in 0..snapshot.entries.len() {
+			let entry = &snapshot.entries[index];
+			if let Some(path) = &entry.metadata.metadata().hardlink_to {
+				let target = find_path(&snapshot.entries[..index], path)
+					.ok_or(Error::InvalidHardlinkRelation)?;
+				let mode = entry.content.mode();
+				snapshot.entries[index].content = Content::FileAlias { mode, target };
+			}
 		}
 		Ok(Self(snapshot))
 	}
@@ -77,18 +115,22 @@ impl<'a> CanonicalSnapshot<'a> {
 		let mut hash = blake3::Hasher::new();
 		hash.update(b"DIFZTREE-ID\x02");
 		hash.update(&(entries.len() as u32).to_le_bytes());
-		for Entry {
-			path,
-			content,
-			metadata,
-		} in entries
+		for (
+			index,
+			Entry {
+				path,
+				content,
+				metadata,
+			},
+		) in entries.iter().enumerate()
 		{
 			hash.update(&[content.kind_tag()]);
 			hash.update(&content.mode().bits().to_le_bytes());
 			hash.update(&(path.len() as u32).to_le_bytes());
 			hash.update(path);
-			hash.update(&(content.bytes().len() as u64).to_le_bytes());
-			hash.update(content.bytes());
+			let bytes = self.0.entry_bytes(index).expect("validated entry bytes");
+			hash.update(&(bytes.len() as u64).to_le_bytes());
+			hash.update(bytes);
 			hash.update(&metadata.hash());
 		}
 		if !root.metadata().is_empty() {

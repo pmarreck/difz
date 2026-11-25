@@ -20,29 +20,47 @@ impl Mode {
 /// expose mode 0777; file and directory modes carry only portable bits.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Content<'a> {
-	Directory { mode: Mode },
-	File { mode: Mode, bytes: Cow<'a, [u8]> },
-	Symlink { target: Cow<'a, [u8]> },
+	Directory {
+		mode: Mode,
+	},
+	File {
+		mode: Mode,
+		bytes: Cow<'a, [u8]>,
+	},
+	/// An earlier canonical file owns the bytes. Indices survive entry-vector
+	/// growth without self-references or another allocation per hardlink.
+	FileAlias {
+		mode: Mode,
+		target: usize,
+	},
+	Symlink {
+		target: Cow<'a, [u8]>,
+	},
 }
 impl Content<'_> {
 	pub const fn kind_tag(&self) -> u8 {
 		match self {
 			Self::Directory { mode: _ } => 1,
 			Self::File { mode: _, bytes: _ } => 2,
+			Self::FileAlias { mode: _, target: _ } => 2,
 			Self::Symlink { target: _ } => 3,
 		}
 	}
 	pub const fn mode(&self) -> Mode {
 		match self {
-			Self::Directory { mode } | Self::File { mode, bytes: _ } => *mode,
+			Self::Directory { mode }
+			| Self::File { mode, bytes: _ }
+			| Self::FileAlias { mode, target: _ } => *mode,
 			Self::Symlink { target: _ } => Mode(0o777),
 		}
 	}
-	pub fn bytes(&self) -> &[u8] {
+	/// Direct bytes, or None when an alias requires the containing snapshot.
+	pub fn bytes(&self) -> Option<&[u8]> {
 		match self {
-			Self::Directory { mode: _ } => &[],
-			Self::File { mode: _, bytes } => bytes,
-			Self::Symlink { target } => target,
+			Self::Directory { mode: _ } => Some(&[]),
+			Self::File { mode: _, bytes } => Some(bytes),
+			Self::Symlink { target } => Some(target),
+			Self::FileAlias { mode: _, target: _ } => None,
 		}
 	}
 }
@@ -59,4 +77,24 @@ pub struct Entry<'a> {
 pub struct Snapshot<'a> {
 	pub entries: Vec<Entry<'a>>,
 	pub root: CanonicalMetadata<'a>,
+}
+impl Snapshot<'_> {
+	/// Resolve one earlier-file alias. Invalid indices or chains return None;
+	/// CanonicalSnapshot additionally validates the path and shared metadata.
+	pub fn entry_bytes(&self, index: usize) -> Option<&[u8]> {
+		match &self.entries.get(index)?.content {
+			Content::FileAlias { target, mode: _ } => {
+				if *target >= index {
+					return None;
+				}
+				match &self.entries.get(*target)?.content {
+					Content::File { bytes, mode: _ } => Some(bytes),
+					Content::Directory { mode: _ }
+					| Content::Symlink { target: _ }
+					| Content::FileAlias { mode: _, target: _ } => None,
+				}
+			}
+			content => content.bytes(),
+		}
+	}
 }

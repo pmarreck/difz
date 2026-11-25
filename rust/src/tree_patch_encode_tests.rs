@@ -272,13 +272,21 @@ fn kind_changes_and_source_root_identity_match_native() {
 fn encoding_limits_precede_output_growth_and_projection_borrows_file_data() {
 	let snapshot = fixture(true);
 	let projected = project(&snapshot, Omit::from_bits(1).unwrap()).unwrap();
-	for (old, new) in snapshot
+	assert_eq!(
+		snapshot.snapshot().entries.len(),
+		projected.snapshot().entries.len()
+	);
+	for (index, (_old, new)) in snapshot
 		.snapshot()
 		.entries
 		.iter()
 		.zip(&projected.snapshot().entries)
+		.enumerate()
 	{
-		assert_eq!(old.content.bytes().as_ptr(), new.content.bytes().as_ptr());
+		assert_eq!(
+			snapshot.snapshot().entry_bytes(index).unwrap().as_ptr(),
+			projected.snapshot().entry_bytes(index).unwrap().as_ptr()
+		);
 		assert!(matches!(new.path, Cow::Borrowed(_)));
 	}
 	let empty = CanonicalSnapshot::default();
