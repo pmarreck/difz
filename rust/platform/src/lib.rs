@@ -189,6 +189,8 @@ pub mod linux_times;
 pub mod linux_transport;
 #[cfg(target_os = "linux")]
 pub mod linux_tree_capture;
+#[cfg(target_os = "linux")]
+pub mod linux_tree_write;
 #[cfg(test)]
 mod names_tests;
 pub mod sparse;
