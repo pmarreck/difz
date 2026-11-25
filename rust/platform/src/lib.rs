@@ -170,6 +170,8 @@ pub mod linux_capture;
 #[cfg(target_os = "linux")]
 pub mod linux_metadata;
 #[cfg(target_os = "linux")]
+pub mod linux_snapshot_metadata;
+#[cfg(target_os = "linux")]
 pub mod linux_times;
 #[cfg(target_os = "linux")]
 pub mod linux_transport;
