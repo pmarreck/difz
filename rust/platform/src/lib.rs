@@ -185,6 +185,8 @@ pub mod linux_symlink_capture;
 pub mod linux_times;
 #[cfg(target_os = "linux")]
 pub mod linux_transport;
+#[cfg(target_os = "linux")]
+pub mod linux_tree_capture;
 #[cfg(test)]
 mod names_tests;
 pub mod sparse;
