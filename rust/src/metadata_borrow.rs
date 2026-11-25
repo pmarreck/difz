@@ -2,6 +2,63 @@ use super::{Ace, CanonicalMetadata, Error, Family, Metadata, NativeAcl, Omit, Ti
 use alloc::{borrow::Cow, vec::Vec};
 
 impl CanonicalMetadata<'_> {
+	/// Detach from transport storage in linear retained-byte work. Existing
+	/// owned byte buffers and extent storage move without copying. Descriptor
+	/// vectors are rebuilt because their byte-field lifetimes change.
+	pub fn into_owned(self) -> Result<CanonicalMetadata<'static>, Error> {
+		let Metadata {
+			xattrs,
+			aces,
+			native_acl,
+			times,
+			finder_flags,
+			finder_info,
+			holes,
+			hardlink_to,
+		} = self.into_metadata();
+		let mut attributes = Vec::new();
+		reserve(&mut attributes, xattrs.len())?;
+		for Xattr { class, name, value } in xattrs {
+			attributes.push(Xattr {
+				class,
+				name: owned(name)?,
+				value: owned(value)?,
+			});
+		}
+		let mut entries = Vec::new();
+		reserve(&mut entries, aces.len())?;
+		for Ace {
+			tag,
+			permissions,
+			name,
+		} in aces
+		{
+			entries.push(Ace {
+				tag,
+				permissions,
+				name: owned(name)?,
+			});
+		}
+		let native_acl = match native_acl {
+			Some(NativeAcl { origin, bytes }) => Some(NativeAcl {
+				origin,
+				bytes: owned(bytes)?,
+			}),
+			None => None,
+		};
+		let hardlink_to = hardlink_to.map(owned).transpose()?;
+		CanonicalMetadata::new(Metadata {
+			xattrs: attributes,
+			aces: entries,
+			native_acl,
+			times,
+			finder_flags,
+			finder_info,
+			holes,
+			hardlink_to,
+		})
+	}
+
 	/// Copy retained descriptors while borrowing their byte buffers. Omission
 	/// precedes allocation; canonical ordering is preserved without sorting.
 	pub fn borrowing_omitting(&self, omit: Omit) -> Result<CanonicalMetadata<'_>, Error> {
@@ -86,6 +143,17 @@ impl CanonicalMetadata<'_> {
 			}
 		}
 		CanonicalMetadata::new(value)
+	}
+}
+fn owned(bytes: Cow<'_, [u8]>) -> Result<Cow<'static, [u8]>, Error> {
+	match bytes {
+		Cow::Owned(bytes) => Ok(Cow::Owned(bytes)),
+		Cow::Borrowed(bytes) => {
+			let mut output = Vec::new();
+			reserve(&mut output, bytes.len())?;
+			output.extend_from_slice(bytes);
+			Ok(Cow::Owned(output))
+		}
 	}
 }
 fn reserve<T>(values: &mut Vec<T>, length: usize) -> Result<(), Error> {

@@ -2,6 +2,53 @@ use super::{Reference, compare};
 use crate::metadata::*;
 use alloc::borrow::Cow;
 
+#[test]
+fn detached_metadata_keeps_identity_after_transport_release_and_moves_owned_buffers() {
+	let mut reference = Reference::start();
+	for selector in 0..32 {
+		let (wire, original) = match (
+			reference.call(12, &[selector]),
+			CanonicalMetadata::new(fixture(selector).unwrap()),
+		) {
+			(Ok(wire), Ok(original)) => (wire, original),
+			(Err(_), Err(_)) => continue,
+			other => panic!("native fixture validity differs: selector={selector}, {other:?}"),
+		};
+		let expected = original.hash();
+		let detached = {
+			let transport = wire.clone();
+			CanonicalMetadata::decode(&transport)
+				.unwrap()
+				.into_owned()
+				.unwrap()
+		};
+		assert_eq!(detached.hash(), expected);
+		assert_eq!(detached.encode().unwrap(), wire);
+		assert_eq!(detached, original);
+		for attribute in &detached.metadata().xattrs {
+			assert!(matches!(attribute.name, Cow::Owned(_)));
+			assert!(matches!(attribute.value, Cow::Owned(_)));
+		}
+		for ace in &detached.metadata().aces {
+			assert!(matches!(ace.name, Cow::Owned(_)));
+		}
+		if let Some(acl) = &detached.metadata().native_acl {
+			assert!(matches!(acl.bytes, Cow::Owned(_)));
+		}
+		if let Some(path) = &detached.metadata().hardlink_to {
+			assert!(matches!(path, Cow::Owned(_)));
+		}
+	}
+	let mut raw = fixture(1).unwrap();
+	raw.xattrs[0].value = Cow::Owned(vec![0, 255, 42]);
+	let pointer = raw.xattrs[0].value.as_ptr();
+	let value = CanonicalMetadata::normalize(raw, Omit::default())
+		.unwrap()
+		.into_owned()
+		.unwrap();
+	assert_eq!(value.metadata().xattrs[0].value.as_ptr(), pointer);
+}
+
 fn fixture(selector: u8) -> Result<Metadata<'static>, Error> {
 	if selector > 31 {
 		return Err(Error::BadMetadata);

@@ -65,7 +65,7 @@ pkgs.rustPlatform.buildRustPackage {
 		mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
 		chmod 700 "$XDG_RUNTIME_DIR"
 		test_count=$("$test_binary" --list | grep -c ': test$')
-		test "$test_count" -ge 62
+		test "$test_count" -ge 63
 		# Include the reference children in a bounded process group if IPC stalls.
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$test_binary" --test-threads=1 --include-ignored
 		consumer_test_count=$("$consumer_tests" --list | grep -c ': test$')
@@ -82,7 +82,7 @@ pkgs.rustPlatform.buildRustPackage {
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$c_api_tests" --test-threads=1 --include-ignored
 		platform_test_count=$("$platform_tests" --list | grep -c ': test$')
 		test "$platform_test_count" -ge ${if pkgs.stdenv.hostPlatform.isLinux then "49" else "26"}
-		# Nix can reject xattr writes. These fifteen OS fixtures are required by
+		# Nix can reject xattr writes. These 15 OS fixtures are required by
 		# the confined host phase of ./test, using this exact prepared binary.
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 30s "$platform_tests" --test-threads=1 --include-ignored --skip ::native_
 		if CARGO_TARGET_DIR="$TMPDIR/c-api-abort" cargo rustc --locked --offline --release -p difz-c-api --lib -- -C panic=abort > "$TMPDIR/c-api-abort-log" 2>&1; then
