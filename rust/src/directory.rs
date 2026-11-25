@@ -95,6 +95,10 @@ mod tests;
 mod record;
 pub use record::{Content, Entry, Mode, Snapshot};
 
+#[path = "directory_select.rs"]
+mod select;
+pub use select::Error as SelectionError;
+
 #[cfg(test)]
 #[path = "directory_record_tests.rs"]
 mod record_tests;
