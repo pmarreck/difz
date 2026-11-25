@@ -51,4 +51,6 @@ if ! run_suite cross-apply env DIFZ="$prefix/bin/difz" bash tests/integration/te
 if ! run_suite rust-ffi env DIFZ_RUST_CALLER="$prefix/bin/difz-rust-caller" bash tests/ffi/test_rust_lib.bash; then errors=$((errors + 1)); fi
 if ! run_suite growth-registry bash tests/benchmark/test-rust-growth-registry.bash "$prefix/bin/difz-core-consumer"; then errors=$((errors + 1)); fi
 if ! run_suite rust-growth luajit tests/benchmark/rust-file-growth.lua "$prefix/bin/difz-core-consumer"; then errors=$((errors + 1)); fi
+if ! run_suite structure-growth-registry bash tests/benchmark/test-rust-structure-registry.bash "$prefix/bin/difz-core-consumer"; then errors=$((errors + 1)); fi
+if ! run_suite structure-growth luajit tests/benchmark/rust-structure-growth.lua "$prefix/bin/difz-core-consumer"; then errors=$((errors + 1)); fi
 exit "$errors"

@@ -1,0 +1,16 @@
+[package]
+name = "difz-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+publish = false
+
+# A separately built public ABI consumer, outside the producer's workspace.
+[workspace]
+
+[dependencies]
+libc = "=0.2.191"
+
+[[bin]]
+name = "difz"
+path = "src/main.rs"

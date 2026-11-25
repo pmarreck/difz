@@ -1425,3 +1425,51 @@ verifying available Windows routes. The project agent must then qualify native
 test confinement before running filesystem/ABI/CLI acceptance there. These
 specific dependencies hold native claims and remote waves; they do not block
 independent Linux implementation or portable core work.
+
+### Unpublished Linux product and review checkpoint (2026-11-19)
+
+The Linux Rust candidate now covers complete tree capture, staged restoration,
+directory patch create/apply, atomic patch-file publication, the public C ABI
+and the CLI. It retains static zstdz and single-threaded source-prefix frames.
+The original production route remains selected while qualification is pending.
+
+The confined host passes all 79 platform cases, including 29 mandatory native
+fixtures, and all 92 original CLI cases. A scoped safety review found and fixed
+parent-local drive-prefix component rejection, inherited native ACLs hidden by
+foreign transports, and inherited ACL restrictions on private staging owner
+permissions. The regression binaries reproduce both ACL defects; direct kernel
+readback verifies the corrections. See CODE_REVIEW.md for scope and limits.
+
+The Rust frontend is a separate Cargo workspace. It builds only from frontend
+sources and generated installed-header bindings, and links the packaged public
+ABI. The production library depends on the reusable static zstdz SDK rather
+than test/oracle packages. Complete products assemble the CLI, static archive,
+header and target metadata. Debug and release now have distinct library builds;
+both profiles have required external ABI consumer checks. The original CLI
+suite, byte-identical file/tree patches, cross-application, inspection output,
+compiled target identity and missing-export controls pass canonical Nix checks.
+These Linux results do not qualify foreign native targets.
+
+Compiled growth declarations cover metadata encode/decode/hash/normalization,
+flat directory validation, directory hashing, and tree-patch create/apply.
+Record-count and byte-count sweeps are separate. Tree-patch fixtures use fixed
+2 KiB edited files and compare complete patch bytes to the original CLI; apply
+checks original target identity and every reconstructed record. The shared
+sampler and engine retain their clock, interleaving and retry controls. Smaller
+structure workloads can calibrate up to 65,536 calls; the established file
+probe retains its 512-call cap. Correct, corrupted and skipped work controls,
+declaration mutations and both-domain routing checks pass. Fresh performance
+measurements have not run, so the growth-adoption item remains open.
+
+Both test and growth entry points retain their Nix outputs through queued host
+execution and refuse Linux execution without resource admission. Disposable
+adapter tests cover root lifetime, success/failure cleanup and absent admission.
+The required prepared-artifact controls still reject all 1,023 invalid sets and
+both three-path Rust consumer/CLI sets before execution.
+
+The complete suite still needs a conclusive fresh timing run under suitable
+admission. Earlier noisy file-growth attempts remain diagnostic and exhausted
+their automatic retry; no policy, baseline, epoch or required check was relaxed.
+Native macOS/Windows qualification, the complete build/publication migration
+and platform-specific restore work remain open. No unpublished candidate is
+represented as shipped or as a successful complete-suite run.

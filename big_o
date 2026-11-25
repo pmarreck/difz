@@ -2,7 +2,12 @@
 # Historical growth comparison; no implicit baseline approval.
 set -u
 cd "$(dirname "$0")" || exit 1
-prefix=$(nix build --no-update-lock-file --no-link --print-out-paths .#rust-core-tests) || exit 1
+roots=$(mktemp -d "${TMPDIR:-/tmp}/difz-growth-roots.XXXXXXXX") || exit 1
+trap 'rm -rf -- "$roots"' EXIT
+prefix=$(nix build --no-update-lock-file --out-link "$roots/result" --print-out-paths .#rust-core-tests) || exit 1
+if [[ ! -f "$prefix/bin/difz-core-consumer" || ! -x "$prefix/bin/difz-core-consumer" ]]; then
+	printf 'Prepared Rust growth probe required\n' >&2; exit 1
+fi
 export DIFZ_RUST_FILE_PROBE="$prefix/bin/difz-core-consumer"
 if [[ -z "${PERFORMANCE_HISTORY_URL:-}" ]]; then
 	history=${DIFZ_BENCH_HISTORY:-$HOME/.local/state/performance-history}
@@ -11,5 +16,10 @@ if [[ -z "${PERFORMANCE_HISTORY_URL:-}" ]]; then
 	export PERFORMANCE_HISTORY_URL="file://$history"
 fi
 command=(nix develop --no-update-lock-file -c bash tests/benchmark/run-rust-big-o "$@")
-if command -v build-budget >/dev/null 2>&1; then exec build-budget --project difz -- "${command[@]}"; fi
-exec "${command[@]}"
+if [ "$(uname -s)" = Linux ]; then
+	command -v build-budget >/dev/null 2>&1 || { printf 'INCOMPLETE growth execution: build-budget must be available on PATH.\n' >&2; exit 1; }
+	build-budget --project difz -- "${command[@]}"
+else
+	"${command[@]}"
+fi
+exit "$?"

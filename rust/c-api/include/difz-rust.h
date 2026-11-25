@@ -63,6 +63,13 @@ int32_t difz_directory_apply(const uint8_t *source, size_t source_len,
     const uint8_t *output_name, size_t output_name_len,
     uint64_t max_snapshot_bytes, uint64_t max_output_bytes, uint32_t *out_report);
 
+/* Atomically publish a new regular child, retaining private file permissions.
+ * Data is fully written and synced before no-replace rename; every preexisting
+ * destination kind is preserved. Inputs are borrowed and no buffer is returned.
+ * Current native support is Linux, matching the directory adapters above. */
+int32_t difz_new_file_publish(const uint8_t *parent, size_t parent_len,
+    const uint8_t *name, size_t name_len, const uint8_t *bytes, size_t length);
+
 /* Only handles returned by a successful call are valid. Data is immutable and
  * remains live until free; empty data is NULL. NULL handles may be queried or
  * freed. Free exactly once. Callers never supply an allocation size/capacity. */

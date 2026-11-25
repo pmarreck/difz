@@ -186,6 +186,7 @@ pub mod linux_tree_patch;
 pub mod linux_tree_write;
 #[cfg(test)]
 mod names_tests;
+pub mod new_file;
 pub mod sparse;
 pub mod stage;
 pub mod write;

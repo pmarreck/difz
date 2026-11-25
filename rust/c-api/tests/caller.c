@@ -82,6 +82,15 @@ static void apply_tree(const char *root, const uint8_t *patch, size_t length, co
     assert(report == 0);
 }
 static void directory_cases(const char *root) {
+	assert(difz_new_file_publish((const uint8_t *)root, strlen(root), (const uint8_t *)"new-file", 8, target, sizeof target) == DIFZ_OK);
+	assert(difz_new_file_publish((const uint8_t *)root, strlen(root), (const uint8_t *)"new-file", 8, source, sizeof source) == DIFZ_IO);
+	char new_path[4096]; joined(new_path, sizeof new_path, root, "new-file");
+	FILE *new_file = fopen(new_path, "rb"); assert(new_file);
+	uint8_t retained[32]; size_t retained_len = fread(retained, 1, sizeof retained, new_file);
+	assert(retained_len == sizeof target && memcmp(retained, target, sizeof target) == 0);
+	assert(feof(new_file) && !ferror(new_file) && fclose(new_file) == 0);
+	assert(difz_new_file_publish((const uint8_t *)root, strlen(root), (const uint8_t *)"../escape", 9, target, sizeof target) == DIFZ_ARGUMENT);
+	assert(difz_new_file_publish((const uint8_t *)root, strlen(root), (const uint8_t *)"invalid-file", 12, NULL, 1) == DIFZ_ARGUMENT);
     char from[4096], to[4096];
     joined(from, sizeof from, root, "tree-source"); joined(to, sizeof to, root, "tree-target");
     assert(mkdir(from, 0700) == 0 && mkdir(to, 0700) == 0);
@@ -130,6 +139,7 @@ static void directory_cases(const char *root) {
 #else
 static void directory_cases(const char *root) {
     (void)root;
+	assert(difz_new_file_publish(NULL, 0, NULL, 0, NULL, 0) == DIFZ_UNSUPPORTED);
     difz_buffer *sentinel = (difz_buffer *)(uintptr_t)1, *out = sentinel;
     uint32_t report = UINT32_MAX;
     assert(difz_directory_encode(NULL, 0, NULL, 0, NULL, 0, 0, 0, 0, &out) == DIFZ_UNSUPPORTED && out == sentinel);

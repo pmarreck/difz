@@ -4,7 +4,8 @@ set -u
 cd "$(dirname "$0")" || exit 1
 errors=0
 manifest=$(mktemp "${TMPDIR:-/tmp}/difz-test-build.XXXXXXXX") || exit 1
-trap 'rm -f -- "$manifest"' EXIT
+roots=$(mktemp -d "${TMPDIR:-/tmp}/difz-test-roots.XXXXXXXX") || { rm -f -- "$manifest"; exit 1; }
+trap 'rm -f -- "$manifest"; rm -rf -- "$roots"' EXIT
 clock_tick() {
 	if [ -r /proc/uptime ]; then
 		read -r uptime _ < /proc/uptime
@@ -24,7 +25,7 @@ started=$(clock_tick)
 printf 'Checking flake contracts and preparing all test artifacts through Nix...\n'
 if ! nix develop --no-update-lock-file -c bash tests/nix/test_flake_outputs.bash; then errors=$((errors + 1)); fi
 system=$(nix eval --impure --raw --expr builtins.currentSystem) || exit 1
-if nix build --no-update-lock-file --no-link --json -L \
+if nix build --no-update-lock-file --out-link "$roots/result" --json -L \
 	".#packages.${system}.host-tests" \
 	".#checks.${system}.test" \
 	".#checks.${system}.benchmark-contract" \
@@ -33,6 +34,9 @@ if nix build --no-update-lock-file --no-link --json -L \
 	".#checks.${system}.rust-ffi" \
 	".#checks.${system}.rust-core" \
 	".#checks.${system}.rust-abi" \
+	".#checks.${system}.rust-abi-debug" \
+	".#checks.${system}.rust-cli" \
+	".#checks.${system}.test-entry" \
 	".#checks.${system}.cross-apply" \
 	".#checks.${system}.windows-gnu" > "$manifest"; then
 	prepared=1
@@ -47,9 +51,14 @@ if [ "$prepared" -eq 1 ]; then
 		if length == 1 then .[0] else error("expected one prepared host-test output") end
 	' "$manifest") || exit 1
 	printf 'Running prepared host tests within the verified filesystem boundary...\n'
-	if [ "$(uname -s)" = Linux ] && command -v build-budget >/dev/null 2>&1; then
-		build-budget --project difz -- nix develop --no-update-lock-file -c bash tests/run-host-tests "$prefix"
-		status=$?
+	if [ "$(uname -s)" = Linux ]; then
+		if command -v build-budget >/dev/null 2>&1; then
+			build-budget --project difz -- nix develop --no-update-lock-file -c bash tests/run-host-tests "$prefix"
+			status=$?
+		else
+			printf 'INCOMPLETE host execution: build-budget must be available on PATH.\n' >&2
+			status=1
+		fi
 	else
 		nix develop --no-update-lock-file -c bash tests/run-host-tests "$prefix"
 		status=$?

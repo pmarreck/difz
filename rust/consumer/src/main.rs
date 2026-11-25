@@ -1,9 +1,24 @@
 #![forbid(unsafe_code)]
 
 mod measurement;
+mod structure_measurement;
 
 fn main() {
 	let args: Vec<String> = std::env::args().skip(1).collect();
+	if args.first().map(String::as_str) == Some("--structure-declarations") {
+		let declarations: Vec<_> = difz_core::growth::Operation::ALL
+			.iter()
+			.map(
+				|op| serde_json::json!({"operation":op.name(),"model":op.model(),"axis":op.axis().name(),"sizes":op.sizes()}),
+			)
+			.collect();
+		println!("{}", serde_json::to_string(&declarations).unwrap());
+		return;
+	}
+	if args.first().map(String::as_str) == Some("--measure-structure") {
+		structure_measurement::run(&args[1..]);
+		return;
+	}
 	if args.first().map(String::as_str) == Some("--native-parameters") {
 		println!("{}", include_str!(env!("DIFZ_NATIVE_PARAMS")));
 		return;

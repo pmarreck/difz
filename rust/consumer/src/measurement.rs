@@ -5,10 +5,8 @@ use std::{fs, hint::black_box, path::PathBuf, process::Command, time::Instant};
 
 const TARGET_SAMPLE_NS: u128 = 100_000_000;
 const MAX_ITERATIONS: usize = 512;
-fn calibrated_iterations(cpu_ns: u128) -> usize {
-	TARGET_SAMPLE_NS
-		.div_ceil(cpu_ns)
-		.clamp(1, MAX_ITERATIONS as u128) as usize
+fn calibrated_iterations(cpu_ns: u128, maximum: usize) -> usize {
+	TARGET_SAMPLE_NS.div_ceil(cpu_ns).clamp(1, maximum as u128) as usize
 }
 
 fn random_seed_argument(seed: &str) -> String {
@@ -33,7 +31,7 @@ fn provider_bytes(seed: &str, length: usize) -> Vec<u8> {
 	random.stdout
 }
 
-fn seeded_bytes(seed: &str, length: usize) -> Vec<u8> {
+pub(super) fn seeded_bytes(seed: &str, length: usize) -> Vec<u8> {
 	provider_bytes(&random_seed_argument(seed), length)
 }
 
@@ -51,18 +49,18 @@ fn execute(op: Operation, source: &[u8], target: &[u8], patch: &[u8]) -> Vec<u8>
 	}
 }
 
-struct Samples {
-	iterations: usize,
-	wall: Vec<f64>,
-	cpu: Vec<f64>,
+pub(super) struct Samples {
+	pub(super) iterations: usize,
+	pub(super) wall: Vec<f64>,
+	pub(super) cpu: Vec<f64>,
 }
 
-trait Clock {
+pub(super) trait Clock {
 	type Start;
 	fn start(&mut self) -> Self::Start;
 	fn elapsed(&mut self, start: Self::Start) -> (u128, u128);
 }
-struct NativeClock;
+pub(super) struct NativeClock;
 impl Clock for NativeClock {
 	type Start = (ProcessTime, Instant);
 	fn start(&mut self) -> Self::Start {
@@ -75,17 +73,28 @@ impl Clock for NativeClock {
 		)
 	}
 }
-struct Sweep {
-	rows: Vec<Samples>,
-	order: Vec<usize>,
+pub(super) struct Sweep {
+	pub(super) rows: Vec<Samples>,
+	pub(super) order: Vec<usize>,
 }
-fn sample_rows<T>(
+pub(super) fn sample_rows<T>(
+	count: usize,
+	work: impl FnMut(usize) -> T,
+	verify: impl FnMut(usize, &T),
+	clock: &mut impl Clock,
+) -> Sweep {
+	// Preserve the file probe's established calibration and measurement cohort.
+	sample_rows_bounded(count, work, verify, clock, MAX_ITERATIONS)
+}
+pub(super) fn sample_rows_bounded<T>(
 	count: usize,
 	mut work: impl FnMut(usize) -> T,
 	mut verify: impl FnMut(usize, &T),
 	clock: &mut impl Clock,
+	maximum_iterations: usize,
 ) -> Sweep {
 	assert!((1..=16).contains(&count));
+	assert!((1..=65536).contains(&maximum_iterations));
 	let mut rows = Vec::new();
 	for row in 0..count {
 		for _ in 0..3 {
@@ -98,7 +107,7 @@ fn sample_rows<T>(
 		verify(row, &calibrated);
 		drop(calibrated);
 		rows.push(Samples {
-			iterations: calibrated_iterations(cpu),
+			iterations: calibrated_iterations(cpu, maximum_iterations),
 			wall: Vec::new(),
 			cpu: Vec::new(),
 		});
@@ -380,32 +389,34 @@ mod tests {
 	}
 	#[test]
 	fn calibration_meets_the_work_target_with_the_smallest_bounded_batch() {
-		for duration in [
-			1,
-			100,
-			100_000,
-			1_000_000,
-			13_000_000,
-			20_000_000,
-			70_000_000,
-			100_000_000,
-			100_000_001,
-			1_000_000_000,
-			30_000_000_000,
-		] {
-			let count = calibrated_iterations(duration);
-			assert!((1..=MAX_ITERATIONS).contains(&count));
-			if duration * (MAX_ITERATIONS as u128) < TARGET_SAMPLE_NS {
-				assert_eq!(count, MAX_ITERATIONS);
-			} else {
-				assert!(
-					(count as u128) * duration >= TARGET_SAMPLE_NS,
-					"insufficient work: duration={duration}, calls={count}"
-				);
-				assert!(
-					count == 1 || ((count - 1) as u128) * duration < TARGET_SAMPLE_NS,
-					"excess work: duration={duration}, calls={count}"
-				);
+		for maximum in [1, MAX_ITERATIONS, 65536] {
+			for duration in [
+				1,
+				100,
+				100_000,
+				1_000_000,
+				13_000_000,
+				20_000_000,
+				70_000_000,
+				100_000_000,
+				100_000_001,
+				1_000_000_000,
+				30_000_000_000,
+			] {
+				let count = calibrated_iterations(duration, maximum);
+				assert!((1..=maximum).contains(&count));
+				if duration * (maximum as u128) < TARGET_SAMPLE_NS {
+					assert_eq!(count, maximum);
+				} else {
+					assert!(
+						(count as u128) * duration >= TARGET_SAMPLE_NS,
+						"insufficient work: duration={duration}, calls={count}"
+					);
+					assert!(
+						count == 1 || ((count - 1) as u128) * duration < TARGET_SAMPLE_NS,
+						"excess work: duration={duration}, calls={count}"
+					);
+				}
 			}
 		}
 	}

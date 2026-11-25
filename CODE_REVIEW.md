@@ -1,4 +1,121 @@
-# difz upgrade-readiness review
+# Rust Linux port safety review
+
+Date: 2026-11-19. Reviewer: Codex, solo. Base revision: `7f621a7`; the
+unpublished filesystem series ends at tree `6cd1e02236ab920a12d65565902a55832f9faa40`.
+The working candidate additionally contains the Rust CLI, atomic file
+publication and the corrections below. This is a scoped review in progress,
+not whole-repository clearance or release authorization.
+
+The inspected contracts cover parent-local names versus full tree paths,
+descriptor-relative staging/publication, canonical metadata transport,
+ownership across the packaged C ABI, the independent CLI consumer, and the
+complete test entry point. Toolchain: Nix-selected Rust 1.94.1, edition 2024;
+zstdz remains statically linked and single-threaded. Native evidence here is
+Linux AMD64. Native macOS/Windows qualification remains blocked separately.
+
+## Current findings
+
+### DCR-001: Parent transport applies a tree-root rule to a basename
+
+Severity: Medium. Confidence: high. Evidence: reproduced; corrected in the
+working candidate and verified in the confined native platform suite.
+
+`rust/src/symlink_transport.rs::validate` rejected a parent-local name such as
+`C:link`, although `nested/C:link` is a valid tree path and the Linux adapter
+can create that entry. A link needing metadata transport therefore failed
+before publication. The old oracle has the same overly strict rule.
+
+The added regression initially failed specifically with `InvalidTransport`,
+while the other sixty-six core cases passed. The correction uses one shared
+`directory::validate_basename` helper in transport and filesystem code. Complete
+paths retain their drive-prefix rejection; NUL, traversal, separators, invalid
+UTF-8 and absolute-name controls remain. All fifty-two ASCII letter prefixes
+are checked against the documented wire rename of an independently generated
+native record. The old oracle's rejection stays explicit in the test rather
+than being silently treated as an equivalent implementation.
+
+Canonical Nix now passes sixty-seven core cases. The new native fixture checks
+link/data bytes, final tree identity and raw kernel transport bytes for this
+component. That fixture passes on the host kernel. Existing transport
+bytes remain unchanged. Older tools reject this newly supported sidecar-name
+case; no claim of interoperability with that old edge behavior is made.
+
+### DCR-002: Foreign ACL transport leaves inherited native permissions active
+
+Severity: High. Confidence: high. Evidence: reproduced with direct kernel
+readback; the correction passes Nix preparation and the native regression.
+A newly created staging file inherited a 44-byte Linux access ACL
+from its parent's default ACL. Restoring an unrepresentable foreign ACL
+preserved the requested canonical fields in transport, but left that unrelated
+native ACL active. Transport-aware canonical readback hid the extra ACL.
+
+Restoration now clears inherited native access and default ACLs on the owned
+stage before applying the requested ACL. Failure to clear them propagates.
+The original canonical transport assertions remain, and an independent
+`fgetxattr` assertion requires native absence rather than trusting transported
+readback. The failing reproduction and correction are retained in the native
+suite. The fixture proves the unwanted ACL remained installed; it does not
+claim an independently reproduced unauthorized-access exploit.
+
+### DCR-003: Parent ACL restricts private staging owner permissions
+
+Severity: Medium. Confidence: high. Evidence: reproduced on the host kernel;
+the correction passes Nix preparation and the updated native suite.
+An inherited default ACL caused the directory created with a requested `0700`
+mode to have actual mode `0400`, preventing creation of staged children.
+
+The owned file/directory creation helpers now restore `0600`/`0700` through
+their pinned descriptors. They do not chmod a pathname after inspection.
+The preserved earlier binary reproduces the directory failure; the updated
+fixture checks owner permissions and direct binary xattr readback for files
+under inherited defaults with both read-only and read/write owner bits.
+
+### Test runner artifact lifetime and admission
+
+The complete entry point now roots every prepared Nix output through host
+admission and execution, cleans only its invocation's roots, and refuses Linux
+execution without the admission helper. A disposable-project Nix check runs
+the real entry point with controlled external adapters, checking success,
+host failure, cleanup and absent admission. It also passes all 1,023 invalid
+artifact combinations, three invalid Rust ABI consumer paths and three invalid
+Rust CLI paths. Source closure and CI target discovery include this check.
+
+## Open investigations and limits
+
+- All seventy-nine updated platform cases pass on the confined host, including
+  twenty-nine required native fixtures. The packaged Rust CLI also passes all
+  ninety-two original cases there.
+- Seventeen filesystem source prefixes independently pass canonical Nix QA and
+  source contracts. The pre-review confined host passes all seventy-five
+  platform cases, including twenty-seven required native fixtures. A subsequent
+  review run passes all seventy-eight cases, including the parent-name and
+  foreign-ACL regressions. The Rust CLI
+  passes all ninety-two original cases both in Nix and on the confined host.
+  Release CLI patches match the original file/tree bytes, cross-apply in both
+  directions and produce the same inspection text on the acceptance fixtures.
+- Newly added review regressions need their native execution, and the complete
+  suite still needs conclusive timing qualification. A previous required growth
+  run remains inconclusive from shared-host variation. No limits, retries or
+  historical baselines were relaxed. Metadata/directory growth gates and native
+  target qualification remain adoption prerequisites.
+- This pass does not qualify hostile same-user filesystem mutation, a snapshot
+  atomic against concurrent writers, signed application bundles, foreign native
+  platforms, or every source/metadata size. Existing identity checks and bounds
+  are controls with stated limits, not proofs of universal race freedom.
+
+## Next checks
+
+Finish conclusive full-suite timing and the new metadata/directory growth
+measurements; qualify the remaining platform and build-publication gates.
+The production default has not switched to Rust.
+
+# Historical upgrade-readiness review
+
+The following dated report is retained as historical evidence, not as findings
+about the current Rust candidate. Its tracked history and a recovery copy remain
+available.
+
+## Original report
 
 Status note, 2026-10-08: the findings below describe the content-defined chunking engine and its BLIP, lz4, and z7z link surface. The file engine on this branch is a ZDIF v4 zstd level 9 prefix frame. The installed archive links pcre2 and zstd. The CDC, compressor-probe, and chunk-size findings do not apply to that engine. The review text is kept as the record of what was found.
 

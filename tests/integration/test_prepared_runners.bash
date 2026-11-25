@@ -52,4 +52,21 @@ for shape in missing directory non-executable; do
 		printf 'FAIL prepared Rust consumer classification %s\n' "$shape" >&2; exit 1
 	fi
 done
-printf 'PASS prepared runners reject %d invalid artifact sets and three invalid Rust paths without execution\n' "$((combinations - 1))"
+for shape in missing directory non-executable; do
+	prefix="$work/rust-cli-$shape"
+	mkdir -p "$prefix/bin" || exit 1
+	case "$shape" in
+		missing) :;;
+		directory) mkdir "$prefix/bin/difz-rust" || exit 1;;
+		non-executable) printf plain > "$prefix/bin/difz-rust" || exit 1;;
+	esac
+	bash "$root/tests/run-host-tests" "$prefix" > "$work/out" 2> "$work/err"
+	status=$?
+	if [ "$status" -eq 0 ] || [ -e "$record" ] || [ ! -s "$work/err" ]; then
+		printf 'FAIL prepared Rust CLI classification %s\n' "$shape" >&2; exit 1
+	fi
+	if ! grep -Fxq 'FAIL Nix-prepared Rust CLI artifact is missing: bin/difz-rust' "$work/err"; then
+		printf 'FAIL Rust CLI preflight did not reject before other checks: %s\n' "$shape" >&2; exit 1
+	fi
+done
+printf 'PASS prepared runners reject %d invalid artifact sets, three invalid Rust consumer paths and three invalid Rust CLI paths without execution\n' "$((combinations - 1))"

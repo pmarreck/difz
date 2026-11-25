@@ -9,6 +9,30 @@ pub struct Rule {
 }
 
 /// # Safety
+/// All borrowed byte regions satisfy difz-rust.h and remain live for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn difz_new_file_publish(
+	parent: *const u8,
+	parent_len: usize,
+	name: *const u8,
+	name_len: usize,
+	bytes: *const u8,
+	length: usize,
+) -> i32 {
+	guard(|| {
+		#[cfg(target_os = "linux")]
+		{
+			unsafe { linux::publish_file(parent, parent_len, name, name_len, bytes, length) }
+		}
+		#[cfg(not(target_os = "linux"))]
+		{
+			let _ = (parent, parent_len, name, name_len, bytes, length);
+			Err(Status::Unsupported)
+		}
+	})
+}
+
+/// # Safety
 /// Borrowed regions and the disjoint writable output satisfy difz-rust.h.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn difz_directory_encode(
@@ -152,6 +176,23 @@ mod linux {
 			},
 			..Limits::default()
 		}
+	}
+	pub unsafe fn publish_file(
+		parent: *const u8,
+		parent_len: usize,
+		name: *const u8,
+		name_len: usize,
+		bytes: *const u8,
+		length: usize,
+	) -> Result<(), Status> {
+		let parent = unsafe { path(parent, parent_len)? };
+		let name = unsafe { input(name, name_len)? };
+		let bytes = unsafe { input(bytes, length)? };
+		if name.is_empty() || name.contains(&0) || name.contains(&b'/') {
+			return Err(Status::Argument);
+		}
+		let parent = Directory::open(parent).map_err(Status::from)?;
+		difz_platform::new_file::publish(&parent, name, bytes).map_err(Status::from)
 	}
 	pub unsafe fn encode(
 		source: *const u8,

@@ -2,12 +2,19 @@
 # One resource-admitted runtime phase; no compilation or Nix calls inside it.
 set -u
 prefix=${1:-}
+if [ ! -f "$prefix/bin/difz-rust" ] || [ ! -x "$prefix/bin/difz-rust" ]; then
+	printf 'FAIL Nix-prepared Rust CLI artifact is missing: bin/difz-rust\n' >&2
+	exit 1
+fi
 errors=0
 if ! bash tests/integration/test_isolation.bash; then
 	printf 'FAIL preventive boundary qualification; refusing behavioral execution\n' >&2
 	exit 1
 fi
 if ! DIFZ_HOST_TESTS="$prefix" scripts/run-tests-isolated -- bash tests/run-prepared-host; then
+	errors=$((errors + 1))
+fi
+if ! scripts/run-tests-isolated -- env -u DIFZ_TEST_DIRECTORY_OMIT DIFZ="$prefix/bin/difz-rust" bash tests/cli/test_cli.bash; then
 	errors=$((errors + 1))
 fi
 exit "$errors"

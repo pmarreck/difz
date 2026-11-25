@@ -39,7 +39,7 @@
 				};
 				benchmarkSource = pkgs.lib.fileset.toSource {
 					root = ./.;
-					fileset = pkgs.lib.fileset.unions [ ./bm ./profiling.json ./README.md ./tests/benchmark ];
+					fileset = pkgs.lib.fileset.unions [ ./bm ./profiling.json ./profiling-rust-structure.json ./README.md ./tests/benchmark ];
 				};
 				crossApplySource = pkgs.lib.fileset.toSource {
 					root = ./.;
@@ -179,6 +179,9 @@
 				hostTests = pkgs.symlinkJoin {
 					name = "difz-host-tests";
 					paths = [ debugTests rustFfiTests rustCoreTests ];
+					postBuild = ''
+						ln -s ${rustProductDebug}/bin/difz "$out/bin/difz-rust"
+					'';
 				};
 				rustCodecTests = pkgs.rustPlatform.buildRustPackage {
 					pname = "difz-rust-codec-tests";
@@ -254,7 +257,24 @@
 				};
 				rustZstdzSdk = import ./rust/zstdz-sdk.nix { inherit pkgs; zstdz = zstdBenchmark; };
 				rustCoreTests = import ./rust/qa.nix { inherit pkgs metadataOracle; filesystemOracle = rustFfiTests; oracle = releaseFast; zstdz = zstdBenchmark; sdk = rustZstdzSdk; random = randomPackage; };
-				rustAbiConsumer = import ./rust/c-api-consumer.nix { inherit pkgs; library = rustCoreTests; oracle = releaseFast; };
+				rustLibrary = import ./rust/library.nix { inherit pkgs; sdk = rustZstdzSdk; };
+				rustLibraryDebug = import ./rust/library.nix { inherit pkgs; sdk = rustZstdzSdk; debug = true; };
+				rustAbiConsumer = import ./rust/c-api-consumer.nix { inherit pkgs; library = rustLibrary; oracle = releaseFast; };
+				rustAbiDebugConsumer = import ./rust/c-api-consumer.nix { inherit pkgs; library = rustLibraryDebug; oracle = releaseFast; };
+				rustCli = import ./rust/cli.nix { inherit pkgs; library = rustLibrary; };
+				rustCliDebug = import ./rust/cli.nix { inherit pkgs; library = rustLibraryDebug; debug = true; };
+				rustProduct = profile: frontend: library: pkgs.symlinkJoin {
+					name = "difz-rust-${profile}-0.1.0";
+					paths = [ frontend library ];
+					passthru = {
+						implementation = "rust";
+						inherit profile;
+						components = { cli = frontend; inherit library; };
+					};
+				};
+				rustProductRelease = rustProduct "release" rustCli rustLibrary;
+				rustProductDebug = rustProduct "debug" rustCliDebug rustLibraryDebug;
+				rustCliCheck = import ./rust/cli-check.nix { inherit pkgs; debugCli = rustProductDebug; releaseCli = rustProductRelease; oracle = releaseFast; };
 		in
 			{
 				packages.default = releaseFast;
@@ -263,7 +283,14 @@
 				packages.performance-benchmark = performancePackage;
 				packages.rust-codec-tests = rustCodecTests;
 				packages.rust-core-tests = rustCoreTests;
+				packages.rust-library = rustLibrary;
+				packages.rust-library-debug = rustLibraryDebug;
+				packages.rust-product = rustProductRelease;
+				packages.rust-product-debug = rustProductDebug;
 				packages.rust-abi-consumer = rustAbiConsumer;
+				packages.rust-abi-debug-consumer = rustAbiDebugConsumer;
+				packages.rust-cli = rustCli;
+				packages.rust-cli-debug = rustCliDebug;
 				packages.rust-zstdz-sdk = rustZstdzSdk;
 				packages.host-tests = hostTests;
 
@@ -272,6 +299,9 @@
 					test = debugTests;
 					rust-core = rustCoreTests;
 					rust-abi = rustAbiConsumer;
+					rust-abi-debug = rustAbiDebugConsumer;
+					rust-cli = rustCliCheck;
+					test-entry = import ./tests/nix/test-entry.nix { inherit pkgs; };
 					build-wrapper = pkgs.runCommand "difz-build-wrapper-check" {
 						src = buildWrapperSource;
 						nativeBuildInputs = with pkgs; [ bash coreutils gnugrep ];
@@ -343,7 +373,7 @@
 						{
 							src = benchmarkSource;
 							nativeBuildInputs = with pkgs; [
-								bash coreutils file gnugrep gnused gawk time jq hyperfine luajit randomPackage zstdBenchmark
+								bash coreutils file gnugrep gnused gawk time jq hyperfine profilingLua randomPackage zstdBenchmark
 							];
 							PERFORMANCE_PROCESS_MODULE = "${performancePackage}/share/performance-profile/src/process.lua";
 						} ''
@@ -354,6 +384,8 @@
 								RANDOM_BIN=${randomPackage}/bin/random \
 								GNU_TIME_BIN=${pkgs.time}/bin/time \
 								bash tests/benchmark/test_bm.bash
+							bash tests/benchmark/test-rust-structure-registry.bash ${rustCoreTests}/bin/difz-core-consumer
+							bash tests/benchmark/test-rust-growth-routing.bash
 							touch $out
 						'';
 				};

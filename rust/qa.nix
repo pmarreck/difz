@@ -70,7 +70,7 @@ pkgs.rustPlatform.buildRustPackage {
 		# Include the reference children in a bounded process group if IPC stalls.
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$test_binary" --test-threads=1 --include-ignored
 		consumer_test_count=$("$consumer_tests" --list | grep -c ': test$')
-		test "$consumer_test_count" -ge 5
+		test "$consumer_test_count" -ge 6
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$consumer_tests" --test-threads=1 --include-ignored
 		mkdir "$TMPDIR/c-api-files"
 		./c-api-consumer "$TMPDIR/c-api-files"
@@ -90,7 +90,7 @@ pkgs.rustPlatform.buildRustPackage {
 		test "$c_api_test_count" -ge 2
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$c_api_tests" --test-threads=1 --include-ignored
 		platform_test_count=$("$platform_tests" --list | grep -c ': test$')
-		test "$platform_test_count" -ge ${if pkgs.stdenv.hostPlatform.isLinux then "77" else "27"}
+		test "$platform_test_count" -ge ${if pkgs.stdenv.hostPlatform.isLinux then "79" else "29"}
 		# Nix can reject xattr writes. These twenty-nine OS fixtures are required by
 		# the confined host phase of ./test, using this exact prepared binary.
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 30s "$platform_tests" --test-threads=1 --include-ignored --skip ::native_
@@ -187,6 +187,8 @@ EOF
 		install -Dm755 "$platform_tests" "$out/bin/difz-platform-tests"
 		install -Dm644 "$c_api" "$out/lib/libdifz_rust.a"
 		install -Dm644 c-api/include/difz-rust.h "$out/include/difz-rust.h"
+		mkdir -p "$out/nix-support"
+		printf '%s\n' '${pkgs.stdenv.hostPlatform.rust.rustcTarget}' > "$out/nix-support/rust-target"
 		runHook postInstall
 	'';
 }

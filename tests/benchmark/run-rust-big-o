@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
 set -u
 luajit tests/benchmark/rust-file-growth.lua "${DIFZ_RUST_FILE_PROBE:?}" --coverage-only >&2 || exit 1
-exec performance-profile run --config profiling-rust-file.json "$@"
+luajit tests/benchmark/rust-structure-growth.lua "${DIFZ_RUST_FILE_PROBE:?}" --coverage-only >&2 || exit 1
+status=0
+for config in profiling-rust-file.json profiling-rust-structure.json; do
+	performance-profile run --config "$config" "$@"
+	current=$?
+	if [ "$current" -ne 0 ] && { [ "$status" -eq 0 ] || [ "$status" -eq 3 ]; }; then status=$current; fi
+done
+exit "$status"
