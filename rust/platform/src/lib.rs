@@ -157,5 +157,6 @@ pub mod linux_transport;
 #[cfg(test)]
 mod names_tests;
 pub mod sparse;
+pub mod write;
 #[cfg(target_os = "linux")]
 pub mod xattr;
