@@ -21,6 +21,11 @@ pub enum Error {
 	OutOfMemory,
 	LimitExceeded,
 	Metadata(difz_core::metadata::Error),
+	Transport(difz_core::symlink_transport::Error),
+	Snapshot(difz_core::directory::Error),
+	Filter(difz_core::path_filter::Error),
+	Selection(difz_core::directory::SelectionError),
+	TreePatch(difz_core::tree_patch::Error),
 }
 impl From<io::Error> for Error {
 	fn from(error: io::Error) -> Self {
@@ -63,6 +68,14 @@ impl Directory {
 		read_limited(&mut self.open_regular_file(name)?, maximum)
 	}
 	fn open_child(&self, name: &[u8], kind: Child) -> Result<File, Error> {
+		self.open_child_access(name, kind, libc::O_RDONLY)
+	}
+	/// Writable handles are limited to fresh owned staging files. The same
+	/// no-follow, nonblocking and kind readback controls apply to these opens.
+	pub(crate) fn open_staging_file(&self, name: &[u8]) -> Result<File, Error> {
+		self.open_child_access(name, Child::RegularFile, libc::O_RDWR)
+	}
+	fn open_child_access(&self, name: &[u8], kind: Child, access: i32) -> Result<File, Error> {
 		let terminated = basename(name)?;
 		let extra = match kind {
 			Child::Directory => libc::O_DIRECTORY,
@@ -75,7 +88,7 @@ impl Directory {
 			libc::openat(
 				self.file.as_raw_fd(),
 				terminated.as_ptr().cast(),
-				libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | extra,
+				access | libc::O_CLOEXEC | libc::O_NOFOLLOW | extra,
 			)
 		};
 		if fd < 0 {
@@ -97,7 +110,13 @@ impl Directory {
 }
 
 fn basename(name: &[u8]) -> Result<Vec<u8>, Error> {
-	difz_core::directory::validate_path(name).map_err(|_| Error::InvalidBasename)?;
+	// A native component is not a complete relative tree path. A literal
+	// "C:name" is safe for openat here and valid below another component;
+	// the tree adapter validates the full path's drive-prefix rule first.
+	match difz_core::directory::validate_path(name) {
+		Ok(()) | Err(difz_core::directory::Error::DrivePrefix) => {}
+		Err(_) => return Err(Error::InvalidBasename),
+	}
 	if name.contains(&b'/') {
 		return Err(Error::InvalidBasename);
 	}

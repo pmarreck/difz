@@ -2,6 +2,138 @@
 use super::Error;
 use std::{fs::File, io, os::fd::AsRawFd};
 
+/// Bounded native reads shared by opened objects and no-follow symlinks.
+pub trait ReadAttributes {
+	fn get(&self, name: &[u8], maximum: usize) -> Result<Option<Vec<u8>>, Error>;
+	fn list(&self, maximum_bytes: usize, maximum_count: usize) -> Result<Names, Error>;
+}
+impl ReadAttributes for File {
+	fn get(&self, name: &[u8], maximum: usize) -> Result<Option<Vec<u8>>, Error> {
+		get(self, name, maximum)
+	}
+	fn list(&self, maximum_bytes: usize, maximum_count: usize) -> Result<Names, Error> {
+		list(self, maximum_bytes, maximum_count)
+	}
+}
+
+/// Linux lacks descriptor-relative lgetxattr. A procfs path pins its parent
+/// through the borrowed descriptor; l* calls do not follow the final link.
+/// Recheck identity on every read. Concurrent mutation is not an atomic scan.
+pub struct Symlink<'a> {
+	parent: &'a super::Directory,
+	path: Vec<u8>,
+	name_offset: usize,
+	info: super::EntryInfo,
+}
+impl<'a> Symlink<'a> {
+	pub fn open(parent: &'a super::Directory, name: &[u8]) -> Result<Self, Error> {
+		let info = parent.inspect(name)?;
+		if info.kind != super::Kind::Symlink {
+			return Err(Error::WrongKind);
+		}
+		let mut path = Vec::new();
+		path.try_reserve_exact(name.len().checked_add(32).ok_or(Error::LimitExceeded)?)
+			.map_err(|_| Error::OutOfMemory)?;
+		// The 32-byte allowance covers the prefix, signed-int descriptor and
+		// terminator. Formatting cannot need another allocation in this buffer.
+		use std::io::Write;
+		write!(&mut path, "/proc/self/fd/{}/", parent.file.as_raw_fd())?;
+		let name_offset = path.len();
+		path.extend_from_slice(name);
+		path.push(0);
+		let reader = Self {
+			parent,
+			path,
+			name_offset,
+			info,
+		};
+		reader.verify()?;
+		Ok(reader)
+	}
+	pub fn info(&self) -> super::EntryInfo {
+		self.info
+	}
+	pub fn verify(&self) -> Result<(), Error> {
+		if self
+			.parent
+			.inspect(&self.path[self.name_offset..self.path.len() - 1])?
+			!= self.info
+		{
+			return Err(invalid_data("symlink changed during attribute capture"));
+		}
+		Ok(())
+	}
+	/// Write the link itself, preserving a target object's attributes. The
+	/// caller owns the new staging link; permission/unsupported errors may be
+	/// represented later by its parent transport.
+	pub fn set(&self, name: &[u8], value: &[u8]) -> Result<(), Error> {
+		self.verify()?;
+		let name = terminated_name(name)?;
+		// Borrowed pinned parent, terminated names and explicit value length.
+		// lsetxattr never follows the final symbolic link to its target.
+		let result = unsafe {
+			libc::lsetxattr(
+				self.path.as_ptr().cast(),
+				name.as_ptr().cast(),
+				value.as_ptr().cast(),
+				value.len(),
+				0,
+			)
+		};
+		let error = if result < 0 {
+			Some(io::Error::last_os_error())
+		} else {
+			None
+		};
+		self.verify()?;
+		if let Some(error) = error {
+			return Err(error.into());
+		}
+		Ok(())
+	}
+}
+impl ReadAttributes for Symlink<'_> {
+	fn get(&self, name: &[u8], maximum: usize) -> Result<Option<Vec<u8>>, Error> {
+		self.verify()?;
+		let name = terminated_name(name)?;
+		let result = read_buffer(maximum, |output| {
+			// The parent borrow pins the descriptor in this terminated procfs
+			// path. lgetxattr reads the final symlink itself, including dangling
+			// links. The kernel writes only the initialized explicit-length buffer.
+			count(unsafe {
+				libc::lgetxattr(
+					self.path.as_ptr().cast(),
+					name.as_ptr().cast(),
+					output.as_mut_ptr().cast(),
+					output.len(),
+				)
+			})
+		});
+		self.verify()?;
+		match result {
+			Ok(bytes) => Ok(Some(bytes)),
+			Err(Error::Io(error)) if error.raw_os_error() == Some(libc::ENODATA) => Ok(None),
+			Err(error) => Err(error),
+		}
+	}
+	fn list(&self, maximum_bytes: usize, maximum_count: usize) -> Result<Names, Error> {
+		self.verify()?;
+		let bytes = read_buffer(maximum_bytes, |output| {
+			// Same pinned, terminated path contract as get; llistxattr never
+			// follows its final component to the symbolic link's target.
+			count(unsafe {
+				libc::llistxattr(
+					self.path.as_ptr().cast(),
+					output.as_mut_ptr().cast(),
+					output.len(),
+				)
+			})
+		})?;
+		self.verify()?;
+		Names::parse(bytes, maximum_count)
+	}
+}
+
 #[derive(Debug)]
 pub struct Names(Vec<u8>);
 impl Names {

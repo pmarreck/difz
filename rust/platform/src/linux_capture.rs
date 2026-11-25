@@ -2,16 +2,31 @@
 use crate::{
 	Error,
 	linux_transport::{optional, owned},
+	xattr::ReadAttributes,
 };
 use difz_core::{
 	linux_acl::{LinuxAcl, PosixAcl},
 	metadata::{AclOrigin, CanonicalMetadata, Metadata, NativeAcl},
 };
-use std::{borrow::Cow, fs::File};
+use std::borrow::Cow;
+#[cfg(test)]
+use std::fs::File;
 
 /// Native ACLs supply access ACEs and the access/default DIFZACL container.
 /// Each optional canonical transport overrides only its designated field.
-pub fn capture_acl(file: &File, maximum_bytes: usize) -> Result<Metadata<'static>, Error> {
+pub fn capture_acl(
+	file: &impl ReadAttributes,
+	maximum_bytes: usize,
+) -> Result<Metadata<'static>, Error> {
+	let mut result = capture_native_acl(file, maximum_bytes)?;
+	apply_acl_transports(file, maximum_bytes, &mut result)?;
+	Ok(result)
+}
+
+pub(crate) fn capture_native_acl(
+	file: &impl ReadAttributes,
+	maximum_bytes: usize,
+) -> Result<Metadata<'static>, Error> {
 	let access = optional(file, b"system.posix_acl_access", maximum_bytes)?.unwrap_or_default();
 	let default = optional(
 		file,
@@ -29,6 +44,14 @@ pub fn capture_acl(file: &File, maximum_bytes: usize) -> Result<Metadata<'static
 			bytes: Cow::Owned(LinuxAcl { access, default }.encode().map_err(acl_error)?),
 		});
 	}
+	Ok(result)
+}
+
+fn apply_acl_transports(
+	file: &impl ReadAttributes,
+	maximum_bytes: usize,
+	result: &mut Metadata<'static>,
+) -> Result<(), Error> {
 	if let Some(bytes) = optional(file, b"user.difz.native-acl", maximum_bytes)? {
 		let mut decoded = decode(&bytes)?;
 		let acl = decoded.native_acl.take();
@@ -58,12 +81,15 @@ pub fn capture_acl(file: &File, maximum_bytes: usize) -> Result<Metadata<'static
 			});
 		}
 	}
-	Ok(result)
+	Ok(())
 }
 
 /// Linux has no native Finder fields. A present transport may explicitly
 /// override either field with its empty value, but cannot carry other fields.
-pub fn capture_finder(file: &File, maximum_bytes: usize) -> Result<Metadata<'static>, Error> {
+pub fn capture_finder(
+	file: &impl ReadAttributes,
+	maximum_bytes: usize,
+) -> Result<Metadata<'static>, Error> {
 	let mut result = Metadata::default();
 	if let Some(bytes) = optional(file, b"user.difz.bsd-flags", maximum_bytes)? {
 		let mut decoded = decode(&bytes)?;
@@ -78,7 +104,10 @@ pub fn capture_finder(file: &File, maximum_bytes: usize) -> Result<Metadata<'sta
 	Ok(result)
 }
 
-pub fn capture_hardlink(file: &File, maximum_bytes: usize) -> Result<Option<Vec<u8>>, Error> {
+pub fn capture_hardlink(
+	file: &impl ReadAttributes,
+	maximum_bytes: usize,
+) -> Result<Option<Vec<u8>>, Error> {
 	let Some(bytes) = optional(file, b"user.difz.hardlink-to", maximum_bytes)? else {
 		return Ok(None);
 	};

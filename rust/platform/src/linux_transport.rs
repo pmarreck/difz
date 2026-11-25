@@ -1,14 +1,15 @@
 //! Bounded capture of canonical records preserved in Linux transport attributes.
 use crate::{Error, linux_metadata, xattr};
 use difz_core::metadata::{CanonicalMetadata, Xattr, XattrClass};
-use std::{borrow::Cow, fs::File};
+use std::borrow::Cow;
+use xattr::ReadAttributes;
 
 /// Native values take precedence over duplicate raw records in transport.
 /// Native list bytes, transport bytes and retained name/value bytes each have
 /// the same ceiling. Descriptor count includes every retained attribute.
 /// Work is O(n log n) name comparisons plus linear retained byte copying.
 pub fn capture_xattrs(
-	file: &File,
+	file: &impl ReadAttributes,
 	maximum_names: usize,
 	maximum_bytes: usize,
 ) -> Result<Vec<Xattr<'static>>, Error> {
@@ -20,8 +21,12 @@ pub fn capture_xattrs(
 	Ok(native)
 }
 
-pub(crate) fn optional(file: &File, name: &[u8], maximum: usize) -> Result<Option<Vec<u8>>, Error> {
-	match xattr::get(file, name, maximum) {
+pub(crate) fn optional(
+	file: &impl ReadAttributes,
+	name: &[u8],
+	maximum: usize,
+) -> Result<Option<Vec<u8>>, Error> {
+	match file.get(name, maximum) {
 		Err(Error::Io(error)) if error.raw_os_error() == Some(libc::ENOTSUP) => Ok(None),
 		other => other,
 	}

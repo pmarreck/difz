@@ -3,8 +3,85 @@ use crate::{Directory, tests::Fixture};
 use std::{
 	ffi::CString,
 	fs,
-	os::{fd::AsRawFd, unix::fs::symlink},
+	os::{
+		fd::AsRawFd,
+		unix::{ffi::OsStrExt, fs::symlink},
+	},
 };
+
+#[test]
+fn symlink_attribute_reader_pins_renamed_parent_and_rejects_replaced_link_identity() {
+	let fixture = Fixture::new();
+	fs::create_dir(fixture.0.join("parent")).unwrap();
+	let parent = Directory::open(&fixture.0.join("parent")).unwrap();
+	symlink("missing", fixture.0.join("parent/link")).unwrap();
+	let reader = Symlink::open(&parent, b"link").unwrap();
+	fs::rename(fixture.0.join("parent"), fixture.0.join("moved")).unwrap();
+	fs::create_dir(fixture.0.join("parent")).unwrap();
+	assert!(reader.list(65_536, 100).unwrap().iter().next().is_none());
+	assert_missing_link_value(&reader, &fixture.0.join("moved/link"), b"user.absent");
+	fs::rename(fixture.0.join("moved/link"), fixture.0.join("moved/kept")).unwrap();
+	symlink("different", fixture.0.join("moved/link")).unwrap();
+	assert!(
+		matches!(reader.list(65_536, 100), Err(Error::Io(error)) if error.kind() == io::ErrorKind::InvalidData)
+	);
+	assert!(
+		matches!(reader.get(b"user.absent", 1), Err(Error::Io(error)) if error.kind() == io::ErrorKind::InvalidData)
+	);
+	assert!(Symlink::open(&parent, b"../moved/link").is_err());
+}
+
+#[test]
+fn native_symlink_attribute_capture_does_not_read_any_attributes_from_the_target() {
+	let fixture = Fixture::new();
+	fs::write(fixture.0.join("target"), b"payload").unwrap();
+	let target = File::open(fixture.0.join("target")).unwrap();
+	set(&target, b"user.must-not-follow", b"target-only\0\xff");
+	symlink("target", fixture.0.join("link")).unwrap();
+	let parent = Directory::open(&fixture.0).unwrap();
+	let reader = Symlink::open(&parent, b"link").unwrap();
+	assert_missing_link_value(&reader, &fixture.0.join("link"), b"user.must-not-follow");
+	assert!(
+		!reader
+			.list(65_536, 100)
+			.unwrap()
+			.iter()
+			.any(|name| name == b"user.must-not-follow")
+	);
+	assert!(
+		crate::linux_transport::capture_xattrs(&reader, 100, 65_536)
+			.unwrap()
+			.is_empty()
+	);
+	assert!(
+		!crate::linux_transport::capture_xattrs(&target, 100, 65_536)
+			.unwrap()
+			.is_empty()
+	);
+}
+
+fn assert_missing_link_value(reader: &Symlink<'_>, path: &std::path::Path, name: &[u8]) {
+	let path = CString::new(path.as_os_str().as_bytes()).unwrap();
+	let terminated = CString::new(name).unwrap();
+	// Independently query the kernel: Linux filesystems may report ENOTSUP
+	// rather than ENODATA for the user namespace on symlinks. The raw reader
+	// must preserve that distinction; metadata capture handles unsupported IO.
+	let count =
+		unsafe { libc::lgetxattr(path.as_ptr(), terminated.as_ptr(), std::ptr::null_mut(), 0) };
+	let error = io::Error::last_os_error();
+	assert_eq!(count, -1);
+	assert!(matches!(
+		error.raw_os_error(),
+		Some(libc::ENODATA | libc::ENOTSUP)
+	));
+	match (error.raw_os_error(), reader.get(name, 65_536)) {
+		(Some(libc::ENODATA), Ok(None)) => {}
+		(Some(libc::ENOTSUP), Err(Error::Io(actual))) => {
+			assert_eq!(actual.raw_os_error(), Some(libc::ENOTSUP))
+		}
+		other => panic!("symlink raw result differs from kernel: {other:?}"),
+	}
+}
 
 fn set(file: &File, name: &[u8], bytes: &[u8]) {
 	let name = CString::new(name).unwrap();

@@ -93,7 +93,6 @@ fn basename_grammar_rejects_paths_and_nuls_before_any_child_open() {
 		b"a/b",
 		b"a\\b",
 		b"a\0b",
-		b"C:drive",
 		b"\xff",
 	] {
 		assert!(
@@ -105,6 +104,22 @@ fn basename_grammar_rejects_paths_and_nuls_before_any_child_open() {
 			"{name:?}"
 		);
 	}
+	fs::write(fixture.0.join("C:drive"), b"literal\0\xff").unwrap();
+	fs::create_dir(fixture.0.join("D:directory")).unwrap();
+	assert_eq!(root.read_file(b"C:drive", 9).unwrap(), b"literal\0\xff");
+	assert_eq!(
+		root.open_directory(b"D:directory")
+			.unwrap()
+			.inspect_self()
+			.unwrap()
+			.kind,
+		Kind::Directory
+	);
+	assert_eq!(
+		difz_core::directory::validate_path(b"C:drive"),
+		Err(difz_core::directory::Error::DrivePrefix)
+	);
+	assert!(difz_core::directory::validate_path(b"nested/C:drive").is_ok());
 }
 
 #[cfg(target_os = "linux")]

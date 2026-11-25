@@ -2,6 +2,7 @@
 use super::{Directory, EntryInfo, Error, xattr};
 use difz_core::metadata::{self, Times, Xattr, XattrClass};
 use std::{borrow::Cow, fs::File, io};
+use xattr::ReadAttributes;
 
 /// Capture kernel-visible user attributes. Transport, resource-fork and native
 /// ACL records are handled by their respective families. A higher layer must
@@ -9,11 +10,11 @@ use std::{borrow::Cow, fs::File, io};
 /// The byte ceiling bounds native list bytes and retained name/value bytes
 /// separately; count is checked by the native-list reader before capture.
 pub fn capture_native_xattrs(
-	file: &File,
+	file: &impl ReadAttributes,
 	maximum_names: usize,
 	maximum_bytes: usize,
 ) -> Result<Vec<Xattr<'static>>, Error> {
-	let listed = match xattr::list(file, maximum_bytes, maximum_names) {
+	let listed = match file.list(maximum_bytes, maximum_names) {
 		Err(Error::Io(error)) if error.raw_os_error() == Some(libc::ENOTSUP) => {
 			return Ok(Vec::new());
 		}
@@ -42,7 +43,7 @@ pub fn capture_native_xattrs(
 		if name.len() > remaining {
 			return Err(Error::LimitExceeded);
 		}
-		let value = xattr::get(file, native, remaining - name.len())?.ok_or_else(|| {
+		let value = file.get(native, remaining - name.len())?.ok_or_else(|| {
 			Error::Io(io::Error::new(
 				io::ErrorKind::NotFound,
 				"attribute disappeared during capture",
@@ -68,6 +69,12 @@ pub fn capture_native_xattrs(
 /// Access time remains absent, matching native directory snapshots.
 pub fn capture_times(file: &File) -> Result<Times, Error> {
 	let info = EntryInfo::for_file(file)?;
+	capture_times_for(info, file)
+}
+pub(crate) fn capture_times_for(
+	info: EntryInfo,
+	file: &impl ReadAttributes,
+) -> Result<Times, Error> {
 	let mut result = Times {
 		mtime: Some(info.mtime),
 		atime: None,
@@ -90,7 +97,7 @@ impl Directory {
 	}
 }
 fn optional_transport(
-	file: &File,
+	file: &impl ReadAttributes,
 	logical: &[u8],
 	maximum: usize,
 ) -> Result<Option<Vec<u8>>, Error> {
@@ -102,7 +109,7 @@ fn optional_transport(
 	name[..prefix.len()].copy_from_slice(prefix);
 	let length = prefix.len() + logical.len();
 	name[prefix.len()..length].copy_from_slice(logical);
-	match xattr::get(file, &name[..length], maximum) {
+	match file.get(&name[..length], maximum) {
 		Err(Error::Io(error)) if error.raw_os_error() == Some(libc::ENOTSUP) => Ok(None),
 		other => other,
 	}
