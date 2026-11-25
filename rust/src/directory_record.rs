@@ -5,7 +5,7 @@ use alloc::{borrow::Cow, vec::Vec};
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Mode(u16);
 impl Mode {
-	pub fn from_bits(bits: u16) -> Result<Self, Error> {
+	pub const fn from_bits(bits: u16) -> Result<Self, Error> {
 		if bits & !0o777 != 0 {
 			return Err(Error::InvalidMode);
 		}
