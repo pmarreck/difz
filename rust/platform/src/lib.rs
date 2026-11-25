@@ -168,6 +168,8 @@ pub use names::Names;
 #[cfg(target_os = "linux")]
 pub mod linux_acl_restore;
 #[cfg(target_os = "linux")]
+pub mod linux_attribute_restore;
+#[cfg(target_os = "linux")]
 pub mod linux_capture;
 #[cfg(target_os = "linux")]
 pub mod linux_metadata;
