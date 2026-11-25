@@ -241,6 +241,19 @@ mod tests {
 		);
 		assert!(matches!(capture_acl(&file, 4096), Err(Error::Metadata(_))));
 		assert!(matches!(capture_acl(&file, 1), Err(Error::LimitExceeded)));
+		// Default ACLs belong to directories and must remain separate from
+		// canonical raw attributes, even when no access ACL is present.
+		let directory = File::open(&fixture.0).unwrap();
+		set(&directory, b"system.posix_acl_default", &bytes);
+		let captured = capture_acl(&directory, 4096).unwrap();
+		let acl = captured.native_acl.as_ref().unwrap();
+		assert_eq!(LinuxAcl::decode(&acl.bytes).unwrap().default.bytes(), bytes);
+		assert!(
+			capture_xattrs(&directory, 128, 4096)
+				.unwrap()
+				.iter()
+				.all(|attr| attr.name.as_ref() != b"system.posix_acl_default")
+		);
 	}
 	#[test]
 	fn native_acl_transport_owns_foreign_bytes_and_principal_names() {
