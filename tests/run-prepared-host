@@ -38,8 +38,8 @@ run_platform() {
 	if [ "$(uname -s)" = Linux ]; then
 		local count
 		count=$("$prefix/bin/difz-platform-tests" --list | grep -c '::native_.*: test$') || return 1
-		if [ "$count" -ne 23 ]; then
-			printf 'FAIL expected all 23 native Rust metadata fixtures\n' >&2
+		if [ "$count" -ne 25 ]; then
+			printf 'FAIL expected all 25 native Rust metadata fixtures\n' >&2
 			return 1
 		fi
 	fi

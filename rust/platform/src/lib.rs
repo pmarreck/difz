@@ -180,6 +180,8 @@ pub mod linux_sparse_restore;
 #[cfg(target_os = "linux")]
 mod linux_stage_metadata;
 #[cfg(target_os = "linux")]
+pub mod linux_symlink_capture;
+#[cfg(target_os = "linux")]
 pub mod linux_times;
 #[cfg(target_os = "linux")]
 pub mod linux_transport;

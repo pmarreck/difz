@@ -148,6 +148,9 @@ impl<'a> Transport<'a> {
 	pub fn records(&self) -> &[Record<'a>] {
 		&self.records
 	}
+	pub fn into_records(self) -> Vec<Record<'a>> {
+		self.records
+	}
 	pub fn find(&self, name: &[u8]) -> Option<&Record<'a>> {
 		self.records
 			.binary_search_by(|r| r.name.as_ref().cmp(name))
