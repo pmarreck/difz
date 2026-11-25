@@ -253,7 +253,7 @@
 					pcre2 = pcre2Reference;
 				};
 				rustZstdzSdk = import ./rust/zstdz-sdk.nix { inherit pkgs; zstdz = zstdBenchmark; };
-				rustCoreTests = import ./rust/qa.nix { inherit pkgs metadataOracle; oracle = releaseFast; zstdz = zstdBenchmark; sdk = rustZstdzSdk; random = randomPackage; };
+				rustCoreTests = import ./rust/qa.nix { inherit pkgs metadataOracle; filesystemOracle = rustFfiTests; oracle = releaseFast; zstdz = zstdBenchmark; sdk = rustZstdzSdk; random = randomPackage; };
 				rustAbiConsumer = import ./rust/c-api-consumer.nix { inherit pkgs; library = rustCoreTests; oracle = releaseFast; };
 		in
 			{

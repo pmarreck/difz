@@ -1,4 +1,4 @@
-use std::ffi::{c_char, c_int, CString};
+use std::ffi::{CString, c_char, c_int};
 use std::ptr::{self, NonNull};
 
 #[link(name = "difz", kind = "static")]
@@ -256,6 +256,11 @@ fn directory_round_trip() {
 }
 
 fn main() {
+	let args: Vec<_> = std::env::args_os().collect();
+	if args.get(1).is_some_and(|arg| arg == "--directory-oracle") {
+		directory_oracle(&args[2..]);
+		return;
+	}
 	let all: Vec<u8> = (0..=255).collect();
 	let reversed: Vec<u8> = all.iter().rev().copied().collect();
 	for (source, target) in [
@@ -269,4 +274,50 @@ fn main() {
 	}
 	omission_masks();
 	directory_round_trip();
+}
+
+fn directory_oracle(args: &[std::ffi::OsString]) {
+	use std::io::Write;
+	#[repr(C)]
+	struct Rule {
+		action: u8,
+		pattern: *const c_char,
+	}
+	assert!(!args.is_empty() && (args.len() - 1) % 2 == 0);
+	let root = CString::new(args[0].as_encoded_bytes()).unwrap();
+	let patterns: Vec<_> = args[1..]
+		.chunks_exact(2)
+		.map(|pair| CString::new(pair[1].as_encoded_bytes()).unwrap())
+		.collect();
+	let rules: Vec<_> = args[1..]
+		.chunks_exact(2)
+		.zip(&patterns)
+		.map(|(pair, pattern)| {
+			let action: u8 = pair[0].to_str().unwrap().parse().unwrap();
+			assert!(action == 1 || action == 2);
+			Rule {
+				action,
+				pattern: pattern.as_ptr(),
+			}
+		})
+		.collect();
+	let (mut pointer, mut length) = (ptr::null_mut(), 0);
+	// CString owners and repr(C) records stay live throughout the synchronous
+	// call. The buffer remains foreign-owned until its matching difz_free.
+	assert_eq!(
+		unsafe {
+			difz_directory_diff(
+				root.as_ptr(),
+				root.as_ptr(),
+				rules.as_ptr().cast(),
+				rules.len(),
+				0,
+				&mut pointer,
+				&mut length,
+			)
+		},
+		0
+	);
+	let patch = unsafe { ForeignBuffer::returned(pointer, length) };
+	std::io::stdout().lock().write_all(patch.bytes()).unwrap();
 }

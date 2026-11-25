@@ -1,4 +1,4 @@
-{ pkgs, oracle, metadataOracle, zstdz, sdk, random }:
+{ pkgs, oracle, metadataOracle, filesystemOracle, zstdz, sdk, random }:
 pkgs.rustPlatform.buildRustPackage {
 	pname = "difz-rust-core-tests";
 	version = "0.1.0";
@@ -13,6 +13,7 @@ pkgs.rustPlatform.buildRustPackage {
 	nativeCheckInputs = [ pkgs.b3sum pkgs.gnugrep pkgs.coreutils ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.binutils ];
 	DIFZ_ORACLE = "${oracle}/bin/difz";
 	DIFZ_METADATA_ORACLE = "${metadataOracle}/bin/difz-metadata-oracle";
+	DIFZ_FILESYSTEM_ORACLE = "${filesystemOracle}/bin/difz-rust-caller";
 	B3SUM = "${pkgs.b3sum}/bin/b3sum";
 	DIFZ_RANDOM = "${random}/bin/random";
 	doCheck = true;
