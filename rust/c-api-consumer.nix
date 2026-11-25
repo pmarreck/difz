@@ -29,6 +29,14 @@ pkgs.stdenv.mkDerivation {
 		${oracle}/bin/difz --no-progress "$TMPDIR/cases/source" "$TMPDIR/cases/target" -o "$TMPDIR/cases/native.patch"
 		./abi-consumer --apply-native "$TMPDIR/cases/native.patch"
 		${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+			${oracle}/bin/difz --patch --no-progress "$TMPDIR/cases/tree-source" "$TMPDIR/cases/tree.patch" -o "$TMPDIR/cases/native-applied-rust-tree"
+			cmp "$TMPDIR/cases/tree-target/data" "$TMPDIR/cases/native-applied-rust-tree/data"
+			cmp "$TMPDIR/cases/tree-target/new" "$TMPDIR/cases/native-applied-rust-tree/new"
+			${oracle}/bin/difz --no-progress --omit-metadata xattr,acl,timestamps,finder,sparse,hardlink "$TMPDIR/cases/tree-source" "$TMPDIR/cases/tree-target" -o "$TMPDIR/cases/native-tree.patch"
+			cmp "$TMPDIR/cases/tree.patch" "$TMPDIR/cases/native-tree.patch"
+			./abi-consumer --apply-native-tree "$TMPDIR/cases/native-tree.patch" "$TMPDIR/cases"
+		''}
+		${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
 			# Discover every public namespaced export, then require matching public
 			# declarations and genuine external references from this consumer.
 			nm --defined-only --extern-only ${library}/lib/libdifz_rust.a 2> "$TMPDIR/nm-errors" |

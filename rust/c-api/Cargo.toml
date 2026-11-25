@@ -8,6 +8,9 @@ publish = false
 [dependencies]
 difz-core = { path = ".." }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+difz-platform = { path = "../platform" }
+
 [lib]
 name = "difz_rust"
 crate-type = ["staticlib"]

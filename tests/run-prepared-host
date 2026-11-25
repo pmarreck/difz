@@ -39,7 +39,7 @@ run_platform() {
 		local count
 		count=$("$prefix/bin/difz-platform-tests" --list | grep -c '::native_.*: test$') || return 1
 		if [ "$count" -ne 27 ]; then
-			printf 'FAIL expected all 27 native Rust metadata fixtures\n' >&2
+			printf 'FAIL expected all twenty-seven native Rust metadata fixtures\n' >&2
 			return 1
 		fi
 	fi

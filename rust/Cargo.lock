@@ -64,6 +64,7 @@ name = "difz-c-api"
 version = "0.1.0"
 dependencies = [
  "difz-core",
+ "difz-platform",
 ]
 
 [[package]]

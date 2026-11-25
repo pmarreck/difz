@@ -1,4 +1,5 @@
 #![deny(unsafe_op_in_unsafe_fn)]
+mod filesystem;
 
 #[cfg(panic = "abort")]
 compile_error!("difz C boundary requires unwind to translate Rust panics into status codes");
@@ -25,10 +26,14 @@ pub struct FileInfo {
 enum Status {
 	InvalidData = -1,
 	WrongSource = -2,
+	#[cfg(target_os = "linux")]
+	Io = -3,
 	Limit = -4,
 	OutOfMemory = -5,
 	Argument = -6,
 	Panic = -7,
+	#[cfg(not(target_os = "linux"))]
+	Unsupported = -8,
 }
 impl From<difz_core::file::Error> for Status {
 	fn from(error: difz_core::file::Error) -> Self {

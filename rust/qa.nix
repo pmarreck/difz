@@ -78,12 +78,20 @@ pkgs.rustPlatform.buildRustPackage {
 		cmp "$TMPDIR/c-api-files/target" "$TMPDIR/c-api-files/native.output"
 		${oracle}/bin/difz --no-progress "$TMPDIR/c-api-files/source" "$TMPDIR/c-api-files/target" -o "$TMPDIR/c-api-files/native.patch"
 		./c-api-consumer --apply-native "$TMPDIR/c-api-files/native.patch"
+		${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+			${oracle}/bin/difz --patch --no-progress "$TMPDIR/c-api-files/tree-source" "$TMPDIR/c-api-files/tree.patch" -o "$TMPDIR/c-api-files/native-applied-rust-tree"
+			cmp "$TMPDIR/c-api-files/tree-target/data" "$TMPDIR/c-api-files/native-applied-rust-tree/data"
+			cmp "$TMPDIR/c-api-files/tree-target/new" "$TMPDIR/c-api-files/native-applied-rust-tree/new"
+			${oracle}/bin/difz --no-progress --omit-metadata xattr,acl,timestamps,finder,sparse,hardlink "$TMPDIR/c-api-files/tree-source" "$TMPDIR/c-api-files/tree-target" -o "$TMPDIR/c-api-files/native-tree.patch"
+			cmp "$TMPDIR/c-api-files/tree.patch" "$TMPDIR/c-api-files/native-tree.patch"
+			./c-api-consumer --apply-native-tree "$TMPDIR/c-api-files/native-tree.patch" "$TMPDIR/c-api-files"
+		''}
 		c_api_test_count=$("$c_api_tests" --list | grep -c ': test$')
 		test "$c_api_test_count" -ge 2
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$c_api_tests" --test-threads=1 --include-ignored
 		platform_test_count=$("$platform_tests" --list | grep -c ': test$')
 		test "$platform_test_count" -ge ${if pkgs.stdenv.hostPlatform.isLinux then "75" else "27"}
-		# Nix can reject xattr writes. These 27 OS fixtures are required by
+		# Nix can reject xattr writes. These twenty-seven OS fixtures are required by
 		# the confined host phase of ./test, using this exact prepared binary.
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 30s "$platform_tests" --test-threads=1 --include-ignored --skip ::native_
 		if CARGO_TARGET_DIR="$TMPDIR/c-api-abort" cargo rustc --locked --offline --release -p difz-c-api --lib -- -C panic=abort > "$TMPDIR/c-api-abort-log" 2>&1; then
