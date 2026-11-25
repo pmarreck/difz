@@ -1,7 +1,11 @@
 //! Owned staging lifetime and bounded, iterative cleanup without link traversal.
 use crate::{Directory, Error, Identity, Kind, Names, basename};
 use difz_core::directory::{MAX_ENTRIES, MAX_PATH_BYTES, Mode};
-use std::io;
+use std::{
+	io::{self, Write},
+	sync::atomic::{AtomicU64, Ordering},
+};
+static NEXT_STAGE: AtomicU64 = AtomicU64::new(0);
 const WRITABLE: Mode = match Mode::from_bits(0o700) {
 	Ok(mode) => mode,
 	Err(_) => panic!("invalid private directory mode"),
@@ -15,6 +19,34 @@ pub struct Stage<'a> {
 	finished: bool,
 }
 impl<'a> Stage<'a> {
+	/// Process/counter names are only hints. Exclusive creation is the authority;
+	/// stale names are preserved and bounded retries choose another candidate.
+	pub fn create_unique(parent: &'a Directory) -> Result<Self, Error> {
+		for _ in 0..32 {
+			let number = NEXT_STAGE
+				.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+					value.checked_add(1)
+				})
+				.map_err(|_| Error::LimitExceeded)?;
+			let mut buffer = [0u8; 64];
+			let mut remaining = &mut buffer[..];
+			write!(
+				&mut remaining,
+				".difz-stage-{}-{number}",
+				std::process::id()
+			)?;
+			let length = 64 - remaining.len();
+			match Self::create(parent, &buffer[..length]) {
+				Err(Error::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+				result => return result,
+			}
+		}
+		Err(io::Error::new(
+			io::ErrorKind::AlreadyExists,
+			"all staging names were occupied",
+		)
+		.into())
+	}
 	/// The caller chooses a unique sibling name. Existing entries are preserved.
 	pub fn create(parent: &'a Directory, name: &[u8]) -> Result<Self, Error> {
 		Self::create_with(parent, name, Directory::inspect_self)
@@ -151,6 +183,31 @@ mod tests {
 	use super::*;
 	use crate::tests::Fixture;
 	use std::{fs, io::Write};
+	#[test]
+	fn automatic_stages_have_distinct_exclusive_names_and_independent_cleanup() {
+		let fixture = Fixture::new();
+		let parent = Directory::open(&fixture.0).unwrap();
+		let first = Stage::create_unique(&parent).unwrap();
+		let second = Stage::create_unique(&parent).unwrap();
+		assert_ne!(first.name(), second.name());
+		assert!(Stage::create(&parent, first.name()).is_err());
+		let first_name = first.name().to_vec();
+		drop(first);
+		assert!(
+			matches!(parent.inspect(&first_name), Err(Error::Io(error)) if error.kind() == io::ErrorKind::NotFound)
+		);
+		second
+			.directory()
+			.create_file(b"data")
+			.unwrap()
+			.write_all(b"retained")
+			.unwrap();
+		second.publish(b"published").unwrap();
+		assert_eq!(
+			fs::read(fixture.0.join("published/data")).unwrap(),
+			b"retained"
+		);
+	}
 	#[test]
 	fn failed_initial_inspection_retains_a_replacement_instead_of_deleting_it() {
 		let fixture = Fixture::new();
