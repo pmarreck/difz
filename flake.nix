@@ -254,6 +254,7 @@
 				};
 				rustZstdzSdk = import ./rust/zstdz-sdk.nix { inherit pkgs; zstdz = zstdBenchmark; };
 				rustCoreTests = import ./rust/qa.nix { inherit pkgs metadataOracle; oracle = releaseFast; zstdz = zstdBenchmark; sdk = rustZstdzSdk; random = randomPackage; };
+				rustAbiConsumer = import ./rust/c-api-consumer.nix { inherit pkgs; library = rustCoreTests; oracle = releaseFast; };
 		in
 			{
 				packages.default = releaseFast;
@@ -262,6 +263,7 @@
 				packages.performance-benchmark = performancePackage;
 				packages.rust-codec-tests = rustCodecTests;
 				packages.rust-core-tests = rustCoreTests;
+				packages.rust-abi-consumer = rustAbiConsumer;
 				packages.rust-zstdz-sdk = rustZstdzSdk;
 				packages.host-tests = hostTests;
 
@@ -269,6 +271,7 @@
 					build = releaseFast;
 					test = debugTests;
 					rust-core = rustCoreTests;
+					rust-abi = rustAbiConsumer;
 					build-wrapper = pkgs.runCommand "difz-build-wrapper-check" {
 						src = buildWrapperSource;
 						nativeBuildInputs = with pkgs; [ bash coreutils gnugrep ];

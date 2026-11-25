@@ -25,6 +25,10 @@ in {
 	hostOutputs = builtins.mapAttrs (_: packages: builtins.hasAttr "host-tests" packages) flake.packages;
 	rustFfiCheck = checks.rust-ffi.name;
 	rustCoreCheck = checks.rust-core.name;
+	rustAbiCheck = checks.rust-abi.name;
+	rustAbiSource = membership checks.rust-abi.src
+		[ "rust/c-api/tests/caller.c" ]
+		[ "rust/src/lib.rs" "rust/c-api/src/lib.rs" "rust/c-api/include/difz-rust.h" "rust/Cargo.toml" "src/lib.zig" "src/difz.c" ];
 	rustSdkTargets = builtins.mapAttrs (_: packages: packages.rust-zstdz-sdk.rustTarget) flake.packages;
 	rustCoreSdk = builtins.elem flake.packages.${system}.rust-zstdz-sdk.drvPath
 		(map (input: input.drvPath) checks.rust-core.buildInputs);

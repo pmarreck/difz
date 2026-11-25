@@ -17,6 +17,16 @@ enum difz_status {
     DIFZ_PANIC = -7
 };
 typedef struct difz_buffer difz_buffer;
+typedef struct difz_file_info {
+    uint8_t source_hash[32], target_hash[32];
+    uint64_t source_len, target_len;
+    size_t frame_len;
+} difz_file_info;
+
+/* Header fields only: no frame/source/digest verification or authorization
+ * to allocate the advertised sizes. Output is aligned and disjoint from input;
+ * it remains unchanged on every failure. */
+int32_t difz_file_inspect(const uint8_t *patch, size_t patch_len, difz_file_info *out);
 
 /* Encode bounds are checked after compression. Apply rejects an advertised
  * output above max_bytes before allocating it. Zero means the codec limit. */

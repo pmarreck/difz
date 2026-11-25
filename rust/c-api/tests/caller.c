@@ -6,6 +6,38 @@
 
 static const uint8_t source[] = {0, 255, 'o', 'l', 'd', 0};
 static const uint8_t target[] = {0, 128, 'n', 'e', 'w', 0, 255};
+_Static_assert(offsetof(difz_file_info, source_len) == 64, "source length ABI offset");
+_Static_assert(offsetof(difz_file_info, target_len) == 72, "target length ABI offset");
+_Static_assert(offsetof(difz_file_info, frame_len) == 80, "frame length ABI offset");
+static uint64_t read_u64(const uint8_t *bytes) {
+    uint64_t result = 0;
+    for (unsigned i = 0; i < 8; ++i) result |= (uint64_t)bytes[i] << (8 * i);
+    return result;
+}
+static void inspect(const uint8_t *patch, size_t len) {
+    assert(len >= 85);
+    difz_file_info info;
+    assert(difz_file_inspect(patch, len, &info) == DIFZ_OK);
+    assert(memcmp(info.source_hash, patch + 5, 32) == 0);
+    assert(memcmp(info.target_hash, patch + 37, 32) == 0);
+    assert(info.source_len == read_u64(patch + 69));
+    assert(info.target_len == read_u64(patch + 77));
+    assert(info.frame_len == len - 85);
+    difz_file_info sentinel;
+    memset(&sentinel, 0xA5, sizeof sentinel);
+    for (size_t n = 0; n < 85; ++n) {
+        info = sentinel;
+        assert(difz_file_inspect(patch, n, &info) == DIFZ_INVALID_DATA);
+        assert(memcmp(&info, &sentinel, sizeof info) == 0);
+    }
+    assert(difz_file_inspect(patch, len, NULL) == DIFZ_ARGUMENT);
+    info = sentinel;
+    assert(difz_file_inspect(NULL, 1, &info) == DIFZ_ARGUMENT);
+    assert(memcmp(&info, &sentinel, sizeof info) == 0);
+    uint8_t bad[85] = {0};
+    assert(difz_file_inspect(bad, sizeof bad, &info) == DIFZ_INVALID_DATA);
+    assert(memcmp(&info, &sentinel, sizeof info) == 0);
+}
 static void save(const char *root, const char *name, const uint8_t *bytes, size_t len) {
     char path[4096];
     int count = snprintf(path, sizeof path, "%s/%s", root, name);
@@ -14,6 +46,7 @@ static void save(const char *root, const char *name, const uint8_t *bytes, size_
     assert(fwrite(bytes, 1, len, file) == len); assert(fclose(file) == 0);
 }
 static void verify(const uint8_t *patch, size_t len) {
+    inspect(patch, len);
     difz_buffer *result = NULL;
     assert(difz_file_apply(source, sizeof source, patch, len, 0, &result) == DIFZ_OK);
     assert(difz_buffer_len(result) == sizeof target);

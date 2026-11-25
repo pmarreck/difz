@@ -73,6 +73,8 @@ require_json '.codecCheck | type == "string" and length > 0' 'Rust codec runtime
 require_json '.hostOutputs | length == 3 and all(.[]; . == true)' 'native host test artifacts have declared Nix outputs'
 require_json '.rustFfiCheck | type == "string" and length > 0' 'installed Rust consumer runtime has a declared Nix check'
 require_json '.rustCoreCheck | type == "string" and length > 0' 'Rust core has a declared Nix check'
+require_json '.rustAbiCheck | type == "string" and length > 0' 'packaged Rust ABI consumer has a declared Nix check'
+require_json '(.rustAbiSource.required | length == 1 and all(.[]; . == true)) and (.rustAbiSource.excluded | length == 6 and all(.[]; . == false))' 'external Rust ABI consumer source excludes implementation and source headers'
 expect_json '.rustSdkTargets' '{"aarch64-darwin":"aarch64-apple-darwin","aarch64-linux":"aarch64-unknown-linux-gnu","x86_64-linux":"x86_64-unknown-linux-gnu"}' 'zstdz SDK target metadata matches every native platform'
 require_json '.rustCoreSdk == true' 'Rust core receives the reusable zstdz SDK as a target build input'
 require_json '(.rustSdkSource.required | length == 1 and all(.[]; . == true)) and (.rustSdkSource.excluded | length == 4 and all(.[]; . == false))' 'zstdz SDK source contains its hook and excludes Rust product sources'

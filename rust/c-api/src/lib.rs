@@ -12,6 +12,14 @@ use std::{
 pub struct Buffer {
 	bytes: Vec<u8>,
 }
+#[repr(C)]
+pub struct FileInfo {
+	pub source_hash: [u8; 32],
+	pub target_hash: [u8; 32],
+	pub source_len: u64,
+	pub target_len: u64,
+	pub frame_len: usize,
+}
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Status {
@@ -67,6 +75,48 @@ fn own(bytes: Vec<u8>) -> Result<*mut Buffer, Status> {
 		owner.write(Buffer { bytes });
 	}
 	Ok(owner)
+}
+
+/// # Safety
+/// Input and the disjoint, aligned output slot satisfy difz-rust.h.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn difz_file_inspect(
+	patch: *const u8,
+	patch_len: usize,
+	out: *mut FileInfo,
+) -> i32 {
+	if out.is_null() {
+		return Status::Argument as i32;
+	}
+	guard(|| {
+		// Borrowed input is validated before constructing or publishing output.
+		let bytes = unsafe { input(patch, patch_len)? };
+		let (header, frame) =
+			difz_core::Header::decode_prefix(bytes).map_err(|error| match error {
+				difz_core::HeaderError::InvalidMagic | difz_core::HeaderError::Truncated => {
+					Status::InvalidData
+				}
+			})?;
+		let difz_core::Header {
+			source_hash,
+			target_hash,
+			source_len,
+			target_len,
+		} = header;
+		let value = FileInfo {
+			source_hash,
+			target_hash,
+			source_len,
+			target_len,
+			frame_len: frame.len(),
+		};
+		// Caller supplies one live writable slot. Publication occurs only after
+		// every input/format check succeeds, leaving the slot unchanged on error.
+		unsafe {
+			out.write(value);
+		}
+		Ok(())
+	})
 }
 unsafe fn produce(
 	out: *mut *mut Buffer,
