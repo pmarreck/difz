@@ -6,24 +6,24 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 
 
 - [ ] Deliver a Rust implementation of difz, using the existing tests and executable as independent oracles. (context: docs/plan_context/rust-port.md)
-	- [ ] Qualify bounded hostile-prefix decoding and complete output/window resource contracts before adopting a Rust codec or multi-frame encoding.
 	- [ ] Establish product-wide differential acceptance tests before replacing any production entry point; qualify codec output limits and performance separately.
 	- [ ] Qualify static zstdz linking and Rust buffer/context ownership on all supported targets before publishing the Rust library; the selected codec adapter has no global progress callbacks.
 	- [ ] Port the file codec, directory metadata and format, filesystem adapters, C API, and CLI while preserving the declared behavior and platform scope.
+		- [x] Qualify the Linux filesystem and packaged ABI increments with the complete suite, including fresh growth measurements under bounded admission. (done 2026-11-25 18:45 EST; commit ad8584f; context: docs/plan_context/rust-port.md)
 		- [ ] Reduce the new growth gate's feedback cost while preserving native-oracle validation, measurement quality and complete declaration/size coverage. (context: docs/plan_context/rust-port.md)
-		- [ ] Enforce declared growth for the Rust metadata and directory codecs before production adoption. (context: docs/plan_context/rust-port.md)
-			- [ ] Qualify shared ownership and memory use for hardlinks referring to Rust-owned delta output before production adoption. (context: docs/plan_context/rust-port.md)
+		- [x] Enforce declared growth for all eight Rust metadata and directory operations on one and two cores; the complete Linux suite passes every adjacent size ratio. (done 2026-11-25 18:45 EST; commit 7351ce2; context: docs/plan_context/rust-port.md)
+			- [x] Qualify shared ownership and bounded memory use for hardlinks referring to Rust-owned delta output, with 96-alias and copy-mutation controls. (done 2026-11-25 18:45 EST; commit 012115f; context: docs/plan_context/rust-port.md)
 		- [x] Merge Linux raw-attribute transport and capture native ACL plus strict ACL/Finder/hardlink transports with owned values and thirteen required native fixtures; the complete suite passes. (done 2026-11-18 23:28 EST; commit d37d24c; context: docs/plan_context/rust-port.md)
 		- [x] Add bounded Linux timestamp and native attribute capture with transport witnesses, family exclusions and nine mandatory native attribute fixtures; the complete Linux suite passes. (done 2026-11-18 23:06 EST; commit 0b271e5; context: docs/plan_context/rust-port.md)
 		- [x] Port allocation-free native attribute-name mapping for every OS/class, using the untouched pinned xattr_stream source as oracle; byte/length/buffer/inverse controls reject a broken mapper, and the combined complete suite passes. (done 2026-11-06 18:52 EST; context: docs/plan_context/rust-port.md)
 		- [x] Add Linux descriptor-based raw attribute replacement/removal with independent binary/empty/absence/error/path-replacement readback and all five native fixtures required; the combined complete suite passes. (done 2026-11-06 18:52 EST; context: docs/plan_context/rust-port.md)
 		- [x] Add native modification/creation time and opened-root/file inspection with independent negative-time/readback fixtures, strict Linux response masks and path-replacement controls; the complete Linux suite passes. (done 2026-11-06 18:36 EST; context: docs/plan_context/rust-port.md)
 		- [x] Add bounded Linux descriptor-based attribute reads and a required Nix-prepared host platform suite; binary/name/limit/rename fixtures, 1023 invalid artifact sets and the complete suite pass without skipping native coverage. (done 2026-11-06 18:08 EST; context: docs/plan_context/rust-port.md)
-		- [x] Add parent-relative entry inspection and bounded raw symlink reads with independent kernel metadata, byte ceilings and rename-replacement controls; the complete suite covers the combined inspection/enumeration tree. (done 2026-11-06 17:54 EST; commit 4565b9f; context: docs/plan_context/rust-port.md)
 		- [x] Add owned directory-name streams with independent offsets, raw bytes, bounded allocation, errno/EOF handling and descriptor readback; all required checks pass without claiming native macOS or Windows qualification. (done 2026-11-06 17:54 EST; context: docs/plan_context/rust-port.md)
-		- [x] Add Linux/macOS directory capabilities and bounded binary reads, with real rename/symlink/FIFO cases, injected IO and Linux kernel descriptor readback; the complete suite passes, while Windows and native macOS qualification remain pending. (done 2026-11-06 17:29 EST; context: docs/plan_context/rust-port.md)
 - [ ] Conform the build to the cross-platform-project-build-arch skill, including canonical implementation selection where applicable, PF/VARIANT/profile outputs, safe host publication, the five-platform matrix, and Nix/native agreement.
-	- [x] Disable GitHub Actions CI without deleting its workflow, verify the remote disabled state and retain the canonical Mechatron badge and complete test command. (done 2026-11-06 17:29 EST; commit c89c159)
+	- [x] Add verified implementation selection, transactional Nix publication, independent SDK checks and all four optimized/Debug Windows Zig cross-builds; native foreign execution remains pending. (done 2026-11-25 18:45 EST; commit ad8584f; context: docs/plan_context/rust-port.md)
+	- [ ] Stamp builds with verified rN-abcdef provenance from the built commit and its recorded yolo base, keeping dirty state separate and rejecting unavailable provenance for releases. (context: docs/plan_context/rust-port.md)
+	- [ ] Use static musl consistently for Linux Rust products, SDK archives and tests, and enforce standalone runtime independence before adoption. (context: docs/plan_context/rust-port.md)
 	- [ ] Qualify native macOS and Windows preventive test boundaries before claiming complete native test execution there. (context: docs/plan_context/test-preparation.md)
 - [ ] Qualify metadata capture and restore on native macOS and Windows hosts; cross-builds establish compilation only. (context: docs/plan_context/metadata-v2.md)
 	- [ ] Establish per-job memory/time enforcement for the native macOS runner and verify bounded Windows AMD64/ARM64 routes before remote qualification waves. (context: docs/plan_context/rust-port.md)
@@ -33,4 +33,5 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 
 ## Deferred
 
+- [ ] Qualify bounded hostile-prefix decoding and complete output/window contracts if a future decision adopts a Rust codec or multi-frame encoding; production remains single-frame statically linked zstdz. (context: docs/plan_context/rust-port.md)
 - [ ] Schedule and qualify a narrow Rust 1.100 compiler-provider update after the current port checkpoint, preserving the lockfile, MSRV and platform holds. (context: docs/plan_context/rust-port.md)

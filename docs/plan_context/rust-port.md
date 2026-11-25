@@ -1426,6 +1426,88 @@ test confinement before running filesystem/ABI/CLI acceptance there. These
 specific dependencies hold native claims and remote waves; they do not block
 independent Linux implementation or portable core work.
 
+## Current filesystem qualification checkpoint, 2026-11-19
+
+The pending filesystem primitives and separately packaged ABI consumer pass
+canonical Nix checks. The latest complete host run passes all functional
+suites, including forty-five platform tests and fifteen native metadata
+fixtures, but the required growth gate is inconclusive after its bounded
+retry because sample variation exceeds policy. Its samples remain diagnostic;
+no bounds or historical baselines were changed. The following staging-guard
+integration raises platform coverage to forty-eight and passes Nix preparation.
+It still needs complete host qualification before these changes are committed.
+The confined host subsequently passes all forty-eight platform cases. A
+constructor failure control then exposes an unsafe cleanup path: if initial
+inspection failed after the staging name was replaced, it could delete the
+replacement. The constructor now retains entries whose identity is unknown.
+Reintroducing the old deletion makes the new independent filesystem assertion
+fail; the fixed code passes Nix with forty-nine platform tests compiled and
+thirty-four executed, plus fifteen prepared native fixtures. Complete host
+qualification is still pending for this final source.
+
+Infrastructure requires a fresh suitable measurement window: no active heavy
+build or GPU work, both direct build slots free, and no queued work poised to
+start. A fresh read-only observation still shows occupied slots and waiting
+work. There is no authorized exclusive reservation or drain. The project agent
+owns finishing preparation and checking admission conditions; infrastructure
+owns any future authorized exclusive-window mechanism. Use the existing
+bounded route and unchanged checks when the conditions are satisfied. This
+blocks complete timing qualification and commits, while independent Linux
+capture and restoration work continues in the existing private checkout.
+
+Infrastructure subsequently confirms a live-mechanism blocker: the current
+host has no supported admission drain covering both CI and direct build jobs.
+An uncommitted candidate is not operable and still has source-consistency and
+fail-closed safety issues. Correcting, testing, committing, building and
+activating that infrastructure requires its own authorized work. A proposed
+two-minute window cannot be scheduled against the candidate. The project
+agent's window-approval question is superseded until a safe concrete operation
+exists; natural suitable admission remains the currently supported route.
+
+Independent Linux work now has an unpublished end-to-end directory path:
+capture, portable v2 create/apply, metadata restoration, staged identity
+verification and exclusive publication. Nix tests produce byte-identical
+directory patches to the original CLI and cross-apply them in both directions.
+An external C consumer links only the packaged Rust archive and public header,
+requires all nine exports, and verifies binary trees, stored selection, limits,
+source identity, source containment and preservation of occupied outputs.
+This remains candidate implementation evidence; the production CLI is unchanged.
+
+The confined host run passes seventy of seventy-one platform cases, including
+the native writer's original-ABI hash, physical hardlinks, exact symlink parent
+transport and native sparse extent readback. One ACL-mode fixture fails during
+setup because it feeds unsorted raw capture into a constructor requiring
+canonical order. The fixture now normalizes captured ACLs, preserving its
+kernel mask and final-permission assertions. The corrected combined source
+passes Nix and the confined host rerun passes all seventy-five platform cases,
+including all twenty-seven mandatory native fixtures. Complete-suite timing
+qualification is still pending. Seventeen source prefixes preserve reviewable
+increments and are being checked independently before publication. Native
+macOS/Windows holds remain unchanged.
+
+Pure Rust codec and multi-frame qualification is deferred unless a future
+owner decision selects either design. It is not a prerequisite for the current
+single-frame, statically linked zstdz port. Existing resource limits and codec
+acceptance checks remain required.
+
+## Build conformance follow-up, 2026-11-20
+
+Build revisions follow the owner's `rN-abcdef` rule. The count covers all
+commits reachable from the built commit's recorded base on the first-parent
+history of `yolo`; the suffix identifies the built commit. Full hashes and
+dirty state remain separate provenance. Source archives need that verified
+metadata too, and releases must reject unavailable or dirty provenance.
+
+The updated shared build contract also requires one Linux libc for products,
+SDK archives and tests. Difz needs no host graphics or audio libraries, so the
+target is static musl. The pending Rust development candidate still uses GNU;
+it is not a qualified standalone release. Its matching SDK and external
+consumers must migrate together, retaining the compiler pin and ABI checks.
+The runtime gate must inspect actual loader metadata and artifact bytes and
+exercise self-contained operations without a usable PATH or Nix environment.
+These requirements remain open before Rust adoption; earlier development
+checks do not establish conformance to the updated contract.
+
 ### Unpublished Linux product and review checkpoint (2026-11-19)
 
 The Linux Rust candidate now covers complete tree capture, staged restoration,
@@ -1501,3 +1583,39 @@ All four are required by CI and the complete test entry point. Pure registry,
 scope and complete-entrypoint checks pass, with four explicitly unavailable
 Rust Windows builders remaining. These compile checks do not qualify native
 Windows execution or complete the Windows Rust filesystem port.
+
+### Complete Linux qualification, 2026-11-25
+
+The complete `./test` entry point now passes on the combined Linux product and
+build-publication candidate committed through `ad8584f`. This supersedes the
+earlier pending complete-suite and timing status above. The owner's explicit
+retry authorized one fresh attempt through ordinary bounded resource admission.
+The host still had substantial I/O activity; this result does not claim an idle
+machine. Measurement policies, numerical thresholds, retry limits, mandatory
+fixtures and baseline rules were unchanged. No epoch or baseline was accepted.
+
+The run took 478.29 seconds: 42.35 seconds for Nix preparation and checks, then
+435.94 seconds for host execution including admission. It passed 96 core tests
+with one platform-specific skip, all 79 Rust platform cases with 29 mandatory
+native metadata fixtures, and all 92 original CLI cases against each of the
+original and standalone Rust frontends. Packaged release and Debug ABI consumers,
+cross-application, isolation, source contracts and artifact rejection controls
+also pass. All 17 requested Nix outputs, including four Windows Zig cross-builds,
+were realized. The staging/ACL regression increment additionally passed its own
+Nix core and source-contract checks before integration.
+
+Fresh file growth passed on its first attempt in 23.34 seconds. Structure growth
+passed in 65.53 seconds for all eight compiled operations on both one and two
+cores, retaining all adjacent ratios and five interleaved rounds. Both registries
+and their negative controls passed. Hardlink ownership retains the independently
+checked 96-alias memory ceiling and rejection of a copying implementation.
+Historical timing cohorts remain unbaselined. Reducing feedback cost remains
+open: these growth checks alone consumed about 89 seconds.
+
+The default product remains the original Zig core and C CLI. The Rust Linux
+alternate retains static zstdz, single-threaded source-prefix frames, complete
+file/tree operations and the independent public-ABI frontend. This qualification
+does not establish native macOS or Windows support or authorize switching the
+default before product-wide platform acceptance. Verified `rN-abcdef` provenance,
+static-musl Rust products/SDKs/tests, standalone runtime independence and the
+remaining native platform work stay open under the updated build contract.
