@@ -1,31 +1,24 @@
 #!/usr/bin/env bash
-set -uo pipefail
-
-run() {
-  "$@" || {
-    echo "FAILED: $*" >&2
-    exit 1
-  }
-}
-
-target=".#default"
-if [[ "${1:-}" == "debug" ]]; then
-  target=".#debug"
-  shift
-fi
-
+# Select/configure a declared backend; Nix owns compilation and installation.
+set -u
+root=$(cd "$(dirname "$0")" && pwd -P) || exit 1
+cd "$root" || exit 1
+source scripts/build-selection.bash
+difz_build_load "$root" && difz_build_parse "$@" || exit 1
+case "$DIFZ_BUILD_ACTION" in
+  canonize) difz_build_canonize "$DIFZ_BUILD_REQUESTED_IMPL"; exit "$?";;
+  help)
+    printf '%s\n' 'Usage: ./build [--debug] [--all-impls] [--all-plats] [--all] [--pf PF] [--offline] [--print-path]' \
+      '       ./build canonize zig|rust' \
+      'zig selects the Zig core with its C CLI; rust selects the Rust core with its Rust CLI.' \
+      '--all-implementations and --all-platforms are the long scope aliases.' \
+      'Unavailable builders fail the requested scope before publication.'
+    exit 0;;
+  build) :;;
+esac
 if ! command -v nix >/dev/null 2>&1; then
   printf 'build: Nix is required; install Nix with flakes enabled.\n' >&2
   exit 69
 fi
 
-if ! prefix=$(nix build --no-update-lock-file --print-out-paths "$target" "$@"); then
-  printf 'build: Nix build failed.\n' >&2
-  exit 1
-fi
-if [[ -z "$prefix" || "$prefix" = *$'\n'* || ! -f "$prefix/bin/difz" || ! -x "$prefix/bin/difz" ]]; then
-  printf 'build: Nix did not return one prepared difz executable.\n' >&2
-  exit 1
-fi
-run mkdir -p zig-out/bin
-run install -m755 "$prefix/bin/difz" zig-out/bin/difz
+exec nix develop --no-update-lock-file "${DIFZ_BUILD_NIX_FLAGS[@]}" -c bash scripts/build-driver.bash "$@"

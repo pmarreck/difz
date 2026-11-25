@@ -11,10 +11,16 @@ let
 		in { required = map present required; excluded = map present excluded; };
 in {
 	systems = builtins.attrNames flake.packages;
+	buildContract = flake.buildContract;
+	buildRegistryOutputs = map (row: row.output == null ||
+		flake.inputs.nixpkgs.lib.attrByPath (flake.inputs.nixpkgs.lib.splitString "." row.output) null flake != null
+	) flake.buildContract.rows;
 	randomInputs = builtins.filter (name: builtins.match "^random($|-).*" name != null)
 		(names checks.benchmark-contract.nativeBuildInputs);
 	zstdUrl = (builtins.head (builtins.filter (input: (input.pname or "") == "zstd") shell.nativeBuildInputs)).src.url;
 	windowsCheck = checks.windows-gnu.name;
+	windowsProducts = map (name: { inherit (checks.${name}) pf profile; })
+		[ "windows-gnu" "windows-gnu-debug" "windows-arm64-gnu" "windows-arm64-gnu-debug" ];
 	armPackage = flake.packages.aarch64-linux.default.name;
 	rustTools = builtins.sort builtins.lessThan
 		(builtins.filter (name: builtins.elem name [ "cargo" "rustc" ]) (names shell.nativeBuildInputs));
@@ -67,9 +73,11 @@ in {
 	rustSdkSource = membership flake.packages.${system}.rust-zstdz-sdk.src
 		[ "zstdz-sdk-setup-hook.sh" ] [ "Cargo.toml" "qa.nix" "src/lib.rs" "zstdz/build.rs" ];
 	buildWrapperCheck = checks.build-wrapper.name;
-	debugPackages = builtins.mapAttrs (nativeSystem: packages: packages.debug.drvPath == flake.checks.${nativeSystem}.test.drvPath) flake.packages;
+	debugPackages = builtins.mapAttrs (nativeSystem: packages: packages.debug.drvPath ==
+		(if flake.buildContract.canonical == "zig" then packages.zig-debug.drvPath else packages.rust-product-debug.drvPath)
+	) flake.packages;
 	buildWrapperSource = membership checks.build-wrapper.src
-		[ "build" "tests/integration/test-build-wrapper.bash" ]
+		[ "build" "run" "CANONICAL_IMPL" "nix/build-targets.tsv" "scripts/build-selection.bash" "scripts/build-driver.bash" "scripts/verify-build-output.bash" "tests/integration/test-build-wrapper.bash" "tests/integration/test-build-selection.bash" "tests/integration/test-build-verification.bash" "tests/integration/test-build-nix-roots.bash" ]
 		[ "PLAN.md" "README.md" "flake.nix" "src/zstd_patch.zig" "rust/src/lib.rs" ];
 	rustCoreOutputs = builtins.mapAttrs (_: packages: builtins.hasAttr "rust-core-tests" packages) flake.packages;
 	rustCoreSource = membership flake.packages.${system}.rust-core-tests.src
@@ -86,7 +94,7 @@ in {
 	crossApplySource = membership checks.cross-apply.src
 		[ "tests/acceptance/cross-apply" "tests/integration/test-cross-apply.bash" ]
 		[ "PLAN.md" "flake.nix" "src/lib.zig" "tests/codec_rust/interop.rs" "tests/cli/test_cli.bash" "README.md" ];
-	zigSource = membership flake.packages.${system}.default.src
+	zigSource = membership flake.packages.${system}.zig-release.src
 		[ "build.zig" "build.zig.zon" "src/lib.zig" "src/difz.c" "src/difz.h" "scripts/flatten-static-lib" "tests/cli/test_cli.bash" "tests/ffi/caller.c" "tests/ffi/rust_caller.rs" "tests/ffi/test_installed_lib.bash" ]
 		[ "PLAN.md" "README.md" "flake.nix" "scripts/run-tests-isolated" "tests/run-prepared-host" "tests/codec_rust/interop.rs" "tests/codec_rust/test_runner.bash" "docs/plan_context/rust-port.md" ];
 	benchmarkSource = membership checks.benchmark-contract.src

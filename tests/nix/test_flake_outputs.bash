@@ -51,6 +51,9 @@ require_json() {
 	printf 'PASS %s\n' "$2"
 }
 expect_json '.systems' "$EXPECTED" "flake package systems: $EXPECTED"
+require_json '.buildContract.canonical | . == "zig" or . == "rust"' 'canonical selector names a registered library backend'
+require_json '.buildContract.rows | length == 20' 'both implementations declare all five platforms and both profiles'
+require_json '.buildRegistryOutputs | length == 20 and all(.[]; . == true)' 'every available build-registry output resolves; unavailable builders remain explicit'
 expect_json '.randomInputs' "$EXPECTED_RANDOM_INPUTS" "benchmark random package inputs: $EXPECTED_RANDOM_INPUTS"
 random_rev=$(jq -er '.locks.nodes.random.locked.rev' <<< "$flake_metadata") || exit 1
 if [ "$random_rev" != "$EXPECTED_RANDOM_REV" ]; then
@@ -64,6 +67,7 @@ if [ -z "$zstd_url" ] || [ "$shell_zstd_url" != "$zstd_url" ]; then
 fi
 printf 'PASS benchmark CLI shares the zstdz library source pin\n'
 require_json '.windowsCheck | type == "string" and length > 0' 'windows-gnu cross check is declared'
+expect_json '.windowsProducts' '[{"pf":"mswin-amd64","profile":"ReleaseFast"},{"pf":"mswin-amd64","profile":"Debug"},{"pf":"mswin-arm64","profile":"ReleaseFast"},{"pf":"mswin-arm64","profile":"Debug"}]' 'both Windows architectures expose optimized and debug product checks'
 require_json '.armPackage | type == "string" and length > 0' 'aarch64-linux package evaluates'
 if [ ! -x "$ROOT_DIR/fuzz" ]; then printf 'FAIL ./fuzz is not an executable fuzzing suite\n' >&2; exit 1; fi
 printf 'PASS ./fuzz is executable\n'
@@ -93,7 +97,7 @@ require_json '.rustCoreSdk == true' 'Rust core receives the reusable zstdz SDK a
 require_json '(.rustSdkSource.required | length == 1 and all(.[]; . == true)) and (.rustSdkSource.excluded | length == 4 and all(.[]; . == false))' 'zstdz SDK source contains its hook and excludes Rust product sources'
 require_json '.buildWrapperCheck | type == "string" and length > 0' 'Nix build adapter has a declared check'
 require_json '.debugPackages | length == 3 and all(.[]; . == true)' 'debug builds select the checked Nix artifact on every native system'
-require_json '(.buildWrapperSource.required | length == 2 and all(.[]; . == true)) and (.buildWrapperSource.excluded | length == 5 and all(.[]; . == false))' 'build adapter source membership excludes unrelated path sets'
+require_json '(.buildWrapperSource.required | length == 11 and all(.[]; . == true)) and (.buildWrapperSource.excluded | length == 5 and all(.[]; . == false))' 'build adapter source membership excludes unrelated path sets'
 require_json '.rustCoreOutputs | length == 3 and all(.[]; . == true)' 'Rust core artifacts are declared for every native system'
 require_json '(.rustCoreSource.required | length == 81 and all(.[]; . == true)) and (.rustCoreSource.excluded | length == 8 and all(.[]; . == false))' 'Rust core source membership includes metadata, native adapter and consumer, excluding unrelated path sets'
 require_json '.crossApplyCheck | type == "string" and length > 0' 'cross-implementation acceptance has a declared Nix check'

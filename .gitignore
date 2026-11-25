@@ -1,4 +1,12 @@
 zig-out/
+rust-out/
+.build-state/
+.build-work/
+bin/linux-amd64/difz
+bin/linux-arm64/difz
+bin/macos-arm64/difz
+bin/mswin-amd64/difz.exe
+bin/mswin-arm64/difz.exe
 zig-cache/
 .zig-cache/
 .cache/

@@ -199,8 +199,35 @@ Requires [Nix](https://nixos.org/) with flakes enabled:
 ```bash
 ./build  # reproducible optimized Nix build
 ./build debug  # checked Debug artifact, also built through Nix
+./build --all-impls  # both registered backend/frontend products on this host
+./run --about  # build and launch this checkout's exact selected executable
 ./test   # Nix-prepared suites, then confined host filesystem and ABI tests
 ```
+
+`CANONICAL_IMPL` selects the complete product: `zig` is the existing Zig library
+with its C CLI; `rust` is the Rust library with its Rust CLI. The default remains
+`zig` during qualification. `./build canonize rust` records a selection without
+building or switching the published command. A subsequent successful `./build`
+publishes that selection. Both Rust profiles statically link zstdz.
+
+Products remain rooted in the Nix store through
+`<implementation>-out/<PF>/[<VARIANT>/]<profile>/`. Linux Zig uses musl and
+`ReleaseFast`/`Debug`; Linux Rust uses GNU and `release`/`debug`. The native
+command is a direct relative link at `bin/<PF>/difz`; only the selected host
+product updates it. Publication verifies executable headers, SDK artifacts and
+compiled target identity, serializes publishers, and retains the prior product.
+Failures preserve the previous command. Unrecognized commands and symlinked
+publication parents are rejected.
+
+`--all-implementations` aliases `--all-impls`; `--all-platforms` aliases
+`--all-plats`; `--all` combines both scopes. `--pf PF` requests one target.
+The registry covers `linux-amd64`, `linux-arm64`, `macos-arm64`, `mswin-amd64`
+and `mswin-arm64` for both profiles and implementations. Missing builders are
+explicit errors before publication. The original implementation cross-builds
+both Windows architectures in optimized and Debug profiles, with inspected PE
+headers and complete SDK artifacts. Windows Rust products still lack builders;
+native macOS/Windows qualification is pending. A declared target or cross-build
+does not establish native support.
 
 Test preparation requires Nix. Linux host execution requires Bubblewrap and
 user namespaces, supplied and checked by the pinned test environment. Unsupported

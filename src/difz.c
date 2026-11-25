@@ -29,6 +29,17 @@
 #include "progrez.h"
 
 #define DIFZ_VERSION "0.1.0"
+#ifndef DIFZ_PF
+#error "The difz build must supply its canonical compilation target"
+#endif
+#if defined(__linux__)
+#ifndef DIFZ_VARIANT
+#error "The difz Linux build must supply its compilation ABI"
+#endif
+#define DIFZ_ABOUT_VARIANT " VARIANT=" DIFZ_VARIANT
+#else
+#define DIFZ_ABOUT_VARIANT ""
+#endif
 
 /* ── Platform / arch detection ─────────────────────────────────────── */
 
@@ -154,7 +165,7 @@ static enum path_kind classify_path(const char *path) {
 }
 
 static void print_about(void) {
-	fprintf(stdout, "difz %s -- fast binary differ (zstd level 9 patch-from) -- %s %s\n",
+	fprintf(stdout, "difz %s -- fast binary differ (zstd level 9 patch-from) -- %s %s; PF=" DIFZ_PF DIFZ_ABOUT_VARIANT "\n",
 		DIFZ_VERSION, DIFZ_PLATFORM, DIFZ_ARCH);
 }
 

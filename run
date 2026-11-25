@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Explicit development invocation: build and launch this checkout's exact CLI.
+set -u
+root=$(cd "$(dirname "$0")" && pwd -P) || exit 1
+executable=$(bash "$root/build" --print-path) || exit "$?"
+[ -f "$executable" ] && [ -x "$executable" ] || { printf 'run: selected build did not provide an executable\n' >&2; exit 1; }
+exec "$executable" "$@"

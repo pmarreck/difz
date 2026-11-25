@@ -1,5 +1,5 @@
 {
-	description = "difz - a binary differ written in Zig";
+	description = "difz - binary patches and canonical filesystem snapshots";
 
 	inputs = {
 		nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -12,7 +12,11 @@
 	};
 
 	outputs = { self, nixpkgs, flake-utils, random, performance-profiling }:
-		flake-utils.lib.eachSystem [
+		let buildContract = import ./nix/build-contract.nix {
+			lib = nixpkgs.lib;
+			source = builtins.readFile ./nix/build-targets.tsv;
+			selector = builtins.readFile ./CANONICAL_IMPL;
+		}; in (flake-utils.lib.eachSystem [
 			"x86_64-linux"
 			"aarch64-linux"
 			"aarch64-darwin"
@@ -50,7 +54,7 @@
 				};
 				buildWrapperSource = pkgs.lib.fileset.toSource {
 					root = ./.;
-					fileset = pkgs.lib.fileset.unions [ ./build ./tests/integration/test-build-wrapper.bash ];
+					fileset = pkgs.lib.fileset.unions [ ./build ./run ./CANONICAL_IMPL ./nix/build-targets.tsv ./scripts/build-selection.bash ./scripts/build-driver.bash ./scripts/verify-build-output.bash ./tests/integration/test-build-wrapper.bash ./tests/integration/test-build-selection.bash ./tests/integration/test-build-verification.bash ./tests/integration/test-build-nix-roots.bash ];
 				};
 
 				# Single hash for the entire Zig dependency tree.
@@ -126,7 +130,7 @@
 						cp -r ${zigDeps}/* $ZIG_GLOBAL_CACHE_DIR/
 						chmod -R u+w $ZIG_GLOBAL_CACHE_DIR
 
-						zig build ${pkgs.lib.optionalString prepareTests "test-artifacts"} -Doptimize=${optimize} --prefix $out
+						zig build ${pkgs.lib.optionalString prepareTests "test-artifacts"} -Dtarget=${if pkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-musl" else "x86_64-linux-musl"} -Dcpu=baseline -Doptimize=${optimize} --prefix $out
 					'';
 
 					doCheck = doCheck;
@@ -275,10 +279,22 @@
 				rustProductRelease = rustProduct "release" rustCli rustLibrary;
 				rustProductDebug = rustProduct "debug" rustCliDebug rustLibraryDebug;
 				rustCliCheck = import ./rust/cli-check.nix { inherit pkgs; debugCli = rustProductDebug; releaseCli = rustProductRelease; oracle = releaseFast; };
+				implementationProducts = {
+					zig = { release = releaseFast; debug = debugTests; };
+					rust = { release = rustProductRelease; debug = rustProductDebug; };
+				};
+				windowsProduct = args: import ./nix/windows-product.nix ({ inherit pkgs zigDeps; source = zigSource; } // args);
+				windowsAmd64Release = windowsProduct {};
+				windowsAmd64Debug = windowsProduct { debug = true; };
+				windowsArm64Release = windowsProduct { arch = "arm64"; };
+				windowsArm64Debug = windowsProduct { arch = "arm64"; debug = true; };
+				canonicalProducts = implementationProducts.${buildContract.canonical};
 		in
 			{
-				packages.default = releaseFast;
-				packages.debug = debugTests;
+				packages.default = canonicalProducts.release;
+				packages.debug = canonicalProducts.debug;
+				packages.zig-release = releaseFast;
+				packages.zig-debug = debugTests;
 				packages.zstd-benchmark = zstdBenchmark;
 				packages.performance-benchmark = performancePackage;
 				packages.rust-codec-tests = rustCodecTests;
@@ -295,22 +311,25 @@
 				packages.host-tests = hostTests;
 
 				checks = {
-					build = releaseFast;
+					build = canonicalProducts.release;
 					test = debugTests;
 					rust-core = rustCoreTests;
 					rust-abi = rustAbiConsumer;
 					rust-abi-debug = rustAbiDebugConsumer;
 					rust-cli = rustCliCheck;
 					test-entry = import ./tests/nix/test-entry.nix { inherit pkgs; };
-					build-wrapper = pkgs.runCommand "difz-build-wrapper-check" {
+					build-wrapper = assert (import ./nix/build-contract-tests.nix { lib = pkgs.lib; }); pkgs.runCommand "difz-build-wrapper-check" {
 						src = buildWrapperSource;
-						nativeBuildInputs = with pkgs; [ bash coreutils gnugrep ];
+						nativeBuildInputs = with pkgs; [ bash coreutils gnugrep file jq nix ];
 					} ''
 						cp -R "$src/." .
 						chmod -R u+w .
 						export HOME="$TMPDIR/home"
 						mkdir -p "$HOME"
-						bash tests/integration/test-build-wrapper.bash
+						bash tests/integration/test-build-wrapper.bash ${releaseFast} ${debugTests} ${rustProductRelease} ${rustProductDebug}
+						bash tests/integration/test-build-selection.bash
+						bash tests/integration/test-build-verification.bash ${releaseFast} ${rustProductRelease} ${rustProductDebug}
+						bash tests/integration/test-build-nix-roots.bash ${releaseFast}
 						touch "$out"
 					'';
 					cross-apply = pkgs.runCommand "difz-cross-apply-check" {
@@ -348,27 +367,10 @@
 							bash ${./tests/codec_rust}/test_probe.bash
 						touch "$out"
 					'';
-					windows-gnu = pkgs.stdenv.mkDerivation {
-						pname = "difz-windows-gnu";
-						version = "0.1.0";
-						src = zigSource;
-						nativeBuildInputs = [ pkgs.zig pkgs.binutils ];
-						dontConfigure = true;
-						dontInstall = true;
-						buildPhase = ''
-							export HOME=$TMPDIR
-							export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
-							mkdir -p $ZIG_GLOBAL_CACHE_DIR
-							cp -r ${zigDeps}/* $ZIG_GLOBAL_CACHE_DIR/
-							chmod -R u+w $ZIG_GLOBAL_CACHE_DIR
-							zig build -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix $out
-							test -f $out/bin/difz.exe
-							if ! strings "$out/bin/difz.exe" | grep -q setmode; then
-								echo "FAIL: Windows binary does not reference setmode" >&2
-								exit 1
-							fi
-						'';
-					};
+					windows-gnu = windowsAmd64Release;
+					windows-gnu-debug = windowsAmd64Debug;
+					windows-arm64-gnu = windowsArm64Release;
+					windows-arm64-gnu-debug = windowsArm64Debug;
 					benchmark-contract = pkgs.runCommand "difz-benchmark-contract"
 						{
 							src = benchmarkSource;
@@ -413,5 +415,5 @@
 					PERFORMANCE_PROCESS_MODULE = "${performancePackage}/share/performance-profile/src/process.lua";
 				};
 			}
-		);
+		)) // { inherit buildContract; };
 }

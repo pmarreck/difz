@@ -2,6 +2,7 @@
 let
 	pf = (if pkgs.stdenv.hostPlatform.isDarwin then "macos" else "linux") + "-" + (if pkgs.stdenv.hostPlatform.isx86_64 then "amd64" else "arm64");
 	variant = if pkgs.stdenv.hostPlatform.isLinux then (if pkgs.stdenv.hostPlatform.isMusl then "musl" else "gnu") else null;
+	oracleVariant = if pkgs.stdenv.hostPlatform.isLinux then "musl" else null;
 in pkgs.runCommand "difz-rust-cli-check" {
 	src = pkgs.lib.fileset.toSource { root = ../.; fileset = ../tests/cli/test_cli.bash; };
 	nativeBuildInputs = with pkgs; [ bash coreutils diffutils gnugrep ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.binutils ];
@@ -26,6 +27,11 @@ in pkgs.runCommand "difz-rust-cli-check" {
 	if ! OS=macos ARCH=arm64 PF=macos-arm64 PLATFORM=macos-arm64 VARIANT=conflicting ${releaseCli}/bin/difz --about > "$TMPDIR/about" 2> "$TMPDIR/about-errors"; then errors=$((errors + 1)); fi
 	if [ "$(wc -l < "$TMPDIR/about")" -ne 1 ] || ! grep -F 'PF=${pf}${pkgs.lib.optionalString (variant != null) " VARIANT=${variant}"}' "$TMPDIR/about" > /dev/null; then
 		cat "$TMPDIR/about" >&2; errors=$((errors + 1))
+	fi
+	if ! OS=macos ARCH=arm64 PF=macos-arm64 PLATFORM=macos-arm64 VARIANT=conflicting ${oracle}/bin/difz --about > "$TMPDIR/oracle-about" 2> "$TMPDIR/oracle-about-errors"; then errors=$((errors + 1)); fi
+	if [ "$(wc -l < "$TMPDIR/oracle-about")" -ne 1 ] || ! grep -F 'PF=${pf}${pkgs.lib.optionalString (oracleVariant != null) " VARIANT=${oracleVariant}"}' "$TMPDIR/oracle-about" > /dev/null; then
+		printf 'FAIL original CLI compiled target identity\n' >&2
+		cat "$TMPDIR/oracle-about" >&2; errors=$((errors + 1))
 	fi
 	${pkgs.lib.optionalString (variant == null) ''
 		if grep -F 'VARIANT=' "$TMPDIR/about"; then errors=$((errors + 1)); fi

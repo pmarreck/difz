@@ -1473,3 +1473,31 @@ their automatic retry; no policy, baseline, epoch or required check was relaxed.
 Native macOS/Windows qualification, the complete build/publication migration
 and platform-specific restore work remain open. No unpublished candidate is
 represented as shipped or as a successful complete-suite run.
+
+### Build publication candidate, 2026-11-19
+
+The uncommitted migration uses a checked target registry shared by Nix and the
+thin build selector, with the qualified Zig/C route still selected by default.
+Twenty backend/platform/profile rows include seven explicitly unavailable
+builders. Pure configuration, scope aliases and host normalization checks pass.
+Native product checks inspect actual executable headers, SDK artifacts, Rust
+profile/target metadata and compiled `--about` output under conflicting runtime
+environment variables. The original CLI now reports its actual target too;
+canonical Zig builds explicitly select the baseline CPU and musl target.
+
+The candidate publisher retains exact Nix products at final registered roots,
+publishes a direct host command only after verification, preserves the previous
+product, rejects unknown commands and serializes transactions. Failure after a
+root update, concurrent ownership and source changes all preserve publication.
+A disposable private Nix store independently verifies actual final GC-root
+registration and direct executable launch. These focused Nix checks pass; they
+do not replace the complete required suite or qualify foreign native execution.
+
+The following build-matrix increment supplies the three missing original
+Windows products through one parameterized Nix derivation. AMD64 and ARM64
+both pass optimized and Debug cross-builds, complete SDK artifact checks and
+independent PE-header inspection. The setmode reference control is retained.
+All four are required by CI and the complete test entry point. Pure registry,
+scope and complete-entrypoint checks pass, with four explicitly unavailable
+Rust Windows builders remaining. These compile checks do not qualify native
+Windows execution or complete the Windows Rust filesystem port.

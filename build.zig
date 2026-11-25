@@ -130,6 +130,26 @@ pub fn build(b: *std.Build) void {
         }),
     });
     exe.linkage = link_mode; // static on musl → runnable on NixOS without a loader
+    const pf_os = switch (target.result.os.tag) {
+        .linux => "linux",
+        .macos => "macos",
+        .windows => "mswin",
+        else => @panic("unsupported difz CLI operating system"),
+    };
+    const pf_arch = switch (target.result.cpu.arch) {
+        .x86_64 => "amd64",
+        .aarch64 => "arm64",
+        else => @panic("unsupported difz CLI architecture"),
+    };
+    exe.root_module.addCMacro("DIFZ_PF", b.fmt("\"{s}-{s}\"", .{ pf_os, pf_arch }));
+    if (target.result.os.tag == .linux) {
+        const variant = switch (target.result.abi) {
+            .gnu => "gnu",
+            .musl => "musl",
+            else => @panic("unsupported difz CLI Linux ABI"),
+        };
+        exe.root_module.addCMacro("DIFZ_VARIANT", b.fmt("\"{s}\"", .{variant}));
+    }
     exe.root_module.addCSourceFile(.{
         .file = b.path("src/difz.c"),
         .flags = c_flags,
