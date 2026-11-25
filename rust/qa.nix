@@ -69,7 +69,7 @@ pkgs.rustPlatform.buildRustPackage {
 		# Include the reference children in a bounded process group if IPC stalls.
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$test_binary" --test-threads=1 --include-ignored
 		consumer_test_count=$("$consumer_tests" --list | grep -c ': test$')
-		test "$consumer_test_count" -ge 4
+		test "$consumer_test_count" -ge 5
 		${pkgs.coreutils}/bin/timeout --kill-after=5s 120s "$consumer_tests" --test-threads=1 --include-ignored
 		mkdir "$TMPDIR/c-api-files"
 		./c-api-consumer "$TMPDIR/c-api-files"

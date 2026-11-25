@@ -130,19 +130,6 @@ fn sample_rows<T>(
 	}
 	Sweep { rows, order }
 }
-#[cfg(test)]
-fn sample_work<T>(mut execute: impl FnMut() -> T, mut verify: impl FnMut(&T)) -> Samples {
-	sample_rows(
-		1,
-		|_| execute(),
-		|_, output| verify(output),
-		&mut NativeClock,
-	)
-	.rows
-	.pop()
-	.unwrap()
-}
-
 pub fn run(args: &[String]) {
 	assert!(!cfg!(debug_assertions), "optimized probe required");
 	assert_eq!(
@@ -323,6 +310,14 @@ mod tests {
 	#[test]
 	fn each_probe_output_is_released_before_the_next_operation() {
 		use std::{cell::Cell, rc::Rc};
+		struct UnitClock;
+		impl Clock for UnitClock {
+			type Start = ();
+			fn start(&mut self) {}
+			fn elapsed(&mut self, (): ()) -> (u128, u128) {
+				(1, 1)
+			}
+		}
 		struct Live(Rc<Cell<usize>>);
 		impl Drop for Live {
 			fn drop(&mut self) {
@@ -330,17 +325,36 @@ mod tests {
 			}
 		}
 		let live = Rc::new(Cell::new(0));
-		let samples = sample_work(
-			|| {
+		let samples = sample_rows(
+			1,
+			|_| {
 				assert_eq!(live.get(), 0, "prior output retained across operations");
 				live.set(1);
 				Live(live.clone())
 			},
-			|_| {},
-		);
+			|_, _| {},
+			&mut UnitClock,
+		)
+		.rows
+		.pop()
+		.unwrap();
 		assert_eq!(live.get(), 0);
-		assert_eq!(samples.wall.len(), 5);
-		assert_eq!(samples.cpu.len(), 5);
+		assert_eq!(samples.iterations, MAX_ITERATIONS);
+		assert_eq!(samples.wall, vec![1.0; 5]);
+		assert_eq!(samples.cpu, vec![1.0; 5]);
+	}
+	#[test]
+	#[should_panic(expected = "CPU clock must advance")]
+	fn a_nonadvancing_cpu_clock_is_rejected_before_recording_samples() {
+		struct ZeroClock;
+		impl Clock for ZeroClock {
+			type Start = ();
+			fn start(&mut self) {}
+			fn elapsed(&mut self, (): ()) -> (u128, u128) {
+				(1, 0)
+			}
+		}
+		sample_rows(1, |_| (), |_, _| {}, &mut ZeroClock);
 	}
 	#[test]
 	fn seed_transport_matches_the_provider_and_retains_high_bits() {
