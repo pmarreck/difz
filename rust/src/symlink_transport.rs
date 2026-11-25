@@ -186,7 +186,7 @@ fn validate(record: &Record<'_>) -> Result<(), Error> {
 	if (mtime.is_some() || absent_times & 1 != 0) != observed_mtime.is_some() {
 		return Err(Error::InvalidTransport);
 	}
-	crate::directory::validate_path(name).map_err(|_| Error::InvalidTransport)?;
+	crate::directory::validate_basename(name).map_err(|_| Error::InvalidTransport)?;
 	if absent_times & !7 != 0
 		|| [(1, mtime), (2, atime), (4, btime)]
 			.iter()

@@ -55,6 +55,11 @@ fn restore_inner(
 	// Canonical transports are replaced only on the caller's owned stage.
 	remove(file, b"user.difz.native-acl")?;
 	remove(file, b"user.difz.portable-acl")?;
+	// Inherited permissions must not remain active behind a canonical transport.
+	// Clearing the owned stage must succeed even when the desired ACL cannot
+	// be represented natively; otherwise an unrelated inherited grant survives.
+	remove(file, b"system.posix_acl_access")?;
+	remove(file, b"system.posix_acl_default")?;
 	apply_native(file, &desired)?;
 	let native = if let Some(mode) = final_mode {
 		crate::write::set_mode(file, mode)?;
@@ -268,10 +273,16 @@ mod tests {
 	#[test]
 	fn native_foreign_acl_and_non_numeric_portable_principal_use_exact_field_transports() {
 		let fixture = Fixture::new();
-		let file = Directory::open(&fixture.0)
-			.unwrap()
-			.create_file(b"data")
-			.unwrap();
+		let parent = Directory::open(&fixture.0).unwrap();
+		// A fresh staging file can inherit active entries even though its owner
+		// did not explicitly set an ACL. The foreign fallback must clear them.
+		xattr::set(&parent.file, b"system.posix_acl_default", &kernel_acl()).unwrap();
+		let file = parent.create_file(b"data").unwrap();
+		assert!(
+			xattr::get(&file, b"system.posix_acl_access", 65_536)
+				.unwrap()
+				.is_some()
+		);
 		let desired = CanonicalMetadata::normalize(
 			Metadata {
 				native_acl: Some(NativeAcl {
@@ -299,6 +310,56 @@ mod tests {
 			linux_capture::capture_acl(&file, 65_536).unwrap(),
 			desired.into_metadata()
 		);
+		let mut native = [0u8; 128];
+		let count = unsafe {
+			libc::fgetxattr(
+				file.as_raw_fd(),
+				c"system.posix_acl_access".as_ptr(),
+				native.as_mut_ptr().cast(),
+				native.len(),
+			)
+		};
+		assert_eq!(
+			count, -1,
+			"foreign transport retained an inherited active ACL"
+		);
+		assert_eq!(
+			io::Error::last_os_error().raw_os_error(),
+			Some(libc::ENODATA)
+		);
+	}
+	#[test]
+	fn native_private_creation_restores_owner_permissions_restricted_by_parent_default_acl() {
+		let fixture = Fixture::new();
+		let parent = Directory::open(&fixture.0).unwrap();
+		for owner_bits in [4u16, 6] {
+			let mut acl = kernel_acl();
+			acl[6..8].copy_from_slice(&owner_bits.to_le_bytes());
+			xattr::set(&parent.file, b"system.posix_acl_default", &acl).unwrap();
+			let name = format!("private-{owner_bits}");
+			let directory = parent.create_directory(name.as_bytes()).unwrap();
+			assert_eq!(
+				directory.file.metadata().unwrap().permissions().mode() & 0o777,
+				0o700,
+				"parent default ACL removed private directory owner permissions"
+			);
+			let file = directory.create_file(b"data").unwrap();
+			assert_eq!(file.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+			xattr::set(&file, b"user.private-probe", b"\0\xff").unwrap();
+			let mut raw = [0u8; 2];
+			assert_eq!(
+				unsafe {
+					libc::fgetxattr(
+						file.as_raw_fd(),
+						c"user.private-probe".as_ptr(),
+						raw.as_mut_ptr().cast(),
+						raw.len(),
+					)
+				},
+				2
+			);
+			assert_eq!(raw, [0, 255]);
+		}
 	}
 	#[test]
 	fn native_stage_acl_preparation_preserves_requested_acl_across_final_mode_changes() {

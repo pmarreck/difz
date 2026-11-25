@@ -63,6 +63,19 @@ pub fn validate_path(path: &[u8]) -> Result<(), Error> {
 	Ok(())
 }
 
+/// A component is interpreted below a parent, so a literal "C:name" has no
+/// drive-prefix meaning. All other portable text/path checks still apply.
+pub fn validate_basename(name: &[u8]) -> Result<(), Error> {
+	match validate_path(name) {
+		Ok(()) | Err(Error::DrivePrefix) => {}
+		Err(error) => return Err(error),
+	}
+	if name.contains(&b'/') {
+		return Err(Error::InvalidComponent);
+	}
+	Ok(())
+}
+
 /// Linear in link/target bytes, with no allocation or filesystem traversal.
 pub fn validate_symlink_target(link_path: &[u8], target: &[u8]) -> Result<(), Error> {
 	validate_path(link_path)?;

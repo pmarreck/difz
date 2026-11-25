@@ -529,6 +529,72 @@ mod tests {
 		}
 	}
 	#[test]
+	fn native_parent_transport_restores_a_literal_drive_prefix_link_component() {
+		let fixture = Fixture::new();
+		let mut raw = basic().into_snapshot();
+		raw.entries[0].content = Content::Directory {
+			mode: Mode::from_bits(0o700).unwrap(),
+		};
+		raw.entries[2].path = Cow::Borrowed(b"a/C:link");
+		raw.entries[2].content = Content::Symlink {
+			target: Cow::Borrowed(b"data"),
+		};
+		raw.entries[2].metadata = CanonicalMetadata::new(Metadata {
+			xattrs: vec![Xattr {
+				class: XattrClass::Logical,
+				name: Cow::Borrowed(b"comment"),
+				value: Cow::Borrowed(b"preserved\0\xff"),
+			}],
+			..Metadata::default()
+		})
+		.unwrap();
+		raw.entries
+			.sort_unstable_by(|left, right| left.path.cmp(&right.path));
+		let target = CanonicalSnapshot::new(raw).unwrap();
+		let parent = Directory::open(&fixture.0).unwrap();
+		publish_auto(
+			&parent,
+			b"output",
+			&target,
+			None,
+			Omit::default(),
+			Limits::default(),
+		)
+		.unwrap();
+		assert_eq!(
+			fs::read_link(fixture.0.join("output/a/C:link"))
+				.unwrap()
+				.as_os_str()
+				.as_encoded_bytes(),
+			b"data"
+		);
+		assert_eq!(
+			fs::read(fixture.0.join("output/a/data")).unwrap(),
+			b"binary\0\xff"
+		);
+		let actual = linux_tree_capture::capture(
+			&Directory::open(&fixture.0.join("output")).unwrap(),
+			Options::default(),
+		)
+		.unwrap();
+		assert_eq!(actual.snapshot().hash(), target.hash());
+		let directory = Directory::open(&fixture.0.join("output/a")).unwrap();
+		let mut bytes = [0u8; 65_536];
+		use std::os::fd::AsRawFd;
+		let count = unsafe {
+			libc::fgetxattr(
+				directory.file.as_raw_fd(),
+				c"user.difz.symlinks".as_ptr(),
+				bytes.as_mut_ptr().cast(),
+				bytes.len(),
+			)
+		};
+		assert!(count > 0);
+		let bytes = &bytes[..count as usize];
+		assert!(bytes.windows(6).any(|part| part == b"C:link"));
+		assert!(bytes.windows(11).any(|part| part == b"preserved\0\xff"));
+	}
+	#[test]
 	fn native_staged_writer_matches_original_abi_hash_and_preserves_physical_hardlinks_and_symlink_transport()
 	 {
 		let fixture = Fixture::new();

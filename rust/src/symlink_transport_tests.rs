@@ -36,6 +36,53 @@ fn fixture(absent: u8, flags: u8) -> Record<'static> {
 		.unwrap(),
 	}
 }
+fn renamed_native_wire(reference: &mut Reference, name: &[u8]) -> Vec<u8> {
+	let mut bytes = reference.call(46, &[3, b'a']).unwrap();
+	// DIFZLINK v1: 13-byte envelope, two u32 lengths, flags, absent
+	// observed-mtime byte, then the name. Rename only that bounded field;
+	// preserve every independently produced metadata byte unchanged.
+	assert_eq!(&bytes[13..17], &1u32.to_le_bytes());
+	assert_eq!(bytes[22], 0);
+	assert_eq!(bytes[23], b'a');
+	bytes[13..17].copy_from_slice(&(name.len() as u32).to_le_bytes());
+	bytes.splice(23..24, name.iter().copied());
+	bytes
+}
+#[test]
+fn parent_records_accept_literal_drive_prefix_components_without_accepting_root_paths() {
+	let mut reference = Reference::start();
+	for letter in (b'A'..=b'Z').chain(b'a'..=b'z') {
+		let name = vec![letter, b':', b'l', b'i', b'n', b'k'];
+		let full = format!("nested/{}", core::str::from_utf8(&name).unwrap());
+		crate::directory::validate_path(full.as_bytes()).unwrap();
+		assert_eq!(
+			crate::directory::validate_path(&name),
+			Err(crate::directory::Error::DrivePrefix)
+		);
+		let mut record = fixture(0, 64);
+		record.name = Cow::Owned(name.clone());
+		let transport = Transport::new(vec![record]).unwrap();
+		let encoded = transport.encode().unwrap();
+		assert_eq!(encoded, renamed_native_wire(&mut reference, &name));
+		let decoded = Transport::decode(&encoded).unwrap();
+		assert_eq!(decoded.records()[0].name.as_ref(), name);
+	}
+	for name in [
+		b"".as_slice(),
+		b"/absolute",
+		b"../escape",
+		b"a/b",
+		b"a\\b",
+		b".",
+		b"..",
+		b"nul\0tail",
+		b"\xff",
+	] {
+		let mut record = fixture(0, 64);
+		record.name = Cow::Borrowed(name);
+		assert!(Transport::new(vec![record]).is_err());
+	}
+}
 #[test]
 fn all_presence_absence_and_override_combinations_match_native_encoding() {
 	let mut reference = Reference::start();
@@ -122,7 +169,16 @@ fn native_basename_count_and_exact_transport_byte_boundaries() {
 		let actual = Transport::new(vec![record])
 			.and_then(|v| v.encode())
 			.map_err(native_error);
-		assert_eq!(actual, reference.call(46, &request));
+		let expected = reference.call(46, &request);
+		if name == b"C:drive" {
+			// The original oracle applies a tree-root rule to a parent-local
+			// component. Retain that limitation explicitly and pin the corrected
+			// bytes through the documented rename metamorphism above.
+			assert_eq!(expected, Err(String::from("InvalidTransport")));
+			assert_eq!(actual, Ok(renamed_native_wire(&mut reference, name)));
+		} else {
+			assert_eq!(actual, expected);
+		}
 	}
 	for count in [65470u32, 65481, 65482, 65483, 65536] {
 		let metadata = CanonicalMetadata::new(Metadata {

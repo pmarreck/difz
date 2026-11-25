@@ -14,7 +14,11 @@ impl Directory {
 		let terminated = basename(name)?;
 		// Validated basename cannot traverse; the parent handle stays live.
 		check(unsafe { libc::mkdirat(self.file.as_raw_fd(), terminated.as_ptr().cast(), 0o700) })?;
-		self.open_directory(name)
+		let directory = self.open_directory(name)?;
+		// A parent default ACL can remove requested owner bits. Restore the
+		// private working mode through the pinned descriptor before populating.
+		directory.set_mode(Mode::from_bits(0o700).map_err(Error::Snapshot)?)?;
+		Ok(directory)
 	}
 	pub fn create_file(&self, name: &[u8]) -> Result<File, Error> {
 		let name = basename(name)?;
@@ -31,7 +35,9 @@ impl Directory {
 			return Err(io::Error::last_os_error().into());
 		}
 		// This successful open returns a fresh descriptor with exactly one owner.
-		Ok(unsafe { File::from_raw_fd(fd) })
+		let file = unsafe { File::from_raw_fd(fd) };
+		set_mode(&file, Mode::from_bits(0o600).map_err(Error::Snapshot)?)?;
+		Ok(file)
 	}
 	/// The tree core validates target containment using the complete entry path.
 	/// This OS primitive requires a nonempty, bounded target without NUL bytes.
@@ -102,15 +108,29 @@ impl Directory {
 		if staging == output {
 			return Err(Error::InvalidBasename);
 		}
-		let from = basename(staging)?;
-		let to = basename(output)?;
 		if self.inspect(staging)?.kind != Kind::Directory {
 			return Err(Error::WrongKind);
 		}
+		self.rename_from(self, staging, output)
+	}
+	pub(crate) fn publish_file_from_stage(
+		&self,
+		source: &Directory,
+		name: &[u8],
+		output: &[u8],
+	) -> Result<(), Error> {
+		if source.inspect(name)?.kind != Kind::File {
+			return Err(Error::WrongKind);
+		}
+		self.rename_from(source, name, output)
+	}
+	fn rename_from(&self, source: &Directory, staging: &[u8], output: &[u8]) -> Result<(), Error> {
+		let from = basename(staging)?;
+		let to = basename(output)?;
 		#[cfg(target_os = "linux")]
 		let result = unsafe {
 			libc::renameat2(
-				self.file.as_raw_fd(),
+				source.file.as_raw_fd(),
 				from.as_ptr().cast(),
 				self.file.as_raw_fd(),
 				to.as_ptr().cast(),
@@ -131,7 +151,7 @@ impl Directory {
 			// Darwin's exclusive rename flag and ABI match the native oracle.
 			unsafe {
 				renameatx_np(
-					self.file.as_raw_fd(),
+					source.file.as_raw_fd(),
 					from.as_ptr().cast(),
 					self.file.as_raw_fd(),
 					to.as_ptr().cast(),

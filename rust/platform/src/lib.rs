@@ -110,16 +110,7 @@ impl Directory {
 }
 
 fn basename(name: &[u8]) -> Result<Vec<u8>, Error> {
-	// A native component is not a complete relative tree path. A literal
-	// "C:name" is safe for openat here and valid below another component;
-	// the tree adapter validates the full path's drive-prefix rule first.
-	match difz_core::directory::validate_path(name) {
-		Ok(()) | Err(difz_core::directory::Error::DrivePrefix) => {}
-		Err(_) => return Err(Error::InvalidBasename),
-	}
-	if name.contains(&b'/') {
-		return Err(Error::InvalidBasename);
-	}
+	difz_core::directory::validate_basename(name).map_err(|_| Error::InvalidBasename)?;
 	let mut terminated = Vec::new();
 	terminated
 		.try_reserve_exact(name.len() + 1)
