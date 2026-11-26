@@ -25,8 +25,13 @@ in {
 	windowsEmulation = let check = checks.windows-amd64-emulated; in {
 		inherit (check) execution;
 		products = builtins.length check.products;
-		source = membership check.source [ "tests/acceptance/cross-apply" ]
+		source = membership check.source [ "tests/acceptance/cross-apply" "scripts/run-arm64-test.bash"
+			"scripts/run-tests-isolated" "tests/integration/test_isolation.bash" "tests/integration/test-arm64-isolation.bash" ]
 			[ "src/difz.c" "src/lib.zig" "rust/src/file.rs" ];
+	};
+	windowsArmEmulation = let check = checks.windows-arm64-emulated; in {
+		inherit (check) execution;
+		products = builtins.length check.products;
 	};
 	armPackage = flake.packages.aarch64-linux.default.name;
 	armEmulation = let

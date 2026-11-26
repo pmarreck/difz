@@ -192,3 +192,24 @@ at `2b7dc17`. This supports an initial difz-only opt-in, not general compatibili
 with arbitrary repository sizes. The reviewed integration must still pass its
 complete suite and host-candidate review before authorized activation and actual
 CI provenance qualification. No service or virtual machine was started.
+
+The reconciled infrastructure candidate additionally passes independent tests
+against its actual Nix-packaged control, including drain refusal statuses,
+shared-read/exclusive-write admission locking, queue recovery, the difz-only
+pilot and the real preparer interruption fixture. Removing only the pilot guard
+makes out-of-pilot work succeed; the retained test correctly rejects that mutant.
+The producer's complete exact-source suite and worker/control package checks pass.
+The candidate preserves newer host admission ordering instead of replacing it
+with an older project copy. Its host build, dependency-pin qualification and
+activation-effect comparison remain pending. These results authorize reviewable
+integration preparation, with production activation still on hold.
+
+The mixed host candidate built, but its activation review found unrelated unit
+changes and an ownership conflict between the proposed shared admission directory
+and the webhook service's existing private runtime directory. It was rejected
+before activation. Infrastructure recovered a clean source baseline that evaluates
+to the exact running system derivation. A narrower declarative replacement is
+being prepared from that baseline, retaining the reviewed bounded provenance
+and difz-only pilot while preserving the running admission and webhook behavior.
+That replacement requires its own complete host-pin checks, source correspondence
+and activation review. The mixed candidate is not an approved deployment route.

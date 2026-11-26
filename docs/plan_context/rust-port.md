@@ -1879,3 +1879,37 @@ preparation and sandbox checks took 191.39 seconds; the host phase, including
 environment and admission waiting, took 215.23 seconds. File growth took 26.24
 seconds and structure growth 40.51 seconds. All twenty growth cases passed on
 their first attempt and remain unbaselined, with unchanged measurement policy.
+
+Commit `508d014` delivered this increment and matched the fetched remote branch.
+Its exact-commit CI passed all nineteen declared targets in 58 seconds.
+
+### Windows ARM64 file acceptance under Wine and QEMU, 2026-11-26
+
+The required `windows-arm64-emulated` check executes both original Windows
+profiles through minimal ARM64 Wine 11.0 and pinned QEMU user mode. Both
+profiles exchange all six shared file cases in every producer/consumer pairing
+with the Linux Rust oracle. Actual PE architecture and compiled target/ABI
+identity, contradictory runtime variables, wrong-architecture rejection and
+binary stdout are checked independently. This is Windows API emulation on the
+Linux host kernel, not native Windows or NTFS metadata qualification.
+
+PRoot passed small probes but failed the full matrix with intermittent allocator
+crashes and masked application failures. It is not used by the required check.
+Instead, a test-only helper creates private user, mount and PID namespaces and
+registers QEMU in that user namespace's own interpreter table. An actual ARM64
+ELF must fail with status 126 before registration. The parent table must remain
+unchanged, and child exit status propagates. No host-wide interpreter entry,
+service, virtual machine or expanded resource ceiling is introduced.
+
+A retained regression first proves that the same user can modify eight owned
+protected paths. Within the existing read-only host boundary, nested interpreter
+capabilities must deny those writes, preserve bytes, modes and links, and permit
+private writes. Separate controls execute the real ARM64 Wine version and
+preserve exit 23. The real file-acceptance run waits for its private Wine server;
+the PID namespace supplies the final descendant lifetime boundary.
+
+The complete `./test` passed in 137.66 seconds. Nix preparation and sandbox
+checks took 56.86 seconds; the host phase, including environment and admission,
+took 80.80 seconds. Fresh file growth took 24.89 seconds and structure growth
+40.31 seconds. All twenty declared growth cases passed on their first attempt;
+they remain unbaselined and the measurement policy is unchanged.

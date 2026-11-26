@@ -434,7 +434,14 @@
 						inherit pkgs;
 						products = [ windowsAmd64Release windowsAmd64Debug ];
 						oracles = [ rustProductRelease rustProductDebug ];
-						armControl = windowsArm64Release;
+						wrongArchControl = windowsArm64Release;
+					};
+					windows-arm64-emulated = import ./nix/windows-emulated.nix {
+						inherit pkgs;
+						arch = "arm64";
+						products = [ windowsArm64Release windowsArm64Debug ];
+						oracles = [ rustProductRelease rustProductDebug ];
+						wrongArchControl = windowsAmd64Release;
 					};
 				};
 

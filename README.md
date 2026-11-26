@@ -235,8 +235,12 @@ establish ARM64 hardware or Windows behavior. Windows Rust products still lack b
 native macOS/Windows qualification is pending. A declared target or cross-build
 does not establish native support.
 
-The required `windows-amd64-emulated` check executes both original Windows
-profiles through pinned Wine on Linux. Both exchange file patches with the
+The required `windows-amd64-emulated` and `windows-arm64-emulated` checks execute
+both original Windows profiles through pinned Wine on Linux. ARM64 Wine and
+its subprocesses run through QEMU using an interpreter registry confined to a
+private user namespace. The gate verifies eight denied filesystem-write paths,
+actual ARM64 execution, failure exit status and the unchanged parent registry.
+Both exchange file patches with the
 Linux Rust implementation across the six shared file cases, including wrong
 sources, corrupt patches, overwrite behavior and input preservation. Compiled
 target/ABI identity and binary stdout are checked separately. This qualifies

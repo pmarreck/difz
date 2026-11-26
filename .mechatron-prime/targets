@@ -11,6 +11,7 @@ checks.x86_64-linux.rust-cli
 checks.x86_64-linux.runtime-independence
 checks.x86_64-linux.linux-arm64-emulated
 checks.x86_64-linux.windows-amd64-emulated
+checks.x86_64-linux.windows-arm64-emulated
 checks.x86_64-linux.test-entry
 checks.x86_64-linux.rust-ffi
 checks.x86_64-linux.windows-gnu
