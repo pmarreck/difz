@@ -1619,3 +1619,71 @@ does not establish native macOS or Windows support or authorize switching the
 default before product-wide platform acceptance. Verified `rN-abcdef` provenance,
 static-musl Rust products/SDKs/tests, standalone runtime independence and the
 remaining native platform work stay open under the updated build contract.
+
+### Native runner coordination, 2026-11-25
+
+The owner approved infrastructure coordination for the active native-platform
+items. Read-only SSH checks now establish command access to macOS ARM64 and
+Windows AMD64. This improves on the earlier unverified Windows command route,
+but does not establish a bounded qualification route. No Windows ARM64 runner
+has been established.
+
+The CI infrastructure owner acknowledged the request and routed per-job
+resource controls and preventive filesystem confinement to the environment
+owner. The existing local admission slice does not enforce limits on a remote
+builder, and native builder concurrency is insufficient. Resource limits,
+qualification holds and the requirement for independent confinement tests
+remain unchanged. No native qualification wave was launched. These dependencies
+remain separate from the Linux musl migration and portable-core implementation.
+
+### Static-musl Linux qualification, 2026-11-25
+
+Commit `b4962de` selects musl consistently for Linux project products, Rust
+libraries and SDKs, codec/core/ABI test executables and native reference builds.
+Both Linux architecture configurations select matching targets; fresh native
+execution in this checkpoint is Linux AMD64. Rust and Cargo remain pinned to
+1.94.1 and Zig to 0.16.0. The default implementation remains Zig/C.
+
+The required runtime check reads actual ELF headers and artifact bytes for both
+backends in both profiles. Rust executables and public archive packages reject
+any Nix runtime reference. A separate host check executes all four exact CLIs in
+an empty root with only kernel interfaces and private fixture files, an unusable
+PATH and no Nix environment, loader or libraries. It verifies inspection plus
+binary file/tree creation and application, including link type and target. A
+real dynamic executable runs outside and fails inside the same boundary; an
+otherwise valid ELF with an appended store path fails the byte check.
+
+The transition exposed real portability and packaging issues. Linux exclusive
+rename uses the kernel syscall because musl lacks the libc wrapper. Installed
+Debug Zig archives bundle matching sanitizer and compiler runtimes, and external
+consumers use the target compiler and archiver. A positive check-phase exit had
+prematurely ended Nix fixup; it now returns normally. Debug intrinsic-header
+locations are compiled from a staged copy of the pinned Zig library so safety
+instrumentation remains enabled without embedded store paths. Rust packages
+retain SDKs as build inputs without propagating them into the runtime closure;
+packaging also removes an inert empty RUNPATH tag from static PIEs.
+
+Rust's musl `Metadata::created()` can report unsupported while kernel statx
+provides a birth time. The existing timestamp test now uses pinned GNU stat's
+independent C/kernel readback for Linux birth presence and nanoseconds. Negative
+modification timestamps, descriptor identity and all existing assertions remain
+required. No native fixture was removed or skipped to make the transition pass.
+
+Complete `./test` passed in 469.93 seconds: 147.47 seconds for Nix preparation
+and checks, followed by 322.46 seconds for host execution including admission.
+The core passed 96 tests with one platform-specific skip; all 79 Rust platform
+cases, including 29 mandatory native metadata fixtures, passed. Both 92-case CLI
+suites, release/Debug packaged ABI consumers, source contracts and all four
+Windows Zig cross-builds passed. Prepared-runner controls retain all 1,023 invalid
+artifact sets and add three invalid standalone-runner paths alongside the three
+consumer and three CLI path controls. Empty-root execution took 0.52 seconds.
+Fresh file growth passed in 26.06 seconds and structure growth in 57.68 seconds,
+retaining every declared operation, size ratio, core scope and measurement rule.
+Historical cohorts remain unbaselined; feedback cost remains an active item.
+
+This checkpoint does not qualify native Linux ARM64, macOS or Windows execution,
+finish the foreign filesystem adapters, switch the default implementation, or
+complete build-revision provenance. Infrastructure confirms the CI worker has
+no verified primary-base/count handoff yet. A data-only opt-in contract and its
+source-binding controls are being prepared separately; a collector prototype
+alone is not release provenance.
