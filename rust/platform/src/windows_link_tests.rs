@@ -233,3 +233,253 @@ fn reparse_bounds_and_existing_nt_namespace_cases_are_enforced() {
 		.is_err()
 	);
 }
+
+#[test]
+fn original_directory_round_trips_use_portable_link_targets_and_reject_escapes() {
+	use difz_core::{
+		directory::{CanonicalSnapshot, Content, Entry, Mode, Snapshot},
+		metadata::CanonicalMetadata,
+		tree_patch::{EnvelopeLimits, Header},
+	};
+	use std::{borrow::Cow, process::Command};
+	let fixture = Fixture::new();
+	let oracle =
+		std::env::var_os("DIFZ_WINDOWS_ORACLE").expect("required original Windows executable");
+	let source = fixture.0.join("source");
+	let target = fixture.0.join("target");
+	let output = fixture.0.join("output");
+	let patch = fixture.0.join("tree.patch");
+	let make_tree = |root: &Path, bytes: &[u8]| {
+		fs::create_dir(root).unwrap();
+		fs::create_dir(root.join("dir")).unwrap();
+		fs::write(root.join("dir/payload"), bytes).unwrap();
+	};
+	let add_links = |root: &Path, bytes: &[u8]| {
+		for (name, target) in [("link", "dir\\payload"), ("dir/link", "..\\dir\\payload")] {
+			native_point(
+				&root.join(name),
+				&payload(IO_REPARSE_TAG_SYMLINK, target, "cosmetic", true),
+				false,
+			);
+		}
+		assert_eq!(fs::read(root.join("link")).unwrap(), bytes);
+		assert_eq!(fs::read(root.join("dir/link")).unwrap(), bytes);
+	};
+	let source_bytes = b"source\0\xff bytes";
+	let target_bytes = b"changed\0\xfe bytes";
+	make_tree(&source, source_bytes);
+	make_tree(&target, target_bytes);
+	let expected = |bytes: &[u8]| {
+		CanonicalSnapshot::new(Snapshot {
+			root: CanonicalMetadata::default(),
+			entries: [
+				(
+					b"dir".as_slice(),
+					Content::Directory {
+						mode: Mode::from_bits(0o755).unwrap(),
+					},
+				),
+				(
+					b"dir/link",
+					Content::Symlink {
+						target: Cow::Borrowed(b"../dir/payload"),
+					},
+				),
+				(
+					b"dir/payload",
+					Content::File {
+						mode: Mode::from_bits(0o644).unwrap(),
+						bytes: Cow::Borrowed(bytes),
+					},
+				),
+				(
+					b"link",
+					Content::Symlink {
+						target: Cow::Borrowed(b"dir/payload"),
+					},
+				),
+			]
+			.into_iter()
+			.map(|(path, content)| Entry {
+				path: Cow::Borrowed(path),
+				content,
+				metadata: CanonicalMetadata::default(),
+			})
+			.collect(),
+		})
+		.unwrap()
+		.hash()
+	};
+	let encode = |from: &Path, to: &Path, patch: &Path| {
+		Command::new(&oracle)
+			.args([
+				"--no-progress",
+				"--omit-metadata",
+				"xattr,acl,timestamps,finder,sparse,hardlink",
+			])
+			.arg(from)
+			.arg(to)
+			.arg("-o")
+			.arg(patch)
+			.output()
+			.unwrap()
+	};
+	let result = encode(&source, &target, &fixture.0.join("plain.patch"));
+	assert!(
+		result.status.success(),
+		"original directory control without links: {}",
+		String::from_utf8_lossy(&result.stderr)
+	);
+	add_links(&source, source_bytes);
+	add_links(&target, target_bytes);
+	let result = encode(&source, &target, &patch);
+	assert!(
+		result.status.success(),
+		"original encode: {}",
+		String::from_utf8_lossy(&result.stderr)
+	);
+	let bytes = fs::read(&patch).unwrap();
+	let header = Header::decode_prefix(&bytes, EnvelopeLimits::default())
+		.unwrap()
+		.0;
+	assert_eq!(header.source_hash, expected(source_bytes));
+	assert_eq!(header.target_hash, expected(target_bytes));
+	let result = Command::new(&oracle)
+		.args(["--no-progress", "--patch"])
+		.arg(&source)
+		.arg(&patch)
+		.arg("-o")
+		.arg(&output)
+		.output()
+		.unwrap();
+	assert!(
+		result.status.success(),
+		"original apply: {}",
+		String::from_utf8_lossy(&result.stderr)
+	);
+	for name in ["dir/payload", "dir/link", "link"] {
+		assert_eq!(fs::read(output.join(name)).unwrap(), target_bytes);
+		assert_eq!(fs::read(source.join(name)).unwrap(), source_bytes);
+	}
+	for name in ["dir/link", "link"] {
+		assert!(
+			fs::symlink_metadata(output.join(name))
+				.unwrap()
+				.file_type()
+				.is_symlink()
+		);
+	}
+	let recaptured = fixture.0.join("recaptured.patch");
+	let result = encode(&output, &output, &recaptured);
+	assert!(
+		result.status.success(),
+		"original recapture: {}",
+		String::from_utf8_lossy(&result.stderr)
+	);
+	let bytes = fs::read(recaptured).unwrap();
+	let header = Header::decode_prefix(&bytes, EnvelopeLimits::default())
+		.unwrap()
+		.0;
+	assert_eq!(header.source_hash, expected(target_bytes));
+	assert_eq!(header.target_hash, expected(target_bytes));
+	let escaping = fixture.0.join("escaping");
+	fs::create_dir(&escaping).unwrap();
+	fs::write(fixture.0.join("outside"), b"outside remains unchanged").unwrap();
+	symlink_file("../outside", escaping.join("escape")).unwrap();
+	// Wine exposes this exact relative target but following it fails with
+	// ERROR_INVALID_NAME. Anchor lexical containment in native target readback;
+	// the absolute fixture below proves a reachable outside file is rejected.
+	assert_eq!(
+		Directory::open(&escaping)
+			.unwrap()
+			.read_symlink(b"escape", 64)
+			.unwrap(),
+		b"../outside"
+	);
+	let absolute = fixture.0.join("absolute-escaping");
+	fs::create_dir(&absolute).unwrap();
+	symlink_file(fixture.0.join("outside"), absolute.join("escape")).unwrap();
+	assert_eq!(
+		fs::read(absolute.join("escape")).unwrap(),
+		b"outside remains unchanged"
+	);
+	let rejected = fixture.0.join("rejected.patch");
+	let result = encode(&source, &escaping, &rejected);
+	assert!(!result.status.success(), "escaping target must fail");
+	assert!(!rejected.exists());
+	let rejected_absolute = fixture.0.join("rejected-absolute.patch");
+	let result = encode(&source, &absolute, &rejected_absolute);
+	assert!(
+		!result.status.success(),
+		"absolute outside target must fail"
+	);
+	assert!(!rejected_absolute.exists());
+	assert_eq!(
+		fs::read(fixture.0.join("outside")).unwrap(),
+		b"outside remains unchanged"
+	);
+	assert_eq!(fs::read(source.join("dir/payload")).unwrap(), source_bytes);
+	// A valid portable patch can request modes Windows cannot represent.
+	// Rejection must return through the ABI and remove its owned stage.
+	let empty = fixture.0.join("empty");
+	fs::create_dir(&empty).unwrap();
+	let restricted = CanonicalSnapshot::new(Snapshot {
+		root: CanonicalMetadata::default(),
+		entries: vec![Entry {
+			path: Cow::Borrowed(b"restricted"),
+			content: Content::Directory {
+				mode: Mode::from_bits(0o700).unwrap(),
+			},
+			metadata: CanonicalMetadata::default(),
+		}],
+	})
+	.unwrap();
+	let mode_patch = difz_core::tree_patch::create(
+		&CanonicalSnapshot::default(),
+		&restricted,
+		difz_core::tree_patch::CreateOptions {
+			rules: &[],
+			omit: difz_core::metadata::Omit::from_bits(0x3f).unwrap(),
+		},
+	)
+	.unwrap();
+	let mode_patch_path = fixture.0.join("mode.patch");
+	fs::write(&mode_patch_path, mode_patch).unwrap();
+	let unsupported = fixture.0.join("unsupported");
+	let result = Command::new(&oracle)
+		.args(["--no-progress", "--patch"])
+		.arg(&empty)
+		.arg(mode_patch_path)
+		.arg("-o")
+		.arg(&unsupported)
+		.output()
+		.unwrap();
+	assert!(
+		!result.status.success(),
+		"unsupported Windows mode must fail"
+	);
+	assert_eq!(result.status.code(), Some(1));
+	assert!(result.stdout.is_empty());
+	assert_eq!(
+		String::from_utf8_lossy(&result.stderr)
+			.replace("\r\n", "\n")
+			.trim(),
+		if cfg!(debug_assertions) {
+			"DEBUG BUILD\ndifz: directory patch failed"
+		} else {
+			"difz: directory patch failed"
+		}
+	);
+	assert!(!unsupported.exists());
+	assert_eq!(fs::read_dir(&empty).unwrap().count(), 0);
+	for child in fs::read_dir(&fixture.0).unwrap() {
+		assert!(
+			!child
+				.unwrap()
+				.file_name()
+				.to_str()
+				.unwrap()
+				.contains(".difz-stage-")
+		);
+	}
+}

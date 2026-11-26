@@ -255,12 +255,15 @@ the declared Windows system DLLs, with no embedded Nix store paths. Windows
 Rust directory filesystem operations remain unsupported.
 
 The Rust filesystem adapter supplies pinned Windows directory handles and
-bounded child reads without following reparse points. Thirteen required cases run
+bounded child reads without following reparse points. Fourteen required cases run
 for each architecture and profile, including independent Win32 readback,
 renamed-parent identity, Unicode names, mandatory symlink fixtures and kernel
 handle counts, full file identities, hardlinks, timestamp capture and bounded
 directory streams with independent enumeration positions, plus bounded
-symbolic-link/junction target reads. Nix
+symbolic-link/junction target reads. A metadata-free directory round-trip case exercises the
+original Windows CLI with binary files and native multi-component link targets,
+compares portable tree hashes, and checks containment, unsupported-mode errors
+and staging cleanup. Nix
 prepares these executables; `./test` runs their filesystem
 cases in the confined Linux host phase because Nix blocks the extended
 attributes Wine uses for reparse points. These results cover Wine semantics,

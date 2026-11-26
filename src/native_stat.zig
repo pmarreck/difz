@@ -7,6 +7,7 @@ pub const Info = struct {
     inode: u64,
     birth: ?metadata.Time = null,
     finder_flags: u32 = 0,
+    windows_read_only: bool = false,
 };
 
 pub fn read(io: std.Io, root: std.Io.Dir, path: []const u8) !Info {
@@ -20,6 +21,7 @@ pub fn read(io: std.Io, root: std.Io.Dir, path: []const u8) !Info {
             .device = info.volume,
             .inode = (@as(u64, info.index_high) << 32) | info.index_low,
             .birth = timeFromWindows(ticks),
+            .windows_read_only = @as(windows.FILE.ATTRIBUTE, @bitCast(info.attributes)).READONLY,
         };
     } else {
         var buffer: [std.posix.PATH_MAX]u8 = undefined;

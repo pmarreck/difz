@@ -327,12 +327,14 @@
 				windowsRust = import ./nix/windows-rust.nix {
 					inherit pkgs buildStamp zstdBuild rustProduct;
 					oracles = [ releaseFast debugTests ];
+					originals = { release = windowsAmd64Release; debug = windowsAmd64Debug; };
 					wrongArchControl = windowsArm64Release;
 				};
 				windowsArmRust = import ./nix/windows-rust.nix {
 					inherit pkgs buildStamp zstdBuild rustProduct;
 					arch = "arm64";
 					oracles = [ releaseFast debugTests ];
+					originals = { release = windowsArm64Release; debug = windowsArm64Debug; };
 					wrongArchControl = windowsAmd64Release;
 				};
 				canonicalProducts = implementationProducts.${buildContract.canonical};

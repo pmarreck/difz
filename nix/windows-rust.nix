@@ -1,4 +1,4 @@
-{ pkgs, buildStamp, zstdBuild, rustProduct, oracles, wrongArchControl, arch ? "amd64" }:
+{ pkgs, buildStamp, zstdBuild, rustProduct, oracles, originals, wrongArchControl, arch ? "amd64" }:
 let
 	arm = arch == "arm64";
 	targetPkgs = if arm then import ./windows-arm64-toolchain.nix { inherit pkgs; }
@@ -107,7 +107,7 @@ let
 		expectedTests = 2;
 		receipt = "PASS real Windows Rust ownership and panic boundary";
 	};
-	platformTestCount = 13;
+	platformTestCount = 14;
 	platformRunner = profile: pkgs.writeShellScript "difz-windows-platform-${arch}-${profile}-tests" ''
 		set -uo pipefail
 		# Nix deliberately denies xattr setters. Wine stores reparse points in
@@ -115,6 +115,7 @@ let
 		[[ $# == 0 ]] || { printf 'FAIL unexpected Windows test arguments\n' >&2; exit 1; }
 		scratch=$(mktemp -d "''${TMPDIR:?}/difz-windows-${arch}-${profile}.XXXXXXXX") || exit 1
 		export TMPDIR="$scratch"
+		export DIFZ_WINDOWS_ORACLE="Z:${originals.${profile}}/bin/difz.exe"
 		probe=$(mktemp "$TMPDIR/xattr-probe.XXXXXXXX") || exit 1
 		${pkgs.attr}/bin/setfattr -n user.difz-wine-probe -v retained "$probe" || exit 1
 		test "$(${pkgs.attr}/bin/getfattr --only-values -n user.difz-wine-probe "$probe")" = retained || exit 1

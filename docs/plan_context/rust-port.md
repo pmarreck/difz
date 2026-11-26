@@ -2225,3 +2225,59 @@ adapter is implemented. Before treating the original Windows executable as the
 directory oracle, qualify its round trips with multi-component native link
 targets and the format's required portable separators. Low-level native target
 reads remain distinct from this canonical tree representation.
+
+### Windows directory oracle qualification, 2026-11-26
+
+The required Windows platform suite now invokes the original executable of the
+matching architecture and profile for metadata-free directory patches. Its
+fixture contains binary files and native relative links with multiple path
+components, including a contained parent traversal and substitute/display-name
+divergence. The test compares both tree hashes with the portable Rust model,
+applies through the original public CLI/C ABI, reads reconstructed files and
+link types independently, verifies the source remains unchanged, and recaptures
+the output to check its complete identity.
+
+The initial control failed even without links. A private diagnostic build
+located `ReadFailed`; the pinned Zig 0.16 implementation opens no-follow
+Windows files asynchronously but returns the synchronous reader flag. The
+adapter now matches that flag to the actual handle mode. Snapshot capture also
+converts native Windows link separators before applying the unchanged portable
+path and containment rules. Unix target text remains untouched.
+
+Apply then exposed the pinned Zig Windows POSIX-permission setter's explicit
+panic. Windows supports only the existing fixed portable modes: 0755 for
+directories, 0644 for files and 0777 for links. Finalization validates those
+modes and checks the actual Win32 readonly attribute; it does not invoke that
+unimplemented setter. Owned fresh-stage cleanup likewise avoids it. A valid
+Rust-produced patch requesting an unsupported directory mode must return the
+ordinary CLI error, preserve the source and remove its owned staging tree.
+
+Containment controls use native target readback for a relative root escape and
+actual outside-file readback for an absolute link, then require both encodes
+to fail without a patch or outside-data mutation. Wine returns the correct
+relative target but following that particular parent-escaping link fails with
+`ERROR_INVALID_NAME`, through both raw reparse creation and the native symlink
+API. It is not evidence of native Windows behavior. The absolute fixture keeps
+a reachable outside-file control, while pure format tests separately reject
+relative escapes, rooted paths and drive prefixes after separator conversion.
+
+The suite requires fourteen cases per architecture/profile plus the real
+zero-selection negative control. These checks qualify the original directory
+oracle only for the explicit metadata-free Wine scope. Rust Windows directory
+encoding and publication remain open.
+
+A reviewed one-process macOS kernel self-observation probe now awaits an owner
+decision for a narrow exception to the native-execution hold. It allocates no
+test payload and has a best-effort five-second alarm, without a hard memory or
+wall-time bound. Source/artifact checks and portable fault controls are recorded
+privately; no native transfer, execution, trust change or CI activation has been
+authorized by that review.
+
+The complete `./test` passes in 252.46 seconds with zero failures: 87.63 seconds
+for Nix preparation/checks and 164.83 seconds including host admission and
+execution. All four architecture/profile combinations pass fourteen Windows
+cases and their real zero-selection controls. Exact normal error output is
+required for each profile, including the original Debug banner. Existing native
+metadata, both CLI suites, C ABI, cross-apply, standalone and growth checks pass.
+Rustfmt and Zig formatting checks also pass. The unchanged metadata and native
+Windows/NTFS qualification limitations remain in force.

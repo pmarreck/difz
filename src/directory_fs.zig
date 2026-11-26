@@ -210,7 +210,7 @@ fn makeDirectoriesWritable(io: std.Io, root: std.Io.Dir) !void {
     while (try iterator.next(io)) |entry| {
         const stat = try root.statFile(io, entry.name, .{ .follow_symlinks = false });
         if (stat.kind != .directory) continue;
-        try root.setFilePermissions(
+        if (comptime builtin.os.tag != .windows) try root.setFilePermissions(
             io,
             entry.name,
             writableDirectoryPermissions(),
@@ -372,7 +372,7 @@ fn writeSnapshotWith(
             try writeModificationOverride(io, root, entry.path, abs_path, entry.meta.times.mtime);
             report.add(.modification_time_preserved);
         }
-        if (entry.kind != .symlink) try root.setFilePermissions(io, entry.path, try permissionsForMode(entry.mode, entry.kind), .{ .follow_symlinks = false });
+        if (entry.kind != .symlink) try finishMode(io, root, entry);
     }
     if (!omit.acl) {
         var root_buf: [std.posix.PATH_MAX]u8 = undefined;
@@ -442,6 +442,19 @@ fn writableFilePermissions() std.Io.File.Permissions {
     return .fromMode(0o600);
 }
 
+fn finishMode(io: std.Io, root: std.Io.Dir, entry: directory.Entry) !void {
+    const permissions = try permissionsForMode(entry.mode, entry.kind);
+    if (comptime builtin.os.tag == .windows) {
+        // Windows snapshots support only the fixed modes used for freshly
+        // created objects. Zig 0.16's POSIX permission setter panics here.
+        // Verify the writable native attribute instead of invoking it.
+        const stat = try native_stat.read(io, root, entry.path);
+        if (stat.windows_read_only) return error.UnsupportedMode;
+    } else {
+        try root.setFilePermissions(io, entry.path, permissions, .{ .follow_symlinks = false });
+    }
+}
+
 fn permissionsForMode(mode: u16, kind: directory.EntryKind) !std.Io.File.Permissions {
     if (comptime builtin.os.tag == .windows) {
         const expected: u16 = switch (kind) {
@@ -503,6 +516,10 @@ fn walk(
                     .resolve_beneath = true,
                 });
                 defer file.close(io);
+                // Zig 0.16 opens Windows no-follow handles asynchronously,
+                // but returns their File.flags.nonblocking as false. Match
+                // the actual handle mode so the reader waits for its APC.
+                if (comptime builtin.os.tag == .windows) file.flags.nonblocking = true;
                 const opened_stat = try file.stat(io);
                 if (opened_stat.kind != .file) return error.FileChangedDuringSnapshot;
                 var reader = file.reader(io, &.{});
@@ -524,6 +541,7 @@ fn walk(
             .sym_link => {
                 var buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
                 const length = try current.readLink(io, item.name, &buffer);
+                portableSymlinkTarget(buffer[0..length], builtin.os.tag);
                 var link_meta = meta;
                 if (symlink_transport.find(transported, item.name)) |record|
                     link_meta = try mergeSymlinkMetadata(allocator, meta, record, omit);
@@ -538,6 +556,39 @@ fn walk(
             else => return error.UnsupportedEntryKind,
         }
     }
+}
+
+fn portableSymlinkTarget(target: []u8, comptime os: std.Target.Os.Tag) void {
+    // Native readers retain their path grammar. Only snapshot capture converts
+    // Windows separators, before the unchanged portable containment checks.
+    if (os == .windows) std.mem.replaceScalar(u8, target, '\\', '/');
+}
+
+test "Windows snapshot links use portable separators without accepting escapes" {
+    var relative = "dir\\payload".*;
+    portableSymlinkTarget(&relative, .windows);
+    try testing.expectEqualStrings("dir/payload", &relative);
+    try directory.validateSnapshot(&.{.{ .path = "link", .kind = .symlink, .mode = 0o777, .data = &relative }});
+
+    var nested = "..\\dir\\payload".*;
+    portableSymlinkTarget(&nested, .windows);
+    try directory.validateSnapshot(&.{
+        .{ .path = "dir", .kind = .directory, .mode = 0o755 },
+        .{ .path = "dir/link", .kind = .symlink, .mode = 0o777, .data = &nested },
+    });
+    var escape = "..\\outside".*;
+    portableSymlinkTarget(&escape, .windows);
+    try testing.expectError(error.SymlinkEscapesRoot, directory.validateSnapshot(&.{.{ .path = "link", .kind = .symlink, .mode = 0o777, .data = &escape }}));
+    var absolute = "\\outside".*;
+    portableSymlinkTarget(&absolute, .windows);
+    try testing.expectError(error.AbsolutePath, directory.validateSnapshot(&.{.{ .path = "link", .kind = .symlink, .mode = 0o777, .data = &absolute }}));
+    var drive = "C:\\outside".*;
+    portableSymlinkTarget(&drive, .windows);
+    try testing.expectError(error.DrivePrefix, directory.validateSnapshot(&.{.{ .path = "link", .kind = .symlink, .mode = 0o777, .data = &drive }}));
+    var unix_target = "dir\\payload".*;
+    portableSymlinkTarget(&unix_target, .linux);
+    try testing.expectEqualStrings("dir\\payload", &unix_target);
+    try testing.expectError(error.BackslashSeparator, directory.validateSnapshot(&.{.{ .path = "link", .kind = .symlink, .mode = 0o777, .data = &unix_target }}));
 }
 
 /// Extended attributes for one object, classified through xattr_stream.
