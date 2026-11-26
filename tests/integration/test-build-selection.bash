@@ -92,6 +92,9 @@ for flags in missing-canonize mixed-canonize missing-pf conflicting-pf unknown; 
 	if difz_build_parse "${args[@]}" > "$work/out" 2> "$work/err"; then printf 'FAIL invalid build arguments\n' >&2; exit 1; fi
 done
 cp "$root/nix/build-targets.tsv" "$project/nix/build-targets.tsv" || exit 1
+sed 's/\tmusl\t/\tgnu\t/g' "$root/nix/build-targets.tsv" > "$project/nix/build-targets.tsv" || exit 1
+if difz_build_load "$project" > "$work/out" 2> "$work/err"; then printf 'FAIL mixed Linux libc registry accepted\n' >&2; exit 1; fi
+cp "$root/nix/build-targets.tsv" "$project/nix/build-targets.tsv" || exit 1
 truncate -s -1 "$project/nix/build-targets.tsv" || exit 1
 difz_build_load "$project" || exit 1
 [ "${#DIFZ_BUILD_ROWS[@]}" -eq 20 ] || exit 1

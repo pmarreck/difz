@@ -97,6 +97,10 @@ pub fn build(b: *std.Build) void {
         .name = "difz",
         .root_module = lib_module,
     });
+    // External callers must not supply a different libc's sanitizer runtime.
+    // Keep Debug C instrumentation and bundle the target's matching runtime.
+    lib.bundle_ubsan_rt = true;
+    lib.bundle_compiler_rt = true;
 
     // The raw archive only contains difz objects. External callers get one
     // archive that also holds pcre2 and zstd, plus the public header.

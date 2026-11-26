@@ -12,7 +12,8 @@ let
 		(builtins.replaceStrings [ "linux-amd64" ] [ "linux-wrong" ] source)
 		(builtins.replaceStrings [ "zig\tc\t" ] [ "zig\trust\t" ] source)
 		(builtins.replaceStrings [ "\tReleaseFast\t" ] [ "\tdebug\t" ] source)
-		(builtins.replaceStrings [ "\tgnu\t" ] [ "\t-\t" ] source)
+		(builtins.replaceStrings [ "\tmusl\t" ] [ "\tgnu\t" ] source)
+		(builtins.replaceStrings [ "\tmusl\t" ] [ "\t-\t" ] source)
 		(builtins.replaceStrings [ "packages.x86_64-linux.zig-release" ] [ "packages.bad;command" ] source)
 		(source + "not\tseven\tfields\n")
 	];

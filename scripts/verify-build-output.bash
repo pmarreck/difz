@@ -35,7 +35,7 @@ difz_verify_product() {
 			linux-arm64) [ "$target" = "aarch64-unknown-linux-$variant" ] || { difz_build_fail 'Rust SDK ABI disagrees with selected variant'; return 1; };;
 		esac
 		case "$pf/$target" in
-			linux-amd64/x86_64-unknown-linux-gnu|linux-amd64/x86_64-unknown-linux-musl|linux-arm64/aarch64-unknown-linux-gnu|linux-arm64/aarch64-unknown-linux-musl|macos-arm64/aarch64-apple-darwin) :;;
+			linux-amd64/x86_64-unknown-linux-musl|linux-arm64/aarch64-unknown-linux-musl|macos-arm64/aarch64-apple-darwin) :;;
 			mswin-amd64/x86_64-pc-windows-*|mswin-arm64/aarch64-pc-windows-*) :;;
 			*) difz_build_fail 'Rust SDK target disagrees with selected platform'; return 1;;
 		esac

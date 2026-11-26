@@ -1,5 +1,5 @@
 { pkgs, library, oracle }:
-pkgs.stdenv.mkDerivation {
+(pkgs.stdenv.mkDerivation {
 	pname = "difz-rust-abi-consumer";
 	version = "0.1.0";
 	# Only consumer source is present. Headers and the matching static library
@@ -10,7 +10,7 @@ pkgs.stdenv.mkDerivation {
 	};
 	strictDeps = true;
 	buildInputs = [ library ];
-	nativeCheckInputs = with pkgs; [ coreutils diffutils gnugrep gnused gawk ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.binutils ];
+	nativeCheckInputs = with pkgs.buildPackages; [ coreutils diffutils gnugrep gnused gawk ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.buildPackages.binutils ];
 	doCheck = true;
 	buildPhase = ''
 		runHook preBuild
@@ -72,4 +72,8 @@ pkgs.stdenv.mkDerivation {
 	installPhase = ''
 		install -Dm755 abi-consumer "$out/bin/difz-rust-abi-consumer"
 	'';
-}
+}).overrideAttrs (old: pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+	buildInputs = (old.buildInputs or []) ++ (old.propagatedBuildInputs or []);
+	propagatedBuildInputs = [];
+	allowedReferences = [];
+})

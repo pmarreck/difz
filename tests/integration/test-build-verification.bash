@@ -22,7 +22,7 @@ done
 DIFZ_BUILD_PFS=("${platforms[@]}")
 host=$(difz_build_normalize_host "$(uname -s)" "$(uname -m)") || exit 1
 zig_variant=-; rust_variant=-
-case "$host" in linux-*) zig_variant=musl; rust_variant=gnu;; esac
+case "$host" in linux-*) zig_variant=musl; rust_variant=musl;; esac
 difz_verify_product "$zig_product" zig "$host" "$zig_variant" ReleaseFast "$host" || exit 1
 difz_verify_product "$rust_release" rust "$host" "$rust_variant" release "$host" || exit 1
 difz_verify_product "$rust_debug" rust "$host" "$rust_variant" debug "$host" || exit 1

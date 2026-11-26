@@ -23,7 +23,8 @@ in {
 		[ "windows-gnu" "windows-gnu-debug" "windows-arm64-gnu" "windows-arm64-gnu-debug" ];
 	armPackage = flake.packages.aarch64-linux.default.name;
 	rustTools = builtins.sort builtins.lessThan
-		(builtins.filter (name: builtins.elem name [ "cargo" "rustc" ]) (names shell.nativeBuildInputs));
+		(builtins.filter (name: builtins.elem name [ "cargo" "rustc" ])
+			(map (input: input.meta.mainProgram or (input.pname or input.name or "")) shell.nativeBuildInputs));
 	codecOutputs = builtins.mapAttrs (_: packages:
 		builtins.filter (name: name == "rust-codec-tests") (builtins.attrNames packages)
 	) flake.packages;
@@ -34,6 +35,13 @@ in {
 	rustAbiCheck = checks.rust-abi.name;
 	rustAbiDebugCheck = checks.rust-abi-debug.name;
 	rustCliCheck = checks.rust-cli.name;
+	runtimeCheck = checks.runtime-independence.name;
+	runtimeSource = membership checks.runtime-independence.source
+		[ "scripts/check-static-linux.bash" "tests/integration/test-standalone-linux.bash" ]
+		[ "flake.nix" "rust/src/lib.rs" "src/lib.zig" ];
+	linuxRustLibcs = builtins.mapAttrs (_: packages: map (package: package.stdenv.hostPlatform.libc)
+		[ packages.rust-library packages.rust-library-debug packages.rust-cli packages.rust-cli-debug packages.rust-core-tests packages.rust-codec-tests packages.rust-zstdz-sdk ])
+		(builtins.removeAttrs flake.packages [ "aarch64-darwin" ]);
 	testEntryCheck = checks.test-entry.name;
 	testEntrySource = membership checks.test-entry.src
 		[ "test" "big_o" ".mechatron-prime/targets" "tests/integration/test-test-entry.bash" "tests/integration/test_prepared_runners.bash" "tests/run-prepared-host" "tests/run-host-tests" "tests/ffi/test_rust_lib.bash" ]
@@ -69,7 +77,7 @@ in {
 		[ "rust/src/lib.rs" "rust/c-api/src/lib.rs" "rust/c-api/include/difz-rust.h" "rust/Cargo.toml" "src/lib.zig" "src/difz.c" ];
 	rustSdkTargets = builtins.mapAttrs (_: packages: packages.rust-zstdz-sdk.rustTarget) flake.packages;
 	rustCoreSdk = builtins.elem flake.packages.${system}.rust-zstdz-sdk.drvPath
-		(map (input: input.drvPath) checks.rust-core.buildInputs);
+		(map (input: input.drvPath) (checks.rust-core.buildInputs ++ (checks.rust-core.propagatedBuildInputs or [])));
 	rustSdkSource = membership flake.packages.${system}.rust-zstdz-sdk.src
 		[ "zstdz-sdk-setup-hook.sh" ] [ "Cargo.toml" "qa.nix" "src/lib.rs" "zstdz/build.rs" ];
 	buildWrapperCheck = checks.build-wrapper.name;

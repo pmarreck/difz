@@ -5,7 +5,7 @@ let
 	oracleVariant = if pkgs.stdenv.hostPlatform.isLinux then "musl" else null;
 in pkgs.runCommand "difz-rust-cli-check" {
 	src = pkgs.lib.fileset.toSource { root = ../.; fileset = ../tests/cli/test_cli.bash; };
-	nativeBuildInputs = with pkgs; [ bash coreutils diffutils gnugrep ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.binutils ];
+	nativeBuildInputs = with pkgs.buildPackages; [ bash coreutils diffutils gnugrep ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.buildPackages.binutils ];
 } ''
 	export HOME="$TMPDIR/home" DIFZ_LANG=en
 	mkdir -p "$HOME"

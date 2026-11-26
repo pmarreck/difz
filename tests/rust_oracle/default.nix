@@ -6,7 +6,7 @@ pkgs.stdenv.mkDerivation {
         root = ./.;
         fileset = pkgs.lib.fileset.unions [ ./metadata.zig ./metadata_fixture.zig ./restore.zig ./directory.zig ./snapshot_fixture.zig ./tree_patch.zig ./path_filter.zig ./symlink_transport.zig ./linux_acl.zig ./attribute_names.zig ./reference.zig ./main.c ];
     };
-    nativeBuildInputs = [ pkgs.zig pkgs.gnutar pkgs.gzip ];
+    nativeBuildInputs = [ pkgs.buildPackages.zig pkgs.buildPackages.gnutar pkgs.buildPackages.gzip ];
     dontConfigure = true;
     buildPhase = ''
         runHook preBuild
@@ -20,10 +20,10 @@ pkgs.stdenv.mkDerivation {
         tar -xOf ${pkgs.lib.escapeShellArg xattrNames.archive} ${pkgs.lib.escapeShellArg "${builtins.dirOf xattrNames.member}/names_test.zig"} > reference/xattr_names/names_test.zig
         ${pkgs.lib.concatMapStringsSep "\n" (source: "cp ${pkgs.lib.escapeShellArg "${source}"} reference/${builtins.baseNameOf source}") patchSources}
         cp reference.zig reference/reference.zig
-        zig build-lib -O ReleaseSafe -fPIC -fcompiler-rt -mcpu=baseline -lc \
+        zig build-lib -target ${if pkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-musl" else "x86_64-linux-musl"} -O ReleaseSafe -fPIC -fcompiler-rt -mcpu=baseline -lc \
             --dep reference -Mroot=metadata.zig -I${pcre2}/include -I${zstdz}/include \
             -Mreference=reference/reference.zig -femit-bin=metadata.a
-        $CC main.c metadata.a ${zstdz}/lib/libzstd.a ${pcre2}/lib/libpcre2-8.a -pthread ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "-lubsan"} -o metadata-oracle
+        $CC main.c metadata.a ${zstdz}/lib/libzstd.a ${pcre2}/lib/libpcre2-8.a -pthread -o metadata-oracle
         runHook postBuild
     '';
     installPhase = ''

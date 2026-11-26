@@ -36,6 +36,7 @@ if nix build --no-update-lock-file --out-link "$roots/result" --json -L \
 	".#checks.${system}.rust-abi" \
 	".#checks.${system}.rust-abi-debug" \
 	".#checks.${system}.rust-cli" \
+	".#checks.${system}.runtime-independence" \
 	".#checks.${system}.test-entry" \
 	".#checks.${system}.cross-apply" \
 	".#checks.${system}.windows-gnu" \

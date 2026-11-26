@@ -41,6 +41,21 @@ for ((code=1; code<combinations; code++)); do
 	fi
 done
 for shape in missing directory non-executable; do
+	prefix="$work/standalone-$shape"
+	mkdir -p "$prefix/bin" "$prefix/libexec" || exit 1
+	for slot in "${slots[@]}"; do ln -s "$work/tools/zig" "$prefix/$slot" || exit 1; done
+	case "$shape" in
+		missing) :;;
+		directory) mkdir "$prefix/libexec/difz-standalone-tests" || exit 1;;
+		non-executable) printf plain > "$prefix/libexec/difz-standalone-tests";;
+	esac
+	DIFZ_HOST_TESTS="$prefix" bash "$root/tests/run-prepared-host" > "$work/out" 2> "$work/err"
+	status=$?
+	if [ "$status" -eq 0 ] || [ -e "$record" ] || ! grep -Fq 'standalone runtime tests are missing' "$work/err"; then
+		printf 'FAIL standalone test preflight: %s\n' "$shape" >&2; exit 1
+	fi
+done
+for shape in missing directory non-executable; do
 	case "$shape" in
 		missing) caller="$work/absent";;
 		directory) caller="$work";;
@@ -69,4 +84,4 @@ for shape in missing directory non-executable; do
 		printf 'FAIL Rust CLI preflight did not reject before other checks: %s\n' "$shape" >&2; exit 1
 	fi
 done
-printf 'PASS prepared runners reject %d invalid artifact sets, three invalid Rust consumer paths and three invalid Rust CLI paths without execution\n' "$((combinations - 1))"
+printf 'PASS prepared runners reject %d invalid artifact sets and three invalid paths each for the standalone tests, Rust consumer and Rust CLI without execution\n' "$((combinations - 1))"

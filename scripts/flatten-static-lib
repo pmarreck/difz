@@ -3,6 +3,7 @@
 # Zig 0.16 emits thin archives whose members are absolute zig-cache object paths.
 # Usage: flatten-static-lib <out.a> <in.a> [in.a ...]
 set -u
+archive_tool=${AR:-ar}
 out=$1
 shift
 work=$(mktemp -d "${TMPDIR:-/tmp}/difz-flatten.XXXXXX")
@@ -17,14 +18,14 @@ for archive in "$@"; do
 		dest=$dir/${n}-$(basename "$member")
 		if [ -f "$member" ]; then
 			cp "$member" "$dest"
-		elif ar p "$archive" "$member" >"$dest" 2>/dev/null && [ -s "$dest" ]; then
+		elif "$archive_tool" p "$archive" "$member" >"$dest" 2>/dev/null && [ -s "$dest" ]; then
 			:
 		else
 			printf 'flatten-static-lib: failed to extract %s from %s\n' "$member" "$archive" >&2
 			exit 1
 		fi
 		n=$((n + 1))
-	done < <(ar t "$archive")
+	done < <("$archive_tool" t "$archive")
 	if [ "$n" -eq 0 ]; then
 		printf 'flatten-static-lib: no members in %s\n' "$archive" >&2
 		exit 1
@@ -39,4 +40,4 @@ if [ "${#files[@]}" -eq 0 ]; then
 	printf 'flatten-static-lib: no object files extracted\n' >&2
 	exit 1
 fi
-ar rcs "$out" "${files[@]}"
+"$archive_tool" rcs "$out" "${files[@]}"

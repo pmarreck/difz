@@ -23,6 +23,11 @@
 		] (system:
 			let
 				pkgs = import nixpkgs { inherit system; };
+				# Project executables, SDKs and test artifacts share one Linux libc.
+				# Build-machine tools remain native through buildPackages.
+				runtimePkgs = if pkgs.stdenv.hostPlatform.isLinux then
+					pkgs.pkgsStatic // { buildPackages = pkgs; }
+					else pkgs;
 				randomPackage = random.packages.${system}.random-luajit;
 				profilingLua = pkgs.luajit.withPackages (p: [ p.lua-cjson p.luv ]);
 				# Local Unix-only fix until the shared profiler supports long cases
@@ -86,7 +91,7 @@
 				zstdPin = builtins.elemAt (pkgs.lib.splitString ".zstdz = .{"
 					(builtins.readFile ./build.zig.zon)) 1;
 				zstdUrl = builtins.elemAt (pkgs.lib.splitString "\"" zstdPin) 1;
-				zstdBenchmark = pkgs.stdenv.mkDerivation {
+				zstdBenchmark = runtimePkgs.stdenv.mkDerivation {
 					pname = "zstd";
 					version = "1.6.0-zstdz";
 					src = pkgs.fetchzip {
@@ -111,7 +116,7 @@
 					'';
 				};
 
-				zigBuild = { optimize ? "ReleaseFast", doCheck ? false, prepareTests ? false }: pkgs.stdenv.mkDerivation {
+				zigBuild = { optimize ? "ReleaseFast", doCheck ? false, prepareTests ? false }: runtimePkgs.stdenv.mkDerivation {
 					pname = "difz";
 					version = "0.1.0";
 					src = zigSource;
@@ -129,8 +134,15 @@
 						mkdir -p $ZIG_GLOBAL_CACHE_DIR
 						cp -r ${zigDeps}/* $ZIG_GLOBAL_CACHE_DIR/
 						chmod -R u+w $ZIG_GLOBAL_CACHE_DIR
+						difz_zig_lib_args=()
+						${pkgs.lib.optionalString (optimize == "Debug") ''
+							# UBSan records intrinsic header names as runtime data, so
+							# stripping DWARF alone cannot remove compiler store paths.
+							cp -R ${pkgs.zig}/lib/zig "$TMPDIR/zig-lib"
+							difz_zig_lib_args=(--zig-lib-dir "$TMPDIR/zig-lib")
+						''}
 
-						zig build ${pkgs.lib.optionalString prepareTests "test-artifacts"} -Dtarget=${if pkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-musl" else "x86_64-linux-musl"} -Dcpu=baseline -Doptimize=${optimize} --prefix $out
+						zig build "''${difz_zig_lib_args[@]}" ${pkgs.lib.optionalString prepareTests "test-artifacts"} -Dtarget=${if pkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-musl" else "x86_64-linux-musl"} -Dcpu=baseline -Doptimize=${optimize} --prefix $out
 					'';
 
 					doCheck = doCheck;
@@ -148,17 +160,17 @@
 					if ! DIFZ_PREFIX="$out" bash tests/ffi/test_installed_lib.bash; then
 						errors=$((errors + 1))
 					fi
-					exit "$errors"
+						test "$errors" -eq 0
 				'';
 			};
 
 			releaseFast = zigBuild {};
 				debugTests = zigBuild { optimize = "Debug"; doCheck = true; prepareTests = true; };
-				rustFfiTests = pkgs.stdenv.mkDerivation {
+				rustFfiTests = runtimePkgs.stdenv.mkDerivation {
 					pname = "difz-rust-ffi-tests";
 					version = "0.0.0";
 					src = zigSource;
-					nativeBuildInputs = with pkgs; [ zig rustc binutils ];
+					nativeBuildInputs = [ pkgs.zig runtimePkgs.rustc pkgs.binutils ];
 					dontConfigure = true;
 					buildPhase = ''
 						runHook preBuild
@@ -167,13 +179,14 @@
 						mkdir -p "$HOME" "$ZIG_GLOBAL_CACHE_DIR"
 						cp -r ${zigDeps}/* "$ZIG_GLOBAL_CACHE_DIR/"
 						chmod -R u+w "$ZIG_GLOBAL_CACHE_DIR"
-						zig build lib -Dtarget=${if pkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-gnu" else "x86_64-linux-gnu"} \
+						zig build lib -Dtarget=${if pkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-musl" else "x86_64-linux-musl"} \
 							-Doptimize=Debug --prefix "$TMPDIR/ffi"
 						test -f "$TMPDIR/ffi/lib/libdifz.a"
 						test -f "$TMPDIR/ffi/include/difz.h"
 						test ! -e "$TMPDIR/ffi/bin/difz"
-						rustc --edition=2024 tests/ffi/rust_caller.rs -L "native=$TMPDIR/ffi/lib" \
-							${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "-C link-arg=-no-pie -C link-arg=-lubsan"} -o rust-caller
+						rustc --edition=2024 --target ${runtimePkgs.stdenv.hostPlatform.rust.rustcTarget} \
+							-C linker="$CC" ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "-C relocation-model=static -C link-arg=-no-pie"} \
+							tests/ffi/rust_caller.rs -L "native=$TMPDIR/ffi/lib" -o rust-caller
 						runHook postBuild
 					'';
 					installPhase = ''
@@ -182,12 +195,13 @@
 				};
 				hostTests = pkgs.symlinkJoin {
 					name = "difz-host-tests";
-					paths = [ debugTests rustFfiTests rustCoreTests ];
+					paths = [ debugTests rustFfiTests rustCoreTests ]
+						++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ runtimeIndependence ];
 					postBuild = ''
 						ln -s ${rustProductDebug}/bin/difz "$out/bin/difz-rust"
 					'';
 				};
-				rustCodecTests = pkgs.rustPlatform.buildRustPackage {
+				rustCodecTests = runtimePkgs.rustPlatform.buildRustPackage {
 					pname = "difz-rust-codec-tests";
 					version = "0.0.0";
 					src = pkgs.lib.fileset.toSource {
@@ -212,7 +226,7 @@
 							--allowlist-function 'ZSTD_(getCParams|isError|compressBound|createCCtx|freeCCtx|CCtx_setParameter|CCtx_refPrefix|compress2|createDCtx|freeDCtx|DCtx_setMaxWindowSize|DCtx_refPrefix|decompressDCtx|findFrameCompressedSize|getFrameContentSize)|clock_gettime' \
 							--allowlist-var 'ZSTD_(c_.*|btlazy2|CONTENTSIZE_.*)|CLOCK_PROCESS_CPUTIME_ID' \
 							--no-prepend-enum-name --no-layout-tests --formatter none \
-							-- -I${zstdBenchmark}/include -DZSTD_STATIC_LINKING_ONLY > zstd_bindings.rs
+							-- -I${zstdBenchmark}/include -DZSTD_STATIC_LINKING_ONLY --target=${runtimePkgs.stdenv.hostPlatform.rust.rustcTarget} > zstd_bindings.rs
 						export DIFZ_ZSTD_BINDINGS="$PWD/zstd_bindings.rs"
 						CC=false CXX=false AR=false cargo test --locked --offline --release \
 							--lib --no-run --message-format=json > cargo-artifacts.json
@@ -231,7 +245,7 @@
 						runHook postInstall
 					'';
 				};
-				pcre2Reference = pkgs.stdenv.mkDerivation {
+				pcre2Reference = runtimePkgs.stdenv.mkDerivation {
 					pname = "difz-pcre2-reference";
 					version = "0.1.0";
 					src = zigSource;
@@ -243,12 +257,12 @@
 						mkdir -p "$HOME" "$ZIG_GLOBAL_CACHE_DIR"
 						cp -r ${zigDeps}/. "$ZIG_GLOBAL_CACHE_DIR/"
 						chmod -R u+w "$ZIG_GLOBAL_CACHE_DIR"
-						zig build pcre2-reference -Dtarget=${if pkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-gnu" else "x86_64-linux-gnu"} \
+						zig build pcre2-reference -Dtarget=${if pkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-musl" else "x86_64-linux-musl"} \
 							-Doptimize=ReleaseFast --prefix "$out"
 					'';
 				};
 				metadataOracle = import ./tests/rust_oracle/default.nix {
-					inherit pkgs;
+					pkgs = runtimePkgs;
 					xattrNames = let
 						pin = builtins.elemAt (pkgs.lib.splitString ".xattr_stream = .{" (builtins.readFile ./build.zig.zon)) 1;
 						hash = builtins.elemAt (pkgs.lib.splitString "\"" (builtins.elemAt (pkgs.lib.splitString ".hash = " pin) 1)) 1;
@@ -259,14 +273,14 @@
 					zstdz = zstdBenchmark;
 					pcre2 = pcre2Reference;
 				};
-				rustZstdzSdk = import ./rust/zstdz-sdk.nix { inherit pkgs; zstdz = zstdBenchmark; };
-				rustCoreTests = import ./rust/qa.nix { inherit pkgs metadataOracle; filesystemOracle = rustFfiTests; oracle = releaseFast; zstdz = zstdBenchmark; sdk = rustZstdzSdk; random = randomPackage; };
-				rustLibrary = import ./rust/library.nix { inherit pkgs; sdk = rustZstdzSdk; };
-				rustLibraryDebug = import ./rust/library.nix { inherit pkgs; sdk = rustZstdzSdk; debug = true; };
-				rustAbiConsumer = import ./rust/c-api-consumer.nix { inherit pkgs; library = rustLibrary; oracle = releaseFast; };
-				rustAbiDebugConsumer = import ./rust/c-api-consumer.nix { inherit pkgs; library = rustLibraryDebug; oracle = releaseFast; };
-				rustCli = import ./rust/cli.nix { inherit pkgs; library = rustLibrary; };
-				rustCliDebug = import ./rust/cli.nix { inherit pkgs; library = rustLibraryDebug; debug = true; };
+				rustZstdzSdk = import ./rust/zstdz-sdk.nix { pkgs = runtimePkgs; zstdz = zstdBenchmark; };
+				rustCoreTests = import ./rust/qa.nix { pkgs = runtimePkgs; inherit metadataOracle; filesystemOracle = rustFfiTests; oracle = releaseFast; zstdz = zstdBenchmark; sdk = rustZstdzSdk; random = randomPackage; };
+				rustLibrary = import ./rust/library.nix { pkgs = runtimePkgs; sdk = rustZstdzSdk; };
+				rustLibraryDebug = import ./rust/library.nix { pkgs = runtimePkgs; sdk = rustZstdzSdk; debug = true; };
+				rustAbiConsumer = import ./rust/c-api-consumer.nix { pkgs = runtimePkgs; library = rustLibrary; oracle = releaseFast; };
+				rustAbiDebugConsumer = import ./rust/c-api-consumer.nix { pkgs = runtimePkgs; library = rustLibraryDebug; oracle = releaseFast; };
+				rustCli = import ./rust/cli.nix { pkgs = runtimePkgs; library = rustLibrary; };
+				rustCliDebug = import ./rust/cli.nix { pkgs = runtimePkgs; library = rustLibraryDebug; debug = true; };
 				rustProduct = profile: frontend: library: pkgs.symlinkJoin {
 					name = "difz-rust-${profile}-0.1.0";
 					paths = [ frontend library ];
@@ -278,7 +292,11 @@
 				};
 				rustProductRelease = rustProduct "release" rustCli rustLibrary;
 				rustProductDebug = rustProduct "debug" rustCliDebug rustLibraryDebug;
-				rustCliCheck = import ./rust/cli-check.nix { inherit pkgs; debugCli = rustProductDebug; releaseCli = rustProductRelease; oracle = releaseFast; };
+				runtimeIndependence = import ./nix/runtime-independence.nix {
+					inherit pkgs;
+					products = [ releaseFast debugTests rustProductRelease rustProductDebug ];
+				};
+				rustCliCheck = import ./rust/cli-check.nix { pkgs = runtimePkgs; debugCli = rustProductDebug; releaseCli = rustProductRelease; oracle = releaseFast; };
 				implementationProducts = {
 					zig = { release = releaseFast; debug = debugTests; };
 					rust = { release = rustProductRelease; debug = rustProductDebug; };
@@ -312,6 +330,7 @@
 
 				checks = {
 					build = canonicalProducts.release;
+					runtime-independence = runtimeIndependence;
 					test = debugTests;
 					rust-core = rustCoreTests;
 					rust-abi = rustAbiConsumer;
@@ -396,8 +415,8 @@
 					packages = with pkgs; [
 						bash coreutils diffutils findutils gnugrep gnused gawk binutils
 						zig
-						rustc
-						cargo
+						runtimePkgs.rustc
+						runtimePkgs.cargo
 						rustfmt
 						hyperfine
 						bsdiff
@@ -413,6 +432,9 @@
 						randomPackage
 					] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.bubblewrap pkgs.util-linux ];
 					PERFORMANCE_PROCESS_MODULE = "${performancePackage}/share/performance-profile/src/process.lua";
+					CARGO_BUILD_TARGET = runtimePkgs.stdenv.hostPlatform.rust.rustcTarget;
+					"CARGO_TARGET_${pkgs.lib.toUpper (pkgs.lib.replaceStrings [ "-" ] [ "_" ] runtimePkgs.stdenv.hostPlatform.rust.rustcTarget)}_LINKER" =
+						"${runtimePkgs.stdenv.cc}/bin/${runtimePkgs.stdenv.cc.targetPrefix}cc";
 				};
 			}
 		)) // { inherit buildContract; };

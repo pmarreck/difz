@@ -23,7 +23,7 @@ let
 		builtins.elem row.pf platforms && builtins.elem row.mode [ "release" "debug" ] &&
 		row.frontend == implementations.${row.implementation}.frontend &&
 		row.profile == implementations.${row.implementation}.profiles.${row.mode} &&
-		(if lib.hasPrefix "linux-" row.pf then builtins.elem row.variant [ "gnu" "musl" ] else row.variant == "-") &&
+		(if lib.hasPrefix "linux-" row.pf then row.variant == "musl" else row.variant == "-") &&
 		(row.output == null || builtins.match "(packages|checks)\\.[A-Za-z0-9_.-]+" row.output != null);
 	key = row: "${row.implementation}/${row.pf}/${row.mode}/${row.variant}";
 	keys = map key rows;

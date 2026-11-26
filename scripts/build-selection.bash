@@ -20,7 +20,7 @@ difz_build_load() {
 			*) difz_build_fail "invalid registry backend/frontend/profile at line $line"; return 1;;
 		esac
 		difz_build_member "$pf" "${DIFZ_BUILD_PFS[@]}" || { difz_build_fail "invalid registry platform at line $line"; return 1; }
-		case "$pf/$variant" in linux-*/gnu|linux-*/musl|macos-arm64/-|mswin-amd64/-|mswin-arm64/-) :;;
+		case "$pf/$variant" in linux-*/musl|macos-arm64/-|mswin-amd64/-|mswin-arm64/-) :;;
 			*) difz_build_fail "invalid registry variant at line $line"; return 1;;
 		esac
 		if [ "$output" != - ] && [[ ! "$output" =~ ^(packages|checks)\.[a-zA-Z0-9_.-]+$ ]]; then

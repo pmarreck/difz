@@ -1,7 +1,7 @@
 { pkgs, sdk, debug ? false }:
 # Production ABI artifact. The separate rust-abi and rust-cli checks exercise
 # this installed library; production builds do not build test/oracle programs.
-pkgs.rustPlatform.buildRustPackage {
+(pkgs.rustPlatform.buildRustPackage {
 	pname = "difz-rust-library";
 	version = "0.1.0";
 	src = pkgs.lib.fileset.toSource {
@@ -12,7 +12,7 @@ pkgs.rustPlatform.buildRustPackage {
 	cargoLock.lockFile = ./Cargo.lock;
 	strictDeps = true;
 	buildType = if debug then "debug" else "release";
-	nativeBuildInputs = [ pkgs.jq ];
+	nativeBuildInputs = [ pkgs.buildPackages.jq ];
 	buildInputs = [ sdk ];
 	doCheck = false;
 	buildPhase = ''
@@ -36,4 +36,10 @@ pkgs.rustPlatform.buildRustPackage {
 	'';
 	passthru.rustTarget = pkgs.stdenv.hostPlatform.rust.rustcTarget;
 	passthru.rustProfile = if debug then "debug" else "release";
-}
+}).overrideAttrs (old: pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+	# Cargo's staticlib already bundles the native archive. External consumers
+	# must link the installed archive without a build-time SDK dependency.
+	buildInputs = (old.buildInputs or []) ++ (old.propagatedBuildInputs or []);
+	propagatedBuildInputs = [];
+	allowedReferences = [];
+})

@@ -212,7 +212,7 @@ publishes that selection. Both Rust profiles statically link zstdz.
 
 Products remain rooted in the Nix store through
 `<implementation>-out/<PF>/[<VARIANT>/]<profile>/`. Linux Zig uses musl and
-`ReleaseFast`/`Debug`; Linux Rust uses GNU and `release`/`debug`. The native
+`ReleaseFast`/`Debug`; Linux Rust also uses musl, with `release`/`debug`. The native
 command is a direct relative link at `bin/<PF>/difz`; only the selected host
 product updates it. Publication verifies executable headers, SDK artifacts and
 compiled target identity, serializes publishers, and retains the prior product.

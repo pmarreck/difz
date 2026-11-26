@@ -6,7 +6,7 @@ in pkgs.stdenv.mkDerivation {
 	version = "0.1.0";
 	src = pkgs.lib.fileset.toSource { root = ./.; fileset = ./zstdz-sdk-setup-hook.sh; };
 	strictDeps = true;
-	nativeBuildInputs = [ pkgs.rust-bindgen pkgs.rustPlatform.bindgenHook ];
+	nativeBuildInputs = [ pkgs.buildPackages.rust-bindgen pkgs.buildPackages.rustPlatform.bindgenHook ];
 	dontConfigure = true;
 	buildPhase = ''
 		runHook preBuild

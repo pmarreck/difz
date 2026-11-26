@@ -15,7 +15,7 @@ source "$root/scripts/build-selection.bash"
 difz_build_load "$project" || exit 1
 host=$(difz_build_normalize_host "$(uname -s)" "$(uname -m)") || exit 1
 case "$host" in linux-amd64) system=x86_64-linux; zv=musl;; linux-arm64) system=aarch64-linux; zv=musl;; macos-arm64) system=aarch64-darwin; zv=-;; *) exit 1;; esac
-rv=-; case "$host" in linux-*) rv=gnu;; esac
+rv=-; case "$host" in linux-*) rv=musl;; esac
 zig_relative="zig-out/$host/ReleaseFast"; [ "$zv" = - ] || zig_relative="zig-out/$host/$zv/ReleaseFast"
 rust_relative="rust-out/$host/release"; [ "$rv" = - ] || rust_relative="rust-out/$host/$rv/release"
 public="$project/bin/$host/difz"

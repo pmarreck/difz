@@ -129,13 +129,16 @@ impl Directory {
 		let to = basename(output)?;
 		#[cfg(target_os = "linux")]
 		let result = unsafe {
-			libc::renameat2(
+			// musl has no renameat2 wrapper. The kernel operation is identical
+			// for both Linux libcs and still fails closed when unsupported.
+			libc::syscall(
+				libc::SYS_renameat2,
 				source.file.as_raw_fd(),
-				from.as_ptr().cast(),
+				from.as_ptr().cast::<libc::c_char>(),
 				self.file.as_raw_fd(),
-				to.as_ptr().cast(),
+				to.as_ptr().cast::<libc::c_char>(),
 				libc::RENAME_NOREPLACE,
-			)
+			) as libc::c_int
 		};
 		#[cfg(target_os = "macos")]
 		let result = {

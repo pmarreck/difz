@@ -23,7 +23,9 @@ fail() {
 printf "difz installed-library tests\n"
 printf "============================\n"
 
-if command -v zig >/dev/null 2>&1; then
+if [ -n "${CC:-}" ]; then
+	CC=("$CC")
+elif command -v zig >/dev/null 2>&1; then
 	CC=(zig cc)
 elif command -v cc >/dev/null 2>&1; then
 	CC=(cc)

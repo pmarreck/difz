@@ -9,10 +9,10 @@ zig	c	mswin-amd64	-	release	ReleaseFast	checks.x86_64-linux.windows-gnu
 zig	c	mswin-amd64	-	debug	Debug	checks.x86_64-linux.windows-gnu-debug
 zig	c	mswin-arm64	-	release	ReleaseFast	checks.x86_64-linux.windows-arm64-gnu
 zig	c	mswin-arm64	-	debug	Debug	checks.x86_64-linux.windows-arm64-gnu-debug
-rust	rust	linux-amd64	gnu	release	release	packages.x86_64-linux.rust-product
-rust	rust	linux-amd64	gnu	debug	debug	packages.x86_64-linux.rust-product-debug
-rust	rust	linux-arm64	gnu	release	release	packages.aarch64-linux.rust-product
-rust	rust	linux-arm64	gnu	debug	debug	packages.aarch64-linux.rust-product-debug
+rust	rust	linux-amd64	musl	release	release	packages.x86_64-linux.rust-product
+rust	rust	linux-amd64	musl	debug	debug	packages.x86_64-linux.rust-product-debug
+rust	rust	linux-arm64	musl	release	release	packages.aarch64-linux.rust-product
+rust	rust	linux-arm64	musl	debug	debug	packages.aarch64-linux.rust-product-debug
 rust	rust	macos-arm64	-	release	release	packages.aarch64-darwin.rust-product
 rust	rust	macos-arm64	-	debug	debug	packages.aarch64-darwin.rust-product-debug
 rust	rust	mswin-amd64	-	release	release	-

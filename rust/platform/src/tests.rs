@@ -348,6 +348,9 @@ fn entry_times_match_independent_metadata_at_negative_seconds_and_nanosecond_pre
 	);
 	assert_eq!(actual.mtime.sec, expected.mtime());
 	assert_eq!(i64::from(actual.mtime.nsec), expected.mtime_nsec());
+	#[cfg(target_os = "linux")]
+	let expected_birth = independent_linux_birth(&path);
+	#[cfg(target_os = "macos")]
 	let expected_birth = expected.created().ok().map(|time| {
 		let value = time.duration_since(SystemTime::UNIX_EPOCH).unwrap();
 		difz_core::metadata::Time {
@@ -357,6 +360,43 @@ fn entry_times_match_independent_metadata_at_negative_seconds_and_nanosecond_pre
 	});
 	assert_eq!(actual.birth, expected_birth);
 	assert_eq!(EntryInfo::for_file(&file).unwrap(), actual);
+}
+
+#[cfg(target_os = "linux")]
+fn independent_linux_birth(path: &std::path::Path) -> Option<difz_core::metadata::Time> {
+	// Rust's musl Metadata::created can be unavailable even when statx reports
+	// birth time. GNU stat uses its own C/kernel boundary and preserves nanos.
+	let output = std::process::Command::new(env!("DIFZ_STAT"))
+		.env("LC_ALL", "C")
+		.env("TZ", "UTC0")
+		.args(["--printf=%W\n%w\n", "--"])
+		.arg(path)
+		.output()
+		.unwrap();
+	assert!(output.status.success(), "{:?}", output.stderr);
+	assert!(output.stderr.is_empty());
+	let text = std::str::from_utf8(&output.stdout).unwrap();
+	let mut lines = text.lines();
+	let sec: i64 = lines.next().unwrap().parse().unwrap();
+	let timestamp = lines.next().unwrap();
+	assert!(lines.next().is_none());
+	if timestamp == "-" {
+		assert_eq!(sec, 0);
+		None
+	} else {
+		let nanos = timestamp
+			.split_once('.')
+			.unwrap()
+			.1
+			.split_whitespace()
+			.next()
+			.unwrap();
+		assert_eq!(nanos.len(), 9);
+		Some(difz_core::metadata::Time {
+			sec,
+			nsec: nanos.parse().unwrap(),
+		})
+	}
 }
 
 #[test]

@@ -8,18 +8,23 @@ pkgs.rustPlatform.buildRustPackage {
 	};
 	cargoLock.lockFile = ./Cargo.lock;
 	strictDeps = true;
-	nativeBuildInputs = [ pkgs.jq ];
+	nativeBuildInputs = [ pkgs.buildPackages.jq ];
 	buildInputs = [ sdk ];
-	nativeCheckInputs = [ pkgs.b3sum pkgs.gnugrep pkgs.coreutils ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.binutils ];
+	nativeCheckInputs = [ pkgs.buildPackages.b3sum pkgs.buildPackages.gnugrep pkgs.buildPackages.coreutils ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.buildPackages.binutils ];
 	DIFZ_ORACLE = "${oracle}/bin/difz";
 	DIFZ_METADATA_ORACLE = "${metadataOracle}/bin/difz-metadata-oracle";
 	DIFZ_FILESYSTEM_ORACLE = "${filesystemOracle}/bin/difz-rust-caller";
-	B3SUM = "${pkgs.b3sum}/bin/b3sum";
+	B3SUM = "${pkgs.buildPackages.b3sum}/bin/b3sum";
+	DIFZ_STAT = "${pkgs.buildPackages.coreutils}/bin/stat";
 	DIFZ_RANDOM = "${random}/bin/random";
 	doCheck = true;
 	buildPhase = ''
 		runHook preBuild
-		${pkgs.stdenv.cc}/bin/cc consumer/native_params.c -DZSTD_MULTITHREAD \
+		# Custom Cargo invocations do not inherit cargoBuildHook's --target.
+		export CARGO_BUILD_TARGET=${pkgs.stdenv.hostPlatform.rust.rustcTarget}
+		export CARGO_TARGET_${pkgs.lib.toUpper (pkgs.lib.replaceStrings [ "-" ] [ "_" ] pkgs.stdenv.hostPlatform.rust.rustcTarget)}_LINKER="$CC"
+		difz_target_cc="$CC"
+		"$difz_target_cc" consumer/native_params.c -DZSTD_MULTITHREAD \
 			-I${zstdz.src}/lib -I${zstdz.src}/lib/compress ${zstdz}/lib/libzstd.a -pthread -o native-params
 		./native-params > native-params.json
 		export DIFZ_NATIVE_PARAMS="$PWD/native-params.json"
@@ -51,7 +56,7 @@ pkgs.rustPlatform.buildRustPackage {
 			exit 1
 		fi
 		platform_tests=$(jq -er 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null) | .executable' platform-tests.json)
-		${pkgs.stdenv.cc}/bin/cc -std=c11 -Wall -Wextra -Werror c-api/tests/caller.c \
+		"$difz_target_cc" -std=c11 -Wall -Wextra -Werror c-api/tests/caller.c \
 			-Ic-api/include "$c_api" -lpthread -lm \
 			${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "-ldl -lrt -lutil"} \
 			${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin "-liconv -lresolv"} -o c-api-consumer

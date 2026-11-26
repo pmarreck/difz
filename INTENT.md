@@ -18,4 +18,6 @@ Updater deltas reconstruct publisher-produced bytes. Clients do not re-sign appl
 
 Correctness is checked through `./test`, including the installed C consumer and CLI adapters. Performance claims must identify the engine revision, inputs, build, resource measurements, and reconstruction checks, and remain limited to the workloads measured.
 
+Linux products, SDK archives and project test executables use static musl consistently. Difz requires only kernel services and does not load host graphics or audio libraries. Standalone distributions must pass independent loader, embedded-path and isolated-execution checks without Nix at runtime.
+
 See [PLAN.md](PLAN.md) for active work, [PROJECT_SPEC.md](PROJECT_SPEC.md) for the implementation contract, [the updater contract](docs/plan_context/mecha-delta-contract.md), and [metadata scope](docs/plan_context/metadata-v2.md).
