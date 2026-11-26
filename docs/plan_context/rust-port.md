@@ -1842,3 +1842,8 @@ unchanged and all twenty cases remain unbaselined.
 The ARM64 results exercise the Linux host kernel through QEMU, with the existing sandbox
 timestamp omission and PTY availability rules. They do not qualify native
 ARM64 hardware, every ARM64 metadata fixture or Windows/macOS execution.
+
+Commit `3dc1a2c` delivered this increment. Exact-commit CI passed all eighteen
+declared targets in 37 seconds, including the ARM64 emulation check. The
+remote branch was verified against the delivered commit. Remaining platform,
+SDK ownership and metadata qualification items stay open.
