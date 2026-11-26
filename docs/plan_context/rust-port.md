@@ -2214,4 +2214,14 @@ for Nix preparation/checks and 157.69 seconds including host admission and
 execution. Both architectures and profiles pass all thirteen Windows cases
 and their mandatory zero-selection controls. Existing native metadata, CLI,
 C ABI, cross-apply, standalone and growth checks also pass. Structure growth
-takes 39.39 seconds under the unchanged measurement policy.
+takes 39.39 seconds and file growth takes 23.91 seconds under the unchanged policy.
+
+Commit `9ca48ca` delivered this increment and matched the fetched remote branch.
+Its exact-commit CI passed all twenty-two declared targets in 42 seconds.
+
+The next step reuses tree-capture logic for Windows with every metadata family
+explicitly omitted. Requested metadata must remain unsupported until its native
+adapter is implemented. Before treating the original Windows executable as the
+directory oracle, qualify its round trips with multi-component native link
+targets and the format's required portable separators. Low-level native target
+reads remain distinct from this canonical tree representation.
