@@ -15,6 +15,14 @@ fn main() {
 		"difz C ABI target mismatch"
 	);
 	let archive = root.join("lib/libdifz_rust.a");
+	let provenance = root.join("nix-support/build-provenance.json");
+	println!("cargo:rerun-if-changed={}", provenance.display());
+	println!("cargo:rerun-if-env-changed=DIFZ_BUILD_PROVENANCE");
+	assert_eq!(
+		fs::read_to_string(provenance).expect("missing difz ABI provenance"),
+		env::var("DIFZ_BUILD_PROVENANCE").expect("Nix must supply validated provenance"),
+		"difz C ABI provenance mismatch"
+	);
 	println!("cargo:rerun-if-changed={}", archive.display());
 	assert!(archive.is_file(), "missing static difz C ABI archive");
 	let bindings = PathBuf::from(

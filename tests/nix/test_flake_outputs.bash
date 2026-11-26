@@ -52,6 +52,7 @@ require_json() {
 }
 expect_json '.systems' "$EXPECTED" "flake package systems: $EXPECTED"
 require_json '.buildContract.canonical | . == "zig" or . == "rust"' 'canonical selector names a registered library backend'
+require_json '.buildProvenance.schema == "build-provenance/v1" and (.buildProvenance.available | type == "boolean")' 'build provenance is a validated source-bound record or explicitly unavailable'
 require_json '.buildContract.rows | length == 20' 'both implementations declare all five platforms and both profiles'
 require_json '.buildRegistryOutputs | length == 20 and all(.[]; . == true)' 'every available build-registry output resolves; unavailable builders remain explicit'
 expect_json '.randomInputs' "$EXPECTED_RANDOM_INPUTS" "benchmark random package inputs: $EXPECTED_RANDOM_INPUTS"
@@ -100,7 +101,7 @@ require_json '.rustCoreSdk == true' 'Rust core receives the reusable zstdz SDK a
 require_json '(.rustSdkSource.required | length == 1 and all(.[]; . == true)) and (.rustSdkSource.excluded | length == 4 and all(.[]; . == false))' 'zstdz SDK source contains its hook and excludes Rust product sources'
 require_json '.buildWrapperCheck | type == "string" and length > 0' 'Nix build adapter has a declared check'
 require_json '.debugPackages | length == 3 and all(.[]; . == true)' 'debug builds select the checked Nix artifact on every native system'
-require_json '(.buildWrapperSource.required | length == 11 and all(.[]; . == true)) and (.buildWrapperSource.excluded | length == 5 and all(.[]; . == false))' 'build adapter source membership excludes unrelated path sets'
+require_json '(.buildWrapperSource.required | length == 13 and all(.[]; . == true)) and (.buildWrapperSource.excluded | length == 5 and all(.[]; . == false))' 'build adapter source membership excludes unrelated path sets'
 require_json '.rustCoreOutputs | length == 3 and all(.[]; . == true)' 'Rust core artifacts are declared for every native system'
 require_json '(.rustCoreSource.required | length == 81 and all(.[]; . == true)) and (.rustCoreSource.excluded | length == 8 and all(.[]; . == false))' 'Rust core source membership includes metadata, native adapter and consumer, excluding unrelated path sets'
 require_json '.crossApplyCheck | type == "string" and length > 0' 'cross-implementation acceptance has a declared Nix check'
@@ -114,3 +115,4 @@ fi
 printf 'PASS Mechatron Prime CI target set covers every declared native check\n'
 require_json '(.zigSource.required | length == 10 and all(.[]; . == true)) and (.zigSource.excluded | length == 8 and all(.[]; . == false))' 'Zig source membership classifies required and unrelated path sets'
 require_json '(.benchmarkSource.required | length == 16 and all(.[]; . == true)) and (.benchmarkSource.excluded | length == 8 and all(.[]; . == false))' 'benchmark source membership classifies required and unrelated path sets'
+bash "$ROOT_DIR/tests/nix/test-build-provenance.bash" "$source_path" || exit 1

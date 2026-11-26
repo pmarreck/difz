@@ -1,4 +1,4 @@
-{ pkgs, zstdz }:
+{ pkgs, zstdz, buildStamp }:
 let
 	target = pkgs.stdenv.hostPlatform.rust.rustcTarget;
 in pkgs.stdenv.mkDerivation {
@@ -24,6 +24,7 @@ in pkgs.stdenv.mkDerivation {
 		ln -s ${zstdz}/include "$out/include"
 		install -m644 bindings.rs "$out/share/difz-zstdz/bindings.rs"
 		printf '%s\n' '${target}' > "$out/nix-support/rust-target"
+		${buildStamp.install}
 		substitute zstdz-sdk-setup-hook.sh "$out/nix-support/setup-hook" --subst-var-by sdk "$out"
 		runHook postInstall
 	'';

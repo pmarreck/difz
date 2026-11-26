@@ -78,7 +78,7 @@ difz_build_normalize_host() {
 }
 difz_build_parse() {
 	DIFZ_BUILD_ACTION=build; DIFZ_BUILD_ALL_IMPLS=0; DIFZ_BUILD_ALL_PLATS=0
-	DIFZ_BUILD_MODE=release; DIFZ_BUILD_REQUESTED_PF=; DIFZ_BUILD_PRINT_PATH=0; DIFZ_BUILD_NIX_FLAGS=()
+	DIFZ_BUILD_MODE=release; DIFZ_BUILD_REQUESTED_PF=; DIFZ_BUILD_PRINT_PATH=0; DIFZ_BUILD_FOR_RELEASE=0; DIFZ_BUILD_NIX_FLAGS=()
 	if [ "${1:-}" = canonize ]; then
 		[ "$#" -eq 2 ] || { difz_build_fail 'usage: ./build canonize IMPLEMENTATION'; return 1; }
 		DIFZ_BUILD_ACTION=canonize; DIFZ_BUILD_REQUESTED_IMPL=$2; return 0
@@ -92,6 +92,7 @@ difz_build_parse() {
 			--all) DIFZ_BUILD_ALL_IMPLS=1; DIFZ_BUILD_ALL_PLATS=1;;
 			--pf) shift; [ "$#" -gt 0 ] || { difz_build_fail '--pf requires a platform'; return 1; }; DIFZ_BUILD_REQUESTED_PF=$1;;
 			--print-path) DIFZ_BUILD_PRINT_PATH=1;;
+			--for-release) DIFZ_BUILD_FOR_RELEASE=1;;
 			--offline|--refresh) DIFZ_BUILD_NIX_FLAGS+=("$1");;
 			*) difz_build_fail 'unknown build option'; return 1;;
 		esac

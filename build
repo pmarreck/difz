@@ -8,10 +8,11 @@ difz_build_load "$root" && difz_build_parse "$@" || exit 1
 case "$DIFZ_BUILD_ACTION" in
   canonize) difz_build_canonize "$DIFZ_BUILD_REQUESTED_IMPL"; exit "$?";;
   help)
-    printf '%s\n' 'Usage: ./build [--debug] [--all-impls] [--all-plats] [--all] [--pf PF] [--offline] [--print-path]' \
+    printf '%s\n' 'Usage: ./build [--debug] [--all-impls] [--all-plats] [--all] [--pf PF] [--offline] [--print-path] [--for-release]' \
       '       ./build canonize zig|rust' \
       'zig selects the Zig core with its C CLI; rust selects the Rust core with its Rust CLI.' \
       '--all-implementations and --all-platforms are the long scope aliases.' \
+      '--for-release requires verified clean source provenance.' \
       'Unavailable builders fail the requested scope before publication.'
     exit 0;;
   build) :;;

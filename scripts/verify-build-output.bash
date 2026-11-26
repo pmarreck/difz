@@ -15,7 +15,7 @@ difz_verify_header() {
 	esac
 }
 difz_verify_product() {
-	local prefix=$1 backend=$2 pf=$3 variant=$4 profile=$5 host=$6 executable archive header description scratch status target
+	local prefix=$1 backend=$2 pf=$3 variant=$4 profile=$5 host=$6 executable archive header description scratch status target revision dirty
 	case "$pf" in mswin-*) executable="$prefix/bin/difz.exe";; *) executable="$prefix/bin/difz";; esac
 	case "$backend" in
 		zig) archive=libdifz.a; header=difz.h;;
@@ -27,6 +27,11 @@ difz_verify_product() {
 	fi
 	description=$(file -Lb -- "$executable") || return 1
 	difz_verify_header "$pf" "$description" || { difz_build_fail "executable header disagrees with $pf: $description"; return 1; }
+	# Check metadata for foreign products too, without executing their code.
+	if ! revision=$(jq -er 'if .schema == "build-provenance/v1" and .available == true and (.revision | type == "string" and test("^r[1-9][0-9]*-[0-9a-f]{6}$")) and (.dirty | type == "boolean") then .revision elif .schema == "build-provenance/v1" and .available == false and (.reason | type == "string") then "unavailable" else error("invalid provenance") end' "$prefix/nix-support/build-provenance.json"); then
+		difz_build_fail 'missing or invalid product provenance'; return 1
+	fi
+	dirty=$(jq -er 'if .available then .dirty | tostring else "unknown" end' "$prefix/nix-support/build-provenance.json") || return 1
 	if [ "$backend" = rust ]; then
 		[ -f "$prefix/nix-support/rust-profile" ] && [ "$(cat "$prefix/nix-support/rust-profile")" = "$profile" ] || { difz_build_fail 'Rust product profile disagrees with selected profile'; return 1; }
 		target=$(cat "$prefix/nix-support/rust-target") || return 1
@@ -43,6 +48,7 @@ difz_verify_product() {
 	[ "$pf" = "$host" ] || return 0
 	scratch=$(mktemp -d "${TMPDIR:-/tmp}/difz-product-verify.XXXXXXXX") || return 1
 	env OS=contradictory ARCH=contradictory PF=contradictory PLATFORM=contradictory VARIANT=contradictory \
+		DIFZ_BUILD_REVISION=contradictory DIFZ_BUILD_DIRTY=contradictory BUILD=contradictory DIRTY=contradictory \
 		DIFZ_LANG=en "$executable" --lang en --about > "$scratch/about" 2> "$scratch/errors"
 	status=$?
 	if [ "$status" -ne 0 ] || [ "$(wc -l < "$scratch/about")" -ne 1 ] || \
@@ -54,6 +60,7 @@ difz_verify_product() {
 		if grep -Fq 'VARIANT=' "$scratch/about"; then status=1; fi
 	elif ! grep -Eq "(^|[[:space:]])VARIANT=$variant([[:space:]]|$)" "$scratch/about"; then status=1
 	fi
+	if ! grep -Eq "(^|[[:space:]])BUILD=$revision DIRTY=$dirty([[:space:]]|$)" "$scratch/about"; then status=1; fi
 	if [ "$status" -ne 0 ]; then
 		cat "$scratch/about" "$scratch/errors" >&2
 		difz_build_fail 'compiled --about identity disagrees with selected product'

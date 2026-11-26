@@ -108,6 +108,18 @@ else
 	fail "--about contains architecture" "output: $ABOUT_OUT"
 fi
 
+if printf '%s\n' "$ABOUT_OUT" | grep -Eq ' BUILD=(unavailable DIRTY=unknown|r[1-9][0-9]*-[0-9a-f]{6} DIRTY=(true|false))$'; then
+	pass "--about contains revision and separate dirty status"
+else
+	fail "--about contains revision and separate dirty status" "output: $ABOUT_OUT"
+fi
+OVERRIDE_ABOUT=$(DIFZ_BUILD_REVISION=contradictory DIFZ_BUILD_DIRTY=contradictory BUILD=contradictory DIRTY=contradictory "$DIFZ" --about 2>/dev/null)
+if [ "$OVERRIDE_ABOUT" = "$ABOUT_OUT" ]; then
+	pass "--about build identity ignores runtime environment"
+else
+	fail "--about build identity ignores runtime environment" "output: $OVERRIDE_ABOUT"
+fi
+
 # ── Test: debug build detection ────────────────────────────────────────
 
 printf "\n[Debug build detection]\n"
@@ -854,9 +866,9 @@ fi
 CEIL_FAIL_ERR=$("$DIFZ" --no-progress --max-output-bytes 16 "$CEIL_A" "$CEIL_B" -o "$TEST_DIR/ceil_fail.difz" 2>&1)
 CEIL_FAIL_RC=$?
 if [ $CEIL_FAIL_RC -ne 0 ] && [ ! -e "$TEST_DIR/ceil_fail.difz" ]; then
-	pass "--max-output-bytes 16 rejects an oversized patch with no output file"
+	pass "--max-output-bytes 16 rejects an oversize patch with no output file"
 else
-	fail "--max-output-bytes 16 rejects an oversized patch with no output file" "rc=$CEIL_FAIL_RC stderr=$CEIL_FAIL_ERR"
+	fail "--max-output-bytes 16 rejects an oversize patch with no output file" "rc=$CEIL_FAIL_RC stderr=$CEIL_FAIL_ERR"
 fi
 if echo "$CEIL_FAIL_ERR" | grep -q "resource limit"; then
 	pass "--max-output-bytes failure mentions resource limit"

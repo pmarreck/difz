@@ -20,6 +20,10 @@ export NIX_CONFIG=$'experimental-features = nix-command flakes\nbuild-users-grou
 private_product=$("$real_nix" store add --name difz-native-fixture "$product") || exit 1
 case "$private_product" in "$work/store/"*) :;; *) printf 'FAIL fixture did not use the private Nix store\n' >&2; exit 1;; esac
 export DIFZ_PRIVATE_NIX="$real_nix" DIFZ_PRIVATE_PRODUCT="$private_product"
+cat > "$project/scripts/capture-build-provenance.bash" <<'COLLECTOR'
+set -eu
+cat "$DIFZ_PRIVATE_PRODUCT/nix-support/build-provenance.json"
+COLLECTOR
 printf '#!%s\n' "$BASH" > "$work/tools/nix"
 cat >> "$work/tools/nix" <<'NIX'
 set -u
@@ -33,8 +37,12 @@ case "$operation" in
   # Compilation is already complete; only the flake selector is substituted.
   # Root creation/registration/realization below uses the real Nix executable.
   arguments=(); preparation=0
-  for argument in "$@"; do
-   case "$argument" in .#*) arguments+=("$DIFZ_PRIVATE_PRODUCT"); preparation=1;; *) arguments+=("$argument");; esac
+  while [ "$#" -gt 0 ]; do
+   argument=$1; shift
+   case "$argument" in
+    --override-input) [ "$1" = build-provenance ] || exit 67; shift 2;;
+    path:*\#*) arguments+=("$DIFZ_PRIVATE_PRODUCT"); preparation=1;; *) arguments+=("$argument");;
+   esac
   done
   if [ "$preparation" -eq 1 ]; then
    result=$("$DIFZ_PRIVATE_NIX" build "${arguments[@]}") || exit "$?"

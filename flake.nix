@@ -2,6 +2,7 @@
 	description = "difz - binary patches and canonical filesystem snapshots";
 
 	inputs = {
+		build-provenance = { url = "path:./nix/provenance-default"; flake = false; };
 		nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 		flake-utils.url = "github:numtide/flake-utils";
 		performance-profiling.url = "github:pmarreck/performance_profiling/a04d62a441a5b9315e81f6277f57f7eddb9a57af";
@@ -11,18 +12,28 @@
 		};
 	};
 
-	outputs = { self, nixpkgs, flake-utils, random, performance-profiling }:
-		let buildContract = import ./nix/build-contract.nix {
+	outputs = { self, nixpkgs, flake-utils, random, performance-profiling, build-provenance }:
+		let
+		buildProvenance = import ./nix/build-provenance.nix {
+			record = builtins.fromJSON (builtins.readFile (build-provenance + "/record.json"));
+			sourceNarHash = self.narHash;
+			expectedCommit = self.rev or null;
+		};
+		buildContract = import ./nix/build-contract.nix {
 			lib = nixpkgs.lib;
 			source = builtins.readFile ./nix/build-targets.tsv;
 			selector = builtins.readFile ./CANONICAL_IMPL;
-		}; in (flake-utils.lib.eachSystem [
+		};
+		# Keep output names available before validating values: self's source
+		# metadata is attached by Nix after this output set is constructed.
+		in builtins.mapAttrs (_: value: assert builtins.deepSeq buildProvenance true; value) (flake-utils.lib.eachSystem [
 			"x86_64-linux"
 			"aarch64-linux"
 			"aarch64-darwin"
 		] (system:
 			let
 				pkgs = import nixpkgs { inherit system; };
+				buildStamp = import ./nix/build-stamp.nix { inherit pkgs; record = buildProvenance; };
 				# Project executables, SDKs and test artifacts share one Linux libc.
 				# Build-machine tools remain native through buildPackages.
 				runtimePkgs = if pkgs.stdenv.hostPlatform.isLinux then
@@ -59,7 +70,7 @@
 				};
 				buildWrapperSource = pkgs.lib.fileset.toSource {
 					root = ./.;
-					fileset = pkgs.lib.fileset.unions [ ./build ./run ./CANONICAL_IMPL ./nix/build-targets.tsv ./scripts/build-selection.bash ./scripts/build-driver.bash ./scripts/verify-build-output.bash ./tests/integration/test-build-wrapper.bash ./tests/integration/test-build-selection.bash ./tests/integration/test-build-verification.bash ./tests/integration/test-build-nix-roots.bash ];
+					fileset = pkgs.lib.fileset.unions [ ./build ./run ./CANONICAL_IMPL ./nix/build-targets.tsv ./scripts/build-selection.bash ./scripts/build-driver.bash ./scripts/capture-build-provenance.bash ./scripts/verify-build-output.bash ./tests/integration/test-build-provenance.bash ./tests/integration/test-build-wrapper.bash ./tests/integration/test-build-selection.bash ./tests/integration/test-build-verification.bash ./tests/integration/test-build-nix-roots.bash ];
 				};
 
 				# Single hash for the entire Zig dependency tree.
@@ -142,7 +153,8 @@
 							difz_zig_lib_args=(--zig-lib-dir "$TMPDIR/zig-lib")
 						''}
 
-						zig build "''${difz_zig_lib_args[@]}" ${pkgs.lib.optionalString prepareTests "test-artifacts"} -Dtarget=${if pkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-musl" else "x86_64-linux-musl"} -Dcpu=baseline -Doptimize=${optimize} --prefix $out
+						zig build "''${difz_zig_lib_args[@]}" ${pkgs.lib.optionalString prepareTests "test-artifacts"} -Dtarget=${if pkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-musl" else "x86_64-linux-musl"} -Dcpu=baseline -Doptimize=${optimize} -Dbuild-revision=${buildStamp.revision} -Dbuild-dirty=${buildStamp.dirty} --prefix $out
+						${buildStamp.install}
 					'';
 
 					doCheck = doCheck;
@@ -273,14 +285,14 @@
 					zstdz = zstdBenchmark;
 					pcre2 = pcre2Reference;
 				};
-				rustZstdzSdk = import ./rust/zstdz-sdk.nix { pkgs = runtimePkgs; zstdz = zstdBenchmark; };
+				rustZstdzSdk = import ./rust/zstdz-sdk.nix { pkgs = runtimePkgs; zstdz = zstdBenchmark; inherit buildStamp; };
 				rustCoreTests = import ./rust/qa.nix { pkgs = runtimePkgs; inherit metadataOracle; filesystemOracle = rustFfiTests; oracle = releaseFast; zstdz = zstdBenchmark; sdk = rustZstdzSdk; random = randomPackage; };
-				rustLibrary = import ./rust/library.nix { pkgs = runtimePkgs; sdk = rustZstdzSdk; };
-				rustLibraryDebug = import ./rust/library.nix { pkgs = runtimePkgs; sdk = rustZstdzSdk; debug = true; };
+				rustLibrary = import ./rust/library.nix { pkgs = runtimePkgs; sdk = rustZstdzSdk; inherit buildStamp; };
+				rustLibraryDebug = import ./rust/library.nix { pkgs = runtimePkgs; sdk = rustZstdzSdk; debug = true; inherit buildStamp; };
 				rustAbiConsumer = import ./rust/c-api-consumer.nix { pkgs = runtimePkgs; library = rustLibrary; oracle = releaseFast; };
 				rustAbiDebugConsumer = import ./rust/c-api-consumer.nix { pkgs = runtimePkgs; library = rustLibraryDebug; oracle = releaseFast; };
-				rustCli = import ./rust/cli.nix { pkgs = runtimePkgs; library = rustLibrary; };
-				rustCliDebug = import ./rust/cli.nix { pkgs = runtimePkgs; library = rustLibraryDebug; debug = true; };
+				rustCli = import ./rust/cli.nix { pkgs = runtimePkgs; library = rustLibrary; inherit buildStamp; };
+				rustCliDebug = import ./rust/cli.nix { pkgs = runtimePkgs; library = rustLibraryDebug; debug = true; inherit buildStamp; };
 				rustProduct = profile: frontend: library: pkgs.symlinkJoin {
 					name = "difz-rust-${profile}-0.1.0";
 					paths = [ frontend library ];
@@ -301,7 +313,7 @@
 					zig = { release = releaseFast; debug = debugTests; };
 					rust = { release = rustProductRelease; debug = rustProductDebug; };
 				};
-				windowsProduct = args: import ./nix/windows-product.nix ({ inherit pkgs zigDeps; source = zigSource; } // args);
+				windowsProduct = args: import ./nix/windows-product.nix ({ inherit pkgs zigDeps buildStamp; source = zigSource; } // args);
 				windowsAmd64Release = windowsProduct {};
 				windowsAmd64Debug = windowsProduct { debug = true; };
 				windowsArm64Release = windowsProduct { arch = "arm64"; };
@@ -337,14 +349,17 @@
 					rust-abi-debug = rustAbiDebugConsumer;
 					rust-cli = rustCliCheck;
 					test-entry = import ./tests/nix/test-entry.nix { inherit pkgs; };
-					build-wrapper = assert (import ./nix/build-contract-tests.nix { lib = pkgs.lib; }); pkgs.runCommand "difz-build-wrapper-check" {
+					build-wrapper = assert (import ./nix/build-contract-tests.nix { lib = pkgs.lib; });
+						assert (import ./nix/build-provenance-tests.nix { lib = pkgs.lib; sourceNarHash = self.narHash; });
+						pkgs.runCommand "difz-build-wrapper-check" {
 						src = buildWrapperSource;
-						nativeBuildInputs = with pkgs; [ bash coreutils gnugrep file jq nix ];
+						nativeBuildInputs = with pkgs; [ bash coreutils gnugrep git gnutar file jq nix ];
 					} ''
 						cp -R "$src/." .
 						chmod -R u+w .
 						export HOME="$TMPDIR/home"
 						mkdir -p "$HOME"
+						bash tests/integration/test-build-provenance.bash "$PWD/scripts/capture-build-provenance.bash"
 						bash tests/integration/test-build-wrapper.bash ${releaseFast} ${debugTests} ${rustProductRelease} ${rustProductDebug}
 						bash tests/integration/test-build-selection.bash
 						bash tests/integration/test-build-verification.bash ${releaseFast} ${rustProductRelease} ${rustProductDebug}
@@ -426,6 +441,7 @@
 						time
 						file
 						git
+						gnutar
 						jq
 						profilingLua
 						performancePackage
@@ -437,5 +453,11 @@
 						"${runtimePkgs.stdenv.cc}/bin/${runtimePkgs.stdenv.cc.targetPrefix}cc";
 				};
 			}
-		)) // { inherit buildContract; };
+		)) // {
+			inherit buildContract buildProvenance;
+			releaseProvenance = import ./nix/build-provenance.nix {
+				record = buildProvenance; sourceNarHash = self.narHash;
+				expectedCommit = self.rev or null; requireClean = true;
+			};
+		};
 }

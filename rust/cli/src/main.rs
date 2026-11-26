@@ -86,10 +86,12 @@ fn run(arguments: &[OsString], messages: &Catalog) -> Result<(), String> {
 		Parsed::About => {
 			let variant = VARIANT.map_or(String::new(), |value| format!(" VARIANT={value}"));
 			let text = format!(
-				"difz {} -- {} -- {OS_LABEL} {}; PF={PF}{variant}\n",
+				"difz {} -- {} -- {OS_LABEL} {}; PF={PF}{variant} BUILD={} DIRTY={}\n",
 				env!("CARGO_PKG_VERSION"),
 				messages.description,
-				std::env::consts::ARCH
+				std::env::consts::ARCH,
+				env!("DIFZ_BUILD_REVISION"),
+				env!("DIFZ_BUILD_DIRTY")
 			);
 			return io::output(None, text.as_bytes(), false, messages);
 		}

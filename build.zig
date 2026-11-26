@@ -17,6 +17,8 @@ pub fn build(b: *std.Build) void {
         "optimize",
         "Optimization mode (default: ReleaseFast)",
     ) orelse .ReleaseFast;
+    const revision = b.option([]const u8, "build-revision", "Verified build revision") orelse "unavailable";
+    const dirty = b.option([]const u8, "build-dirty", "Separate source dirty status") orelse "unknown";
 
     // PCRE2 powers dirtree-compatible allowlist and denylist path globs.
     const pcre2_dep = b.dependency("pcre2", .{
@@ -146,6 +148,8 @@ pub fn build(b: *std.Build) void {
         else => @panic("unsupported difz CLI architecture"),
     };
     exe.root_module.addCMacro("DIFZ_PF", b.fmt("\"{s}-{s}\"", .{ pf_os, pf_arch }));
+    exe.root_module.addCMacro("DIFZ_BUILD_REVISION", b.fmt("\"{s}\"", .{revision}));
+    exe.root_module.addCMacro("DIFZ_BUILD_DIRTY", b.fmt("\"{s}\"", .{dirty}));
     if (target.result.os.tag == .linux) {
         const variant = switch (target.result.abi) {
             .gnu => "gnu",

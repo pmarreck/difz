@@ -24,7 +24,21 @@ mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME"
 export DIFZ_TEST_CALLS="$work/calls" DIFZ_TEST_COMPILER="$work/compiler" DIFZ_TEST_SNAPSHOT="$work/snapshot"
 export DIFZ_TEST_ZIG_RELEASE="$zig_release" DIFZ_TEST_ZIG_DEBUG="$zig_debug" DIFZ_TEST_RUST_RELEASE="$rust_release" DIFZ_TEST_RUST_DEBUG="$rust_debug" DIFZ_TEST_SYSTEM="$system"
 export DIFZ_TEST_RETAIN_FAILED="$work/retain-failed"
+export DIFZ_TEST_PROJECT="$project"
+export DIFZ_TEST_COMMIT="$work/source-commit"
+printf '%s\n' 0123456789abcdef0123456789abcdef01234567 > "$DIFZ_TEST_COMMIT"
 printf '/fixture/source-a' > "$DIFZ_TEST_SNAPSHOT"
+# Git history/source collection has its own real private-store fixture. Here
+# record only this boundary and use the exact already-prepared product record.
+cat > "$project/scripts/capture-build-provenance.bash" <<'COLLECTOR'
+set -eu
+[ "$#" -eq 2 ] && [ "$1" = "$DIFZ_TEST_PROJECT" ]
+[ "$(jq -er .path "$2")" = "$(cat "$DIFZ_TEST_SNAPSHOT")" ]
+printf 'capture-provenance\n' >> "$DIFZ_TEST_CALLS"
+if [ "${DIFZ_TEST_WRONG_PROVENANCE:-0}" -eq 1 ]; then
+ printf '%s\n' '{"schema":"build-provenance/v1","available":false,"reason":"different-capture"}'
+else cat "$DIFZ_TEST_ZIG_RELEASE/nix-support/build-provenance.json"; fi
+COLLECTOR
 for tool in zig cargo rustc; do
 	printf '#!%s\ntouch "$DIFZ_TEST_COMPILER"\nexit 65\n' "$BASH" > "$work/tools/$tool" || exit 1
 	chmod +x "$work/tools/$tool" || exit 1
@@ -49,11 +63,22 @@ case "$operation" in
   [ "$#" -gt 0 ] || exit 70; shift; exec "$@";;
  flake)
   [ "$1" = metadata ] || exit 71
-  jq -n --arg path "$(cat "$DIFZ_TEST_SNAPSHOT")" '{path:$path}';;
+  jq -n --arg path "$(cat "$DIFZ_TEST_SNAPSHOT")" --arg revision "$(cat "$DIFZ_TEST_COMMIT")" '{path:$path,locked:{rev:$revision}}';;
+ eval)
+  [ "$1" = --json ] && [ "$2" = --no-write-lock-file ] && [ "$3" = --override-input ] && [ "$4" = build-provenance ] || exit 77
+  input=${5#path:}
+  if ! jq -e '.available == true and .dirty == false' "$input/record.json" >/dev/null; then
+   printf 'difz build provenance: release requires available clean provenance\n' >&2; exit 78
+  fi
+  cat "$input/record.json";;
  build)
   json=0; link=; targets=()
   while [ "$#" -gt 0 ]; do
-   case "$1" in --json) json=1;; --out-link) shift; link=${1:-};; --no-update-lock-file|--offline|--refresh) :;; *) targets+=("$1");; esac
+   case "$1" in
+    --json) json=1;; --out-link) shift; link=${1:-};;
+    --override-input) [ "$2" = build-provenance ] && [ -f "${3#path:}/record.json" ] || exit 79; shift 2;;
+    --no-write-lock-file|--no-update-lock-file|--offline|--refresh) :;; *) targets+=("$1");;
+   esac
    shift
   done
   [ -n "$link" ] && [ "${#targets[@]}" -gt 0 ] || exit 72
@@ -64,10 +89,10 @@ case "$operation" in
   prefixes=()
   for target in "${targets[@]}"; do
    case "$target" in
-    ".#packages.$DIFZ_TEST_SYSTEM.zig-release") prefix=$DIFZ_TEST_ZIG_RELEASE;;
-    ".#packages.$DIFZ_TEST_SYSTEM.zig-debug") prefix=$DIFZ_TEST_ZIG_DEBUG;;
-    ".#packages.$DIFZ_TEST_SYSTEM.rust-product") prefix=$DIFZ_TEST_RUST_RELEASE;;
-    ".#packages.$DIFZ_TEST_SYSTEM.rust-product-debug") prefix=$DIFZ_TEST_RUST_DEBUG;;
+    "path:$(cat "$DIFZ_TEST_SNAPSHOT")#packages.$DIFZ_TEST_SYSTEM.zig-release") prefix=$DIFZ_TEST_ZIG_RELEASE;;
+    "path:$(cat "$DIFZ_TEST_SNAPSHOT")#packages.$DIFZ_TEST_SYSTEM.zig-debug") prefix=$DIFZ_TEST_ZIG_DEBUG;;
+    "path:$(cat "$DIFZ_TEST_SNAPSHOT")#packages.$DIFZ_TEST_SYSTEM.rust-product") prefix=$DIFZ_TEST_RUST_RELEASE;;
+    "path:$(cat "$DIFZ_TEST_SNAPSHOT")#packages.$DIFZ_TEST_SYSTEM.rust-product-debug") prefix=$DIFZ_TEST_RUST_DEBUG;;
     /*) prefix=$target;;
     *) exit 73;;
    esac
@@ -83,6 +108,7 @@ case "$operation" in
   if [ "$json" -eq 1 ]; then
    printf '%s\n' "${prefixes[@]}" | jq -Rsc 'split("\n")[:-1] | map({outputs:{out:.}})'
    if [ "${DIFZ_TEST_CHANGE_SOURCE:-0}" -eq 1 ]; then printf '/fixture/source-b' > "$DIFZ_TEST_SNAPSHOT"; fi
+   if [ "${DIFZ_TEST_CHANGE_COMMIT:-0}" -eq 1 ]; then printf '%s\n' 89abcdef0123456789abcdef0123456789abcdef > "$DIFZ_TEST_COMMIT"; fi
   fi;;
  *) exit 76;;
 esac
@@ -98,11 +124,22 @@ for profile in default debug; do
 done
 # Existing alternate-prefix coverage now verifies links rather than copying.
 mkdir -p "$work/alternate product" || exit 1
-for entry in bin lib include; do ln -s "$zig_release/$entry" "$work/alternate product/$entry" || exit 1; done
+for entry in bin lib include nix-support; do ln -s "$zig_release/$entry" "$work/alternate product/$entry" || exit 1; done
 export DIFZ_TEST_ZIG_RELEASE="$work/alternate product"
 run_build --print-path || { cat "$work/err" >&2; exit 1; }
 [ "$(cat "$work/out")" = "$public" ] && [ "$(readlink "$project/$zig_relative")" = "$work/alternate product" ] || exit 1
 before=$(readlink "$public")
+# An otherwise valid artifact must not be published under another capture.
+export DIFZ_TEST_WRONG_PROVENANCE=1
+if run_build; then printf 'FAIL product ignored captured provenance\n' >&2; exit 1; fi
+unset DIFZ_TEST_WRONG_PROVENANCE
+grep -Fq 'product provenance differs from captured source' "$work/err" || exit 1
+[ "$(readlink "$public")" = "$before" ] || exit 1
+if ! jq -e '.available == true and .dirty == false' "$zig_release/nix-support/build-provenance.json" >/dev/null; then
+ if run_build --for-release; then printf 'FAIL dirty/unavailable release passed\n' >&2; exit 1; fi
+ grep -Fq 'release requires available clean provenance' "$work/err" || exit 1
+ [ "$(readlink "$public")" = "$before" ] || exit 1
+else run_build --for-release || { cat "$work/err" >&2; exit 1; }; fi
 export DIFZ_TEST_BUILD_STATUS=23
 if run_build; then printf 'FAIL forced Nix build failure passed\n' >&2; exit 1; fi
 unset DIFZ_TEST_BUILD_STATUS
@@ -142,6 +179,12 @@ export DIFZ_TEST_CHANGE_SOURCE=1
 if run_build; then printf 'FAIL source change during build passed\n' >&2; exit 1; fi
 unset DIFZ_TEST_CHANGE_SOURCE
 printf '/fixture/source-a' > "$DIFZ_TEST_SNAPSHOT"
+[ "$(readlink "$public")" = "$before" ] && [ "$(readlink "$project/$rust_relative")" = "$old_prefix" ] || exit 1
+export DIFZ_TEST_CHANGE_COMMIT=1
+if run_build; then printf 'FAIL same-source commit change during build passed\n' >&2; exit 1; fi
+unset DIFZ_TEST_CHANGE_COMMIT
+grep -Fq 'source changed during preparation' "$work/err" || exit 1
+printf '%s\n' 0123456789abcdef0123456789abcdef01234567 > "$DIFZ_TEST_COMMIT"
 [ "$(readlink "$public")" = "$before" ] && [ "$(readlink "$project/$rust_relative")" = "$old_prefix" ] || exit 1
 mkdir "$project/.build-state/publish.lock" || exit 1
 if run_build; then printf 'FAIL competing publisher lock ignored\n' >&2; exit 1; fi

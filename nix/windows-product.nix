@@ -1,4 +1,4 @@
-{ pkgs, source, zigDeps, arch ? "amd64", debug ? false }:
+{ pkgs, source, zigDeps, buildStamp, arch ? "amd64", debug ? false }:
 let
 	compilerArch = { amd64 = "x86_64"; arm64 = "aarch64"; }.${arch};
 	profile = if debug then "Debug" else "ReleaseFast";
@@ -18,7 +18,8 @@ in pkgs.stdenv.mkDerivation {
 		mkdir -p "$ZIG_GLOBAL_CACHE_DIR"
 		cp -r ${zigDeps}/. "$ZIG_GLOBAL_CACHE_DIR/"
 		chmod -R u+w "$ZIG_GLOBAL_CACHE_DIR"
-		zig build -Dcpu=baseline -Doptimize=${profile} -Dtarget=${compilerArch}-windows-gnu --prefix "$out"
+		zig build -Dcpu=baseline -Doptimize=${profile} -Dtarget=${compilerArch}-windows-gnu -Dbuild-revision=${buildStamp.revision} -Dbuild-dirty=${buildStamp.dirty} --prefix "$out"
+		${buildStamp.install}
 		test -x "$out/bin/difz.exe"
 		test -s "$out/lib/libdifz.a"
 		test -s "$out/include/difz.h"

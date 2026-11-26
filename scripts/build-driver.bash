@@ -42,7 +42,8 @@ managed_command() {
 source_snapshot() {
 	local metadata
 	metadata=$(nix flake metadata --no-update-lock-file --json "${DIFZ_BUILD_NIX_FLAGS[@]}") || return 1
-	jq -er '.path | select(type == "string" and length > 0)' <<< "$metadata"
+	printf '%s\n' "$metadata" > "$work/source-metadata.json" || return 1
+	jq -ce '{path, commit:(.locked.rev // .locked.dirtyRev // null), narHash:.locked.narHash}' <<< "$metadata"
 }
 ensure_directory .build-state && ensure_directory .build-work || exit 1
 lock="$root/.build-state/publish.lock"
@@ -81,13 +82,21 @@ cleanup() {
 	exit "$result"
 }
 trap cleanup EXIT
-snapshot=$(source_snapshot) || exit 1
+source_identity=$(source_snapshot) || exit 1
+snapshot=$(jq -er '.path | select(type == "string" and startswith("/"))' <<< "$source_identity") || exit 1
+mkdir "$work/provenance" || exit 1
+bash scripts/capture-build-provenance.bash "$root" "$work/source-metadata.json" > "$work/provenance/record.json" || exit 1
+if [ "$DIFZ_BUILD_FOR_RELEASE" -eq 1 ]; then
+	nix eval --json --no-write-lock-file --override-input build-provenance "path:$work/provenance" \
+		"${DIFZ_BUILD_NIX_FLAGS[@]}" "path:$snapshot#releaseProvenance" > "$work/release-provenance.json" || exit 1
+fi
+jq -S . "$work/provenance/record.json" > "$work/expected-provenance.json" || exit 1
 installables=()
 publish_slot=-1
 print_slot=-1
 for index in "${DIFZ_BUILD_PLAN[@]}"; do
 	IFS=$'\t' read -r backend frontend pf variant mode profile output <<< "${DIFZ_BUILD_ROWS[index]}"
-	installables+=(".#$output")
+	installables+=("path:$snapshot#$output")
 	if [ "$backend/$pf" = "$selected_backend/$host" ]; then publish_slot=$((${#installables[@]} - 1)); fi
 	if [ "$backend/$pf" = "$selected_backend/${DIFZ_BUILD_REQUESTED_PF:-$host}" ]; then print_slot=$((${#installables[@]} - 1)); fi
 done
@@ -99,7 +108,7 @@ if [ "$publish_slot" -ge 0 ]; then
 	elif [ -e "$public" ]; then difz_build_fail 'refusing to replace an unrecognized command file'; exit 1; fi
 fi
 printf 'Building %d declared product(s) through Nix...\n' "${#installables[@]}" >&2
-nix build --no-update-lock-file --json --out-link "$work/result" "${DIFZ_BUILD_NIX_FLAGS[@]}" "${installables[@]}" > "$work/build.json" || exit 1
+nix build --no-write-lock-file --override-input build-provenance "path:$work/provenance" --json --out-link "$work/result" "${DIFZ_BUILD_NIX_FLAGS[@]}" "${installables[@]}" > "$work/build.json" || exit 1
 [ "$(jq -er 'length' "$work/build.json")" -eq "${#installables[@]}" ] || { difz_build_fail 'Nix returned an unexpected product count'; exit 1; }
 for ((slot=0; slot<${#DIFZ_BUILD_PLAN[@]}; slot++)); do
 	index=${DIFZ_BUILD_PLAN[slot]}
@@ -107,6 +116,8 @@ for ((slot=0; slot<${#DIFZ_BUILD_PLAN[@]}; slot++)); do
 	prefix=$(jq -er ".[$slot].outputs.out | select(type == \"string\" and startswith(\"/\") and (contains(\"\\n\") | not))" "$work/build.json") || exit 1
 	nix-store --check-validity "$prefix" || { difz_build_fail 'Nix reported an invalid store output'; exit 1; }
 	difz_verify_product "$prefix" "$backend" "$pf" "$variant" "$profile" "$host" || exit 1
+	jq -S . "$prefix/nix-support/build-provenance.json" > "$work/observed-provenance.json" || exit 1
+	cmp "$work/expected-provenance.json" "$work/observed-provenance.json" || { difz_build_fail 'product provenance differs from captured source'; exit 1; }
 	relative=$(product_relative "$backend" "$pf" "$variant" "$profile")
 	ensure_directory "${relative%/*}" || exit 1
 	old=
@@ -120,7 +131,7 @@ for ((slot=0; slot<${#DIFZ_BUILD_PLAN[@]}; slot++)); do
 	elif [ -e "$root/$relative" ]; then difz_build_fail 'retained product path is not a managed link'; exit 1; fi
 	prefixes+=("$prefix"); relatives+=("$relative"); previous+=("$old")
 done
-[ "$(source_snapshot)" = "$snapshot" ] || { difz_build_fail 'source changed during preparation; preserving the previous publication'; exit 1; }
+[ "$(source_snapshot)" = "$source_identity" ] || { difz_build_fail 'source changed during preparation; preserving the previous publication'; exit 1; }
 difz_build_read_canonical || exit 1
 [ "$DIFZ_BUILD_CANONICAL" = "$selected_backend" ] || { difz_build_fail 'canonical selection changed during preparation'; exit 1; }
 if [ "$publish_slot" -ge 0 ]; then

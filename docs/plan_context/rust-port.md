@@ -1753,3 +1753,13 @@ The before consumer is the unchanged packaged probe used by `52a6622`; these are
 single-machine diagnostic measurements, not approved historical baselines.
 The five-second complete execution budget remains exceeded and was not widened.
 Native macOS/Windows and verified build provenance remain independent open work.
+
+### Source-bound provenance consumer, 2026-11-25
+
+Difz now accepts the experimental nonflake metadata interface and validates its
+schema, field completeness, revision and actual root NAR before evaluating
+production/check output values. Actual-flake invalid-input controls caught an
+initial lazy-validation gap; both production and check targets now reject bad
+source hashes/revisions and missing metadata. Complete `./test` passes. CLI/SDK
+stamps, the local Git-aware bridge, release-workflow gating and exact-commit CI
+handoff qualification remain open. See [build provenance](build-provenance.md).

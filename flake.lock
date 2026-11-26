@@ -1,5 +1,17 @@
 {
   "nodes": {
+    "build-provenance": {
+      "flake": false,
+      "locked": {
+        "path": "./nix/provenance-default",
+        "type": "path"
+      },
+      "original": {
+        "path": "./nix/provenance-default",
+        "type": "path"
+      },
+      "parent": []
+    },
     "dotfiles": {
       "flake": false,
       "locked": {
@@ -224,6 +236,7 @@
     },
     "root": {
       "inputs": {
+        "build-provenance": "build-provenance",
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
         "performance-profiling": "performance-profiling",

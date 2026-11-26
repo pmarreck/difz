@@ -1,4 +1,4 @@
-{ pkgs, library, debug ? false }:
+{ pkgs, library, buildStamp, debug ? false }:
 (pkgs.rustPlatform.buildRustPackage {
 	pname = "difz-rust-cli";
 	version = "0.1.0";
@@ -11,6 +11,10 @@
 	buildInputs = [ library ];
 	buildType = if debug then "debug" else "release";
 	DIFZ_C_API_ROOT = library;
+	DIFZ_BUILD_PROVENANCE = buildStamp.text;
+	DIFZ_BUILD_REVISION = buildStamp.revision;
+	DIFZ_BUILD_DIRTY = buildStamp.dirty;
+	postInstall = buildStamp.install;
 	preBuild = ''
 		export DIFZ_C_API_BINDINGS="$TMPDIR/difz-bindings.rs"
 		bindgen ${library}/include/difz-rust.h --use-core --no-layout-tests \
@@ -33,6 +37,10 @@
 		fi
 		grep -F 'difz C ABI target mismatch' "$TMPDIR/guard-error"
 		mkdir "$TMPDIR/guard-bindings"
+		if TARGET=${pkgs.stdenv.hostPlatform.rust.rustcTarget} DIFZ_BUILD_PROVENANCE='{}' "$TMPDIR/abi-target-guard" > "$TMPDIR/guard-output" 2> "$TMPDIR/guard-error"; then
+			printf 'FAIL incorrect packaged C ABI provenance was accepted\n' >&2; exit 1
+		fi
+		grep -F 'difz C ABI provenance mismatch' "$TMPDIR/guard-error"
 		TARGET=${pkgs.stdenv.hostPlatform.rust.rustcTarget} CARGO_CFG_TARGET_OS=${if pkgs.stdenv.hostPlatform.isDarwin then "macos" else if pkgs.stdenv.hostPlatform.isLinux then "linux" else "windows"} OUT_DIR="$TMPDIR/guard-bindings" "$TMPDIR/abi-target-guard" > "$TMPDIR/guard-output"
 		cmp "$DIFZ_C_API_BINDINGS" "$TMPDIR/guard-bindings/bindings.rs"
 	'';

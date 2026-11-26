@@ -165,7 +165,7 @@ static enum path_kind classify_path(const char *path) {
 }
 
 static void print_about(void) {
-	fprintf(stdout, "difz %s -- fast binary differ (zstd level 9 patch-from) -- %s %s; PF=" DIFZ_PF DIFZ_ABOUT_VARIANT "\n",
+	fprintf(stdout, "difz %s -- fast binary differ (zstd level 9 patch-from) -- %s %s; PF=" DIFZ_PF DIFZ_ABOUT_VARIANT " BUILD=" DIFZ_BUILD_REVISION " DIRTY=" DIFZ_BUILD_DIRTY "\n",
 		DIFZ_VERSION, DIFZ_PLATFORM, DIFZ_ARCH);
 }
 

@@ -1,4 +1,4 @@
-{ pkgs, sdk, debug ? false }:
+{ pkgs, sdk, buildStamp, debug ? false }:
 # Production ABI artifact. The separate rust-abi and rust-cli checks exercise
 # this installed library; production builds do not build test/oracle programs.
 (pkgs.rustPlatform.buildRustPackage {
@@ -22,6 +22,7 @@
 	doCheck = false;
 	buildPhase = ''
 		runHook preBuild
+		cmp ${buildStamp.json} ${sdk}/nix-support/build-provenance.json
 		export CC=false CXX=false AR=false
 		if ! cargo build --locked --offline --target ${pkgs.stdenv.hostPlatform.rust.rustcTarget} ${pkgs.lib.optionalString (!debug) "--release"} -p difz-c-api --lib --message-format=json > artifacts.json; then
 			jq -r 'select(.reason == "compiler-message") | .message.rendered // empty' artifacts.json >&2
@@ -37,6 +38,7 @@
 		mkdir -p "$out/nix-support"
 		printf '%s\n' '${pkgs.stdenv.hostPlatform.rust.rustcTarget}' > "$out/nix-support/rust-target"
 		printf '%s\n' '${if debug then "debug" else "release"}' > "$out/nix-support/rust-profile"
+		${buildStamp.install}
 		runHook postInstall
 	'';
 	passthru.rustTarget = pkgs.stdenv.hostPlatform.rust.rustcTarget;

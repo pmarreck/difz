@@ -12,6 +12,7 @@ let
 in {
 	systems = builtins.attrNames flake.packages;
 	buildContract = flake.buildContract;
+	buildProvenance = flake.buildProvenance;
 	buildRegistryOutputs = map (row: row.output == null ||
 		flake.inputs.nixpkgs.lib.attrByPath (flake.inputs.nixpkgs.lib.splitString "." row.output) null flake != null
 	) flake.buildContract.rows;
@@ -85,7 +86,7 @@ in {
 		(if flake.buildContract.canonical == "zig" then packages.zig-debug.drvPath else packages.rust-product-debug.drvPath)
 	) flake.packages;
 	buildWrapperSource = membership checks.build-wrapper.src
-		[ "build" "run" "CANONICAL_IMPL" "nix/build-targets.tsv" "scripts/build-selection.bash" "scripts/build-driver.bash" "scripts/verify-build-output.bash" "tests/integration/test-build-wrapper.bash" "tests/integration/test-build-selection.bash" "tests/integration/test-build-verification.bash" "tests/integration/test-build-nix-roots.bash" ]
+		[ "build" "run" "CANONICAL_IMPL" "nix/build-targets.tsv" "scripts/build-selection.bash" "scripts/build-driver.bash" "scripts/capture-build-provenance.bash" "scripts/verify-build-output.bash" "tests/integration/test-build-provenance.bash" "tests/integration/test-build-wrapper.bash" "tests/integration/test-build-selection.bash" "tests/integration/test-build-verification.bash" "tests/integration/test-build-nix-roots.bash" ]
 		[ "PLAN.md" "README.md" "flake.nix" "src/zstd_patch.zig" "rust/src/lib.rs" ];
 	rustCoreOutputs = builtins.mapAttrs (_: packages: builtins.hasAttr "rust-core-tests" packages) flake.packages;
 	rustCoreSource = membership flake.packages.${system}.rust-core-tests.src

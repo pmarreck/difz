@@ -26,6 +26,19 @@ case "$host" in linux-*) zig_variant=musl; rust_variant=musl;; esac
 difz_verify_product "$zig_product" zig "$host" "$zig_variant" ReleaseFast "$host" || exit 1
 difz_verify_product "$rust_release" rust "$host" "$rust_variant" release "$host" || exit 1
 difz_verify_product "$rust_debug" rust "$host" "$rust_variant" debug "$host" || exit 1
+# Keep every prerequisite valid while independently changing only the manifest.
+mkdir -p "$work/stamp/nix-support" || exit 1
+for entry in bin lib include; do ln -s "$zig_product/$entry" "$work/stamp/$entry" || exit 1; done
+for shape in missing malformed mismatched; do
+	case "$shape" in
+		missing) :;;
+		malformed) printf '{' > "$work/stamp/nix-support/build-provenance.json";;
+		mismatched) printf '%s' '{"schema":"build-provenance/v1","available":true,"revision":"r1-abcdef","dirty":false}' > "$work/stamp/nix-support/build-provenance.json";;
+	esac
+	if difz_verify_product "$work/stamp" zig "$host" "$zig_variant" ReleaseFast "$host" > "$work/out" 2> "$work/err"; then
+		printf 'FAIL %s build stamp accepted\n' "$shape" >&2; exit 1
+	fi
+done
 mkdir -p "$work/corrupt/bin" "$work/corrupt/lib" "$work/corrupt/include" || exit 1
 ln -s "$zig_product/lib/libdifz.a" "$work/corrupt/lib/libdifz.a" || exit 1
 ln -s "$zig_product/include/difz.h" "$work/corrupt/include/difz.h" || exit 1
@@ -40,7 +53,8 @@ if difz_verify_product "$rust_release" rust "$host" "$rust_variant" debug "$host
 fi
 # This controlled file-reader adapter isolates the execution-boundary check.
 # Real native headers and corruption were checked above using the actual reader.
-mkdir -p "$work/foreign/bin" "$work/foreign/lib" "$work/foreign/include" "$work/tools" || exit 1
+mkdir -p "$work/foreign/bin" "$work/foreign/lib" "$work/foreign/include" "$work/foreign/nix-support" "$work/tools" || exit 1
+printf '%s' '{"schema":"build-provenance/v1","available":false,"reason":"not-captured"}' > "$work/foreign/nix-support/build-provenance.json"
 printf '#!%s\ntouch "$DIFZ_FOREIGN_EXECUTED"\nexit 65\n' "$BASH" > "$work/foreign/bin/difz.exe"
 printf archive > "$work/foreign/lib/libdifz.a"
 printf header > "$work/foreign/include/difz.h"
