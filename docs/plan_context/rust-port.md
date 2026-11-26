@@ -2084,7 +2084,7 @@ takes 41.29 seconds. Measurement policy and the unbaselined status remain unchan
 Commit `db78e4e` delivered this increment and matched the fetched remote branch.
 Its exact-commit CI passed all twenty-two declared targets in 60 seconds.
 
-The next increment adds no-follow entry inspection through these pinned handles.
+Entry inspection uses these pinned handles.
 Windows file identity must retain the complete 128-bit identifier and volume
 identity, without narrowing to the Unix inode width. Independent native API
 readback must distinguish hardlink aliases from different objects, preserve
@@ -2124,5 +2124,15 @@ for Nix preparation/checks and 164.38 seconds including host admission and
 execution. Both Windows architectures and profiles pass all seven cases with
 no filtering or ignored tests. The existing 79 native Rust platform cases,
 CLI suites, C ABI consumers, cross-implementation acceptance, standalone
-checks and growth controls also pass. File growth takes 24.74 seconds under
-the unchanged measurement policy.
+checks and growth controls also pass. File growth takes 24.74 seconds and
+structure growth takes 40.10 seconds under the unchanged measurement policy.
+
+Commit `1aca8ac` delivered this increment and matched the fetched remote branch.
+Its exact-commit CI passed all twenty-two declared targets in 48 seconds.
+
+Bounded Windows directory enumeration is next. Streams must reopen the pinned
+object with independent kernel enumeration positions, survive parent-path
+replacement, and enforce entry/name-byte limits without lossy Unicode
+conversion. Native directory readback, multiple batches and malformed-record
+controls must establish the behavior under both Wine routes before integration
+with tree capture.
