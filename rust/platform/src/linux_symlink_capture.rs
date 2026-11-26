@@ -2,8 +2,8 @@
 use crate::{
 	Directory, EntryInfo, Error, Identity, Kind,
 	linux_snapshot_metadata::{self, Limits},
-	linux_transport::{optional, owned},
-	xattr,
+	linux_transport::optional,
+	owned, xattr,
 };
 use difz_core::{
 	metadata::{CanonicalMetadata, Family, Metadata, Omit},

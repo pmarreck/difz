@@ -1,5 +1,5 @@
 //! Bounded capture of canonical records preserved in Linux transport attributes.
-use crate::{Error, linux_metadata, xattr};
+use crate::{Error, linux_metadata, owned, xattr};
 use difz_core::metadata::{CanonicalMetadata, Xattr, XattrClass};
 use std::borrow::Cow;
 use xattr::ReadAttributes;
@@ -79,15 +79,6 @@ fn account(remaining: &mut usize, name: usize, value: usize) -> Result<(), Error
 		.and_then(|n| n.checked_sub(value))
 		.ok_or(Error::LimitExceeded)?;
 	Ok(())
-}
-
-pub(crate) fn owned(bytes: &[u8]) -> Result<Vec<u8>, Error> {
-	let mut result = Vec::new();
-	result
-		.try_reserve_exact(bytes.len())
-		.map_err(|_| Error::OutOfMemory)?;
-	result.extend_from_slice(bytes);
-	Ok(result)
 }
 
 #[cfg(test)]

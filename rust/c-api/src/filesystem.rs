@@ -22,7 +22,7 @@ pub unsafe extern "C" fn difz_new_file_publish(
 	guard(|| {
 		#[cfg(target_os = "linux")]
 		{
-			unsafe { linux::publish_file(parent, parent_len, name, name_len, bytes, length) }
+			unsafe { platform::publish_file(parent, parent_len, name, name_len, bytes, length) }
 		}
 		#[cfg(not(target_os = "linux"))]
 		{
@@ -50,9 +50,9 @@ pub unsafe extern "C" fn difz_directory_encode(
 	// Produce publishes the opaque allocation only after the complete operation.
 	unsafe {
 		produce(out, || {
-			#[cfg(target_os = "linux")]
+			#[cfg(any(target_os = "linux", windows))]
 			{
-				linux::encode(
+				platform::encode(
 					source,
 					source_len,
 					target,
@@ -64,7 +64,7 @@ pub unsafe extern "C" fn difz_directory_encode(
 					max_patch_bytes,
 				)
 			}
-			#[cfg(not(target_os = "linux"))]
+			#[cfg(not(any(target_os = "linux", windows)))]
 			{
 				let _ = (
 					source,
@@ -108,7 +108,7 @@ pub unsafe extern "C" fn difz_directory_apply(
 			// Input regions stay borrowed only through this guarded call. The
 			// report is published after successful no-replace filesystem commit.
 			let report = unsafe {
-				linux::apply(
+				platform::apply(
 					source,
 					source_len,
 					patch,
@@ -145,27 +145,39 @@ pub unsafe extern "C" fn difz_directory_apply(
 	})
 }
 
-#[cfg(target_os = "linux")]
-mod linux {
+#[cfg(any(target_os = "linux", windows))]
+mod platform {
 	use super::{Rule, Status};
 	use crate::input;
+	#[cfg(target_os = "linux")]
+	use difz_core::tree_patch::ApplyLimits;
 	use difz_core::{
 		metadata::Omit,
 		path_filter::{Action, Rule as CoreRule},
-		tree_patch::ApplyLimits,
 	};
 	use difz_platform::{
 		Directory,
-		linux_tree_capture::{Limits, Options},
-		linux_tree_patch,
+		tree_capture::{Limits, Options},
+		tree_patch,
 	};
-	use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
+	use std::path::Path;
+	#[cfg(unix)]
+	use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 	unsafe fn path<'a>(data: *const u8, length: usize) -> Result<&'a Path, Status> {
 		let bytes = unsafe { input(data, length)? };
 		if bytes.is_empty() || bytes.contains(&0) {
 			return Err(Status::Argument);
 		}
-		Ok(Path::new(OsStr::from_bytes(bytes)))
+		#[cfg(unix)]
+		{
+			Ok(Path::new(OsStr::from_bytes(bytes)))
+		}
+		#[cfg(windows)]
+		{
+			Ok(Path::new(
+				std::str::from_utf8(bytes).map_err(|_| Status::Argument)?,
+			))
+		}
 	}
 	fn limits(maximum: u64) -> Limits {
 		Limits {
@@ -177,6 +189,7 @@ mod linux {
 			..Limits::default()
 		}
 	}
+	#[cfg(target_os = "linux")]
 	pub unsafe fn publish_file(
 		parent: *const u8,
 		parent_len: usize,
@@ -243,7 +256,7 @@ mod linux {
 		let target = unsafe { path(target, target_len)? };
 		let source = Directory::open(source).map_err(Status::from)?;
 		let target = Directory::open(target).map_err(Status::from)?;
-		let patch = linux_tree_patch::create(
+		let patch = tree_patch::create(
 			&source,
 			&target,
 			Options {
@@ -258,6 +271,7 @@ mod linux {
 		}
 		Ok(patch)
 	}
+	#[cfg(target_os = "linux")]
 	pub unsafe fn apply(
 		source: *const u8,
 		source_len: usize,
@@ -287,7 +301,7 @@ mod linux {
 			},
 			..ApplyLimits::default()
 		};
-		linux_tree_patch::apply_auto(
+		tree_patch::apply_auto(
 			&source,
 			patch,
 			&parent,
@@ -311,6 +325,7 @@ mod linux {
 				Error::WrongKind => Self::InvalidData,
 				Error::OutOfMemory => Self::OutOfMemory,
 				Error::LimitExceeded => Self::Limit,
+				Error::UnsupportedMetadata => Self::Unsupported,
 				Error::Metadata(error) => error.into(),
 				Error::Transport(error) => error.into(),
 				Error::Snapshot(error) => error.into(),

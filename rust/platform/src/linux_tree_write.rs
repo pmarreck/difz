@@ -3,8 +3,8 @@ use crate::{
 	Directory, Error, linux_snapshot_metadata,
 	linux_stage_metadata::restore as ordinary,
 	linux_symlink_restore,
-	linux_tree_capture::{self, Captured, Limits, Options},
 	stage::Stage,
+	tree_capture::{self, Captured, Limits, Options},
 	xattr,
 };
 use difz_core::{
@@ -77,7 +77,7 @@ fn publish_named(
 	};
 	let copied = create(stage.directory(), target)?;
 	let report = restore(stage.directory(), target, &copied, omit, limits.metadata)?;
-	let actual = linux_tree_capture::capture(
+	let actual = tree_capture::capture(
 		stage.directory(),
 		Options {
 			omit,
@@ -481,7 +481,7 @@ mod tests {
 		let fixture = Fixture::new();
 		let root = Directory::open(&fixture.0).unwrap();
 		let hidden = root.create_directory(b"hidden").unwrap();
-		let source = linux_tree_capture::capture(
+		let source = tree_capture::capture(
 			&root,
 			Options {
 				omit: all_omitted(),
@@ -572,7 +572,7 @@ mod tests {
 			fs::read(fixture.0.join("output/a/data")).unwrap(),
 			b"binary\0\xff"
 		);
-		let actual = linux_tree_capture::capture(
+		let actual = tree_capture::capture(
 			&Directory::open(&fixture.0.join("output")).unwrap(),
 			Options::default(),
 		)
@@ -638,7 +638,7 @@ mod tests {
 		.unwrap();
 		store_parent(&child, Some(vec![record]), &mut RestoreReport::default()).unwrap();
 		child.set_mode(Mode::from_bits(0o500).unwrap()).unwrap();
-		let source = linux_tree_capture::capture(&source_dir, Options::default()).unwrap();
+		let source = tree_capture::capture(&source_dir, Options::default()).unwrap();
 		assert_eq!(source.snapshot().hash(), native_hash(&input));
 		let parent = Directory::open(&fixture.0).unwrap();
 		let report = publish(

@@ -45,6 +45,9 @@ enum RelativeOpen<'a> {
 	CurrentDirectory,
 }
 impl Directory {
+	pub(crate) fn clone_file(&self) -> Result<File, Error> {
+		Ok(self.file.try_clone()?)
+	}
 	/// Pin a directory without following its final component. As on Unix, the
 	/// caller selects the root path; subsequent children use this opened root.
 	pub fn open(path: &Path) -> Result<Self, Error> {
@@ -190,3 +193,6 @@ fn check_kind(file: &File, kind: Child) -> Result<(), Error> {
 #[cfg(test)]
 #[path = "windows_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "windows_tree_tests.rs"]
+mod tree_tests;

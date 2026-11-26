@@ -1,18 +1,21 @@
-//! Bounded, descriptor-relative Linux tree capture with native oracle acceptance.
-use crate::{
-	Directory, EntryInfo, Error, Identity, Kind, Names, linux_snapshot_metadata as metadata,
-	linux_symlink_capture::ParentTransport, linux_transport::owned, read_limited,
-};
+//! Bounded tree capture through pinned, no-follow filesystem capabilities.
+use crate::{Directory, EntryInfo, Error, Identity, Kind, Names, owned, read_limited};
+#[cfg(target_os = "linux")]
+use crate::{linux_snapshot_metadata as metadata, linux_symlink_capture::ParentTransport};
+#[cfg(windows)]
+use crate::{windows_snapshot_metadata as metadata, windows_snapshot_metadata::ParentTransport};
 use difz_core::{
 	directory::{self, CanonicalSnapshot, Content, Entry, Snapshot},
 	metadata::{CanonicalMetadata, Omit},
 	path_filter::{Filter, Rule},
 };
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::MetadataExt;
 use std::{
 	borrow::Cow,
 	collections::{HashMap, HashSet},
+	fs::File,
 	io,
-	os::unix::fs::MetadataExt,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -112,11 +115,8 @@ struct Row {
 /// changes, but do not promise an atomic snapshot of concurrent writers.
 pub fn capture(root: &Directory, options: Options<'_>) -> Result<Captured, Error> {
 	let filter = Filter::compile(options.rules).map_err(Error::Filter)?;
-	let (root_info, root_metadata) = metadata::capture(
-		root.file.try_clone()?,
-		options.omit,
-		options.limits.metadata,
-	)?;
+	let (root_info, root_metadata) =
+		metadata::capture(root.clone_file()?, options.omit, options.limits.metadata)?;
 	let mut remaining = options
 		.limits
 		.bytes
@@ -148,11 +148,8 @@ pub fn capture(root: &Directory, options: Options<'_>) -> Result<Captured, Error
 		let (content, attributes, physical) = match named.kind {
 			Kind::Directory => {
 				let child = parent.open_directory(&name)?;
-				let (info, attributes) = metadata::capture(
-					child.file.try_clone()?,
-					options.omit,
-					options.limits.metadata,
-				)?;
+				let (info, attributes) =
+					metadata::capture(child.clone_file()?, options.omit, options.limits.metadata)?;
 				if info != named {
 					return Err(changed());
 				}
@@ -168,7 +165,7 @@ pub fn capture(root: &Directory, options: Options<'_>) -> Result<Captured, Error
 				if EntryInfo::for_file(&file)? != named {
 					return Err(changed());
 				}
-				let links = file.metadata()?.nlink();
+				let linked = hardlinked(&file, options.omit)?;
 				let maximum = usize::try_from(remaining).unwrap_or(usize::MAX);
 				let bytes = read_limited(&mut file, maximum)?;
 				let (info, attributes) =
@@ -182,11 +179,18 @@ pub fn capture(root: &Directory, options: Options<'_>) -> Result<Captured, Error
 						bytes: Cow::Owned(bytes),
 					},
 					attributes,
-					(links > 1).then_some(info.identity),
+					linked.then_some(info.identity),
 				)
 			}
 			Kind::Symlink => {
-				let target = parent.read_symlink(&name, directory::MAX_PATH_BYTES)?;
+				let mut target = parent.read_symlink(&name, directory::MAX_PATH_BYTES)?;
+				if cfg!(windows) {
+					for byte in &mut target {
+						if *byte == b'\\' {
+							*byte = b'/';
+						}
+					}
+				}
 				let (info, attributes) = current.transport.capture(parent, &name)?;
 				if info != named || parent.inspect(&name)? != named {
 					return Err(changed());
@@ -359,7 +363,21 @@ fn changed() -> Error {
 	io::Error::new(io::ErrorKind::InvalidData, "tree changed during capture").into()
 }
 
-#[cfg(test)]
+#[cfg(target_os = "linux")]
+fn hardlinked(file: &File, _omit: Omit) -> Result<bool, Error> {
+	Ok(file.metadata()?.nlink() > 1)
+}
+#[cfg(windows)]
+fn hardlinked(_file: &File, omit: Omit) -> Result<bool, Error> {
+	// Windows metadata capture currently requires every family omitted. Keep
+	// physical grouping unavailable until its own native adapter is qualified.
+	if !omit.contains(difz_core::metadata::Family::Hardlink) {
+		return Err(Error::UnsupportedMetadata);
+	}
+	Ok(false)
+}
+
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
 	use super::*;
 	use crate::tests::Fixture;

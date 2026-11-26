@@ -26,13 +26,12 @@ pub struct FileInfo {
 enum Status {
 	InvalidData = -1,
 	WrongSource = -2,
-	#[cfg(target_os = "linux")]
+	#[cfg(any(target_os = "linux", windows))]
 	Io = -3,
 	Limit = -4,
 	OutOfMemory = -5,
 	Argument = -6,
 	Panic = -7,
-	#[cfg(not(target_os = "linux"))]
 	Unsupported = -8,
 }
 impl From<difz_core::file::Error> for Status {

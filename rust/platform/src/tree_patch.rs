@@ -1,12 +1,15 @@
-//! Complete Linux directory patch operations over pinned directory handles.
+//! Directory patch creation; qualified platform writers provide publication.
 use crate::{
 	Directory, Error,
-	linux_tree_capture::{self, Limits, Options},
-	linux_tree_write,
+	tree_capture::{self, Options},
 };
+#[cfg(target_os = "linux")]
+use crate::{linux_tree_write, tree_capture::Limits};
+use difz_core::tree_patch::{self, CreateOptions};
+#[cfg(target_os = "linux")]
 use difz_core::{
 	metadata::RestoreReport,
-	tree_patch::{self, ApplyLimits, CreateOptions, ParsedPatch},
+	tree_patch::{ApplyLimits, ParsedPatch},
 };
 
 /// Both trees are captured with the same selection and omissions. The returned
@@ -16,8 +19,8 @@ pub fn create(
 	target: &Directory,
 	options: Options<'_>,
 ) -> Result<Vec<u8>, Error> {
-	let source = linux_tree_capture::capture(source, options)?;
-	let target = linux_tree_capture::capture(target, options)?;
+	let source = tree_capture::capture(source, options)?;
+	let target = tree_capture::capture(target, options)?;
 	tree_patch::create(
 		source.snapshot(),
 		target.snapshot(),
@@ -32,6 +35,7 @@ pub fn create(
 /// Validate patch integrity and semantics before capturing input. Its stored
 /// rules and omissions select the source; callers cannot override those when
 /// applying. No stage is created until source and target identities validate.
+#[cfg(target_os = "linux")]
 pub fn apply(
 	source: &Directory,
 	patch: &[u8],
@@ -53,6 +57,7 @@ pub fn apply(
 }
 
 /// Apply using a library-owned exclusive staging name.
+#[cfg(target_os = "linux")]
 pub fn apply_auto(
 	source: &Directory,
 	patch: &[u8],
@@ -63,6 +68,7 @@ pub fn apply_auto(
 ) -> Result<RestoreReport, Error> {
 	apply_named(source, patch, parent, None, output, limits, apply_limits)
 }
+#[cfg(target_os = "linux")]
 fn apply_named(
 	source: &Directory,
 	patch: &[u8],
@@ -74,7 +80,7 @@ fn apply_named(
 ) -> Result<RestoreReport, Error> {
 	let decoded = ParsedPatch::decode(patch, apply_limits.patch).map_err(Error::TreePatch)?;
 	let omit = decoded.header().omit;
-	let source = linux_tree_capture::capture(
+	let source = tree_capture::capture(
 		source,
 		Options {
 			omit,
@@ -95,7 +101,7 @@ fn apply_named(
 	}
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
 	use super::*;
 	use crate::tests::Fixture;
@@ -183,7 +189,7 @@ mod tests {
 			.bits(),
 			0
 		);
-		let expected = linux_tree_capture::capture(
+		let expected = tree_capture::capture(
 			&target,
 			Options {
 				omit,
@@ -192,7 +198,7 @@ mod tests {
 		)
 		.unwrap();
 		for output in [&native_output, &fixture.0.join("rust-output")] {
-			let actual = linux_tree_capture::capture(
+			let actual = tree_capture::capture(
 				&Directory::open(output).unwrap(),
 				Options {
 					omit,

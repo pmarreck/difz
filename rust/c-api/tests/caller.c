@@ -7,6 +7,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
+#elif defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #endif
 
 static const uint8_t source[] = {0, 255, 'o', 'l', 'd', 0};
@@ -58,11 +61,13 @@ static void verify(const uint8_t *patch, size_t len) {
     assert(memcmp(difz_buffer_data(result), target, sizeof target) == 0);
     difz_buffer_free(result);
 }
-#ifdef __linux__
+#if defined(__linux__) || defined(_WIN32)
 static void joined(char *path, size_t capacity, const char *root, const char *name) {
     int count = snprintf(path, capacity, "%s/%s", root, name);
     assert(count > 0 && (size_t)count < capacity);
 }
+#endif
+#ifdef __linux__
 static void verify_tree(const char *root, const char *name, int selected) {
     char tree[4096], path[4096]; joined(tree, sizeof tree, root, name);
     joined(path, sizeof path, tree, "data");
@@ -135,6 +140,40 @@ static void directory_cases(const char *root) {
     save(from, "data", source, sizeof source);
     difz_buffer_free(patch);
     puts("PASS packaged Rust filesystem ABI: binary trees, selection, limits, wrong source, source containment and occupied output");
+}
+#elif defined(_WIN32)
+static void directory_cases(const char *root) {
+    char from[4096], to[4096];
+    joined(from, sizeof from, root, "tree-source");
+    joined(to, sizeof to, root, "tree-target");
+    WCHAR from_wide[4096], to_wide[4096];
+    assert(MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, from, -1, from_wide, 4096) > 0);
+    assert(MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, to, -1, to_wide, 4096) > 0);
+    assert(CreateDirectoryW(from_wide, NULL) && CreateDirectoryW(to_wide, NULL));
+    save(from, "data", source, sizeof source);
+    save(to, "data", target, sizeof target);
+    difz_buffer *patch = NULL;
+    assert(difz_directory_encode((const uint8_t *)from, strlen(from), (const uint8_t *)to, strlen(to), NULL, 0, 63, 0, 0, &patch) == DIFZ_OK);
+    assert(difz_buffer_len(patch) > 120);
+    assert(memcmp(difz_buffer_data(patch), "DIFZTREE\2\0", 10) == 0);
+    save(root, "tree.patch", difz_buffer_data(patch), difz_buffer_len(patch));
+    difz_buffer_free(patch);
+    difz_buffer *sentinel = (difz_buffer *)(uintptr_t)1, *out = sentinel;
+    assert(difz_directory_encode(NULL, 0, NULL, 0, NULL, 0, 0, 0, 0, &out) == DIFZ_ARGUMENT && out == sentinel);
+    const uint8_t invalid_path[] = {255};
+    assert(difz_directory_encode(invalid_path, sizeof invalid_path, (const uint8_t *)to, strlen(to), NULL, 0, 63, 0, 0, &out) == DIFZ_ARGUMENT && out == sentinel);
+    assert(difz_directory_encode((const uint8_t *)from, strlen(from) + 1, (const uint8_t *)to, strlen(to), NULL, 0, 63, 0, 0, &out) == DIFZ_ARGUMENT && out == sentinel);
+    assert(difz_directory_encode((const uint8_t *)from, strlen(from), (const uint8_t *)to, strlen(to), NULL, 1, 63, 0, 0, &out) == DIFZ_ARGUMENT && out == sentinel);
+    assert(difz_directory_encode((const uint8_t *)from, strlen(from), (const uint8_t *)to, strlen(to), NULL, 0, 64, 0, 0, &out) == DIFZ_ARGUMENT && out == sentinel);
+    assert(difz_directory_encode((const uint8_t *)from, strlen(from), (const uint8_t *)to, strlen(to), NULL, 0, 63, 1, 0, &out) == DIFZ_LIMIT && out == sentinel);
+    assert(difz_directory_encode((const uint8_t *)from, strlen(from), (const uint8_t *)to, strlen(to), NULL, 0, 63, 0, 1, &out) == DIFZ_LIMIT && out == sentinel);
+    assert(difz_directory_encode((const uint8_t *)from, strlen(from), (const uint8_t *)to, strlen(to), NULL, 0, 59, 0, 0, &out) == DIFZ_UNSUPPORTED && out == sentinel);
+    assert(difz_directory_encode(NULL, 1, NULL, 0, NULL, 0, 63, 0, 0, NULL) == DIFZ_ARGUMENT);
+    assert(difz_directory_encode((const uint8_t *)from, strlen(from), (const uint8_t *)to, strlen(to), NULL, 4097, 63, 0, 0, &out) == DIFZ_LIMIT && out == sentinel);
+    uint32_t report = UINT32_MAX;
+    assert(difz_new_file_publish(NULL, 0, NULL, 0, NULL, 0) == DIFZ_UNSUPPORTED);
+    assert(difz_directory_apply(NULL, 0, NULL, 0, NULL, 0, NULL, 0, 0, 0, &report) == DIFZ_UNSUPPORTED && report == UINT32_MAX);
+    puts("PASS packaged Windows metadata-free directory encoder: binary files, ownership, limits, invalid regions and explicit metadata scope");
 }
 #else
 static void directory_cases(const char *root) {

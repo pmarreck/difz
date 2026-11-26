@@ -11,6 +11,14 @@ use windows_sys::Win32::{
 	System::Threading::{GetCurrentProcess, GetProcessHandleCount},
 };
 static NEXT: AtomicU64 = AtomicU64::new(0);
+pub(super) fn expected_cli_error(message: &str) -> String {
+	let banner = if cfg!(debug_assertions) {
+		"DEBUG BUILD\n"
+	} else {
+		""
+	};
+	format!("{banner}difz: {message}")
+}
 pub(super) struct Fixture(pub(super) PathBuf);
 impl Fixture {
 	pub(super) fn new() -> Self {

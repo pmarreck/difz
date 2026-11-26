@@ -71,6 +71,7 @@ let
 	});
 	release = rustProduct "release" (frontend false releaseLibrary) releaseLibrary;
 	debug = rustProduct "debug" (frontend true debugLibrary) debugLibrary;
+	productsByProfile = { inherit release debug; };
 	products = [ release debug ];
 	abiConsumers = map (lib: qualifyTarget (import ../rust/c-api-consumer.nix {
 		pkgs = targetPkgs; library = lib; oracle = builtins.head oracles;
@@ -107,7 +108,7 @@ let
 		expectedTests = 2;
 		receipt = "PASS real Windows Rust ownership and panic boundary";
 	};
-	platformTestCount = 14;
+	platformTestCount = 16;
 	platformRunner = profile: pkgs.writeShellScript "difz-windows-platform-${arch}-${profile}-tests" ''
 		set -uo pipefail
 		# Nix deliberately denies xattr setters. Wine stores reparse points in
@@ -116,6 +117,7 @@ let
 		scratch=$(mktemp -d "''${TMPDIR:?}/difz-windows-${arch}-${profile}.XXXXXXXX") || exit 1
 		export TMPDIR="$scratch"
 		export DIFZ_WINDOWS_ORACLE="Z:${originals.${profile}}/bin/difz.exe"
+		export DIFZ_WINDOWS_RUST="Z:${productsByProfile.${profile}}/bin/difz.exe"
 		probe=$(mktemp "$TMPDIR/xattr-probe.XXXXXXXX") || exit 1
 		${pkgs.attr}/bin/setfattr -n user.difz-wine-probe -v retained "$probe" || exit 1
 		test "$(${pkgs.attr}/bin/getfattr --only-values -n user.difz-wine-probe "$probe")" = retained || exit 1
@@ -180,12 +182,51 @@ let
 		root = ../.;
 		fileset = pkgs.lib.fileset.unions [ ../scripts/build-selection.bash ../scripts/verify-build-output.bash ];
 	};
+	runtimeDlls = [
+		"kernel32.dll" "msvcrt.dll" "ntdll.dll" "userenv.dll" "ws2_32.dll"
+		"api-ms-win-core-synch-l1-2-0.dll" "bcryptprimitives.dll"
+		"api-ms-win-crt-private-l1-1-0.dll" "api-ms-win-crt-runtime-l1-1-0.dll"
+		"api-ms-win-crt-stdio-l1-1-0.dll" "api-ms-win-crt-locale-l1-1-0.dll"
+		"api-ms-win-crt-heap-l1-1-0.dll" "api-ms-win-crt-string-l1-1-0.dll"
+		"api-ms-win-crt-math-l1-1-0.dll" "api-ms-win-crt-environment-l1-1-0.dll"
+	];
 in assert builtins.elem arch [ "amd64" "arm64" ]; {
 	packages = { "windows-${arch}-rust-release" = release; "windows-${arch}-rust-debug" = debug; };
 	check = pkgs.runCommand "difz-windows-rust-${arch}-check" {
 		nativeBuildInputs = with pkgs; [ bash coreutils gnugrep gnused binutils llvmPackages.llvm file jq ];
 		passthru = { inherit products abiConsumers boundaryTests platformTests sdk; inherit (fileCheck) source execution; };
 	} ''
+		verify_imports() {
+			local LC_ALL=C dll= count=0
+			while IFS= read -r dll || [[ -n "$dll" ]]; do
+				case "''${dll,,}" in
+					${pkgs.lib.concatStringsSep "|" runtimeDlls}) :;;
+					*) printf 'FAIL unexpected Windows Rust runtime DLL: %s\n' "$dll" >&2; return 1;;
+				esac
+				count=$((count + 1))
+			done
+			[[ "$count" -gt 0 ]]
+		}
+		# Windows compares module names without case distinctions. Keep the same
+		# finite DLL policy and prove normalization admits no paths or suffixes.
+		for trusted in ${pkgs.lib.escapeShellArgs runtimeDlls}; do
+			for spelling in "$trusted" "''${trusted^^}" "''${trusted^}"; do
+				printf '%s\n' "$spelling" | verify_imports || exit 1
+			done
+			for bad in "../$trusted" "C:\\Windows\\System32\\$trusted" "$trusted.evil" "$trusted " " $trusted"; do
+				if printf '%s\n' "$bad" | verify_imports > "$TMPDIR/dll-control.out" 2>&1; then
+					printf 'FAIL DLL policy accepted a path, suffix or whitespace\n' >&2; exit 1
+				fi
+			done
+		done
+		printf '%s' kernel32.dll | verify_imports || exit 1
+		if printf 'kernel32.dll\nunknown.dll' | verify_imports > "$TMPDIR/dll-control.out" 2>&1; then
+			printf 'FAIL DLL policy ignored an unterminated unknown final name\n' >&2; exit 1
+		fi
+		if verify_imports < /dev/null || printf '%s' unknown.dll | verify_imports > "$TMPDIR/dll-control.out" 2>&1; then
+			printf 'FAIL empty or unknown DLL list accepted\n' >&2; exit 1
+		fi
+		printf 'PASS Windows DLL policy: case variants and closed-name controls\n'
 		test -f ${fileCheck}
 		for receipt in ${pkgs.lib.escapeShellArgs (map toString boundaryTests)}; do
 			grep -Fx 'PASS real Windows Rust ownership and panic boundary' "$receipt"
@@ -214,13 +255,7 @@ in assert builtins.elem arch [ "amd64" "arm64" ]; {
 			fi
 			llvm-readobj --coff-imports "$binary" | sed -n 's/^[[:space:]]*Name: //p' > imports
 			test -s imports
-			while IFS= read -r dll; do
-				case "$dll" in
-					KERNEL32.dll|msvcrt.dll|ntdll.dll|USERENV.dll|WS2_32.dll|api-ms-win-core-synch-l1-2-0.dll|bcryptprimitives.dll) :;;
-					api-ms-win-crt-private-l1-1-0.dll|api-ms-win-crt-runtime-l1-1-0.dll|api-ms-win-crt-stdio-l1-1-0.dll|api-ms-win-crt-locale-l1-1-0.dll|api-ms-win-crt-heap-l1-1-0.dll|api-ms-win-crt-string-l1-1-0.dll|api-ms-win-crt-math-l1-1-0.dll|api-ms-win-crt-environment-l1-1-0.dll) :;;
-					*) printf 'FAIL unexpected Windows Rust runtime DLL: %s\n' "$dll" >&2; exit 1;;
-				esac
-			done < imports
+			verify_imports < imports || exit 1
 		done
 		printf 'PASS Windows Rust optimized/Debug CLI, external C ABI, shared file acceptance and system-only imports\n'
 		touch "$out"

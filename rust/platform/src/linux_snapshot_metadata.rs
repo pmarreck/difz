@@ -3,21 +3,7 @@ use crate::{EntryInfo, Error, Kind, linux_capture, linux_metadata, linux_transpo
 use difz_core::metadata::{CanonicalMetadata, Family, Metadata, Omit};
 use std::{borrow::Cow, fs::File, io};
 
-#[derive(Clone, Copy, Debug)]
-pub struct Limits {
-	pub attributes: usize,
-	pub metadata_bytes: usize,
-	pub extents: usize,
-}
-impl Default for Limits {
-	fn default() -> Self {
-		Self {
-			attributes: 65_536,
-			metadata_bytes: 64 << 20,
-			extents: 1_000_000,
-		}
-	}
-}
+pub use crate::metadata_limits::Limits;
 
 /// Consume an opened regular file or directory. Omission precedes all family
 /// reads. Serialized metadata and native buffers each obey the byte ceiling.

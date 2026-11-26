@@ -1,5 +1,8 @@
 use super::*;
-use crate::{Kind, windows::tests::Fixture};
+use crate::{
+	Kind,
+	windows::tests::{Fixture, expected_cli_error},
+};
 use std::{
 	fs,
 	os::windows::fs::{OpenOptionsExt, symlink_file},
@@ -464,11 +467,7 @@ fn original_directory_round_trips_use_portable_link_targets_and_reject_escapes()
 		String::from_utf8_lossy(&result.stderr)
 			.replace("\r\n", "\n")
 			.trim(),
-		if cfg!(debug_assertions) {
-			"DEBUG BUILD\ndifz: directory patch failed"
-		} else {
-			"difz: directory patch failed"
-		}
+		expected_cli_error("directory patch failed")
 	);
 	assert!(!unsupported.exists());
 	assert_eq!(fs::read_dir(&empty).unwrap().count(), 0);

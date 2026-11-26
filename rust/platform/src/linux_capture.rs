@@ -1,9 +1,5 @@
 //! Linux ACL and portable metadata transport capture through opened objects.
-use crate::{
-	Error,
-	linux_transport::{optional, owned},
-	xattr::ReadAttributes,
-};
+use crate::{Error, linux_transport::optional, owned, xattr::ReadAttributes};
 use difz_core::{
 	linux_acl::{LinuxAcl, PosixAcl},
 	metadata::{AclOrigin, CanonicalMetadata, Metadata, NativeAcl},

@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 difz-core = { path = ".." }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", windows))'.dependencies]
 difz-platform = { path = "../platform" }
 
 [lib]

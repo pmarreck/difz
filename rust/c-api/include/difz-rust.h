@@ -6,8 +6,10 @@
 extern "C" {
 #endif
 
-/* Experimental Rust boundary. Directory filesystem operations currently support
- * Linux; other targets return DIFZ_UNSUPPORTED until their adapters qualify.
+/* Experimental Rust boundary. Linux supports directory capture and apply.
+ * Windows directory encoding requires every metadata family omitted; directory
+ * apply and atomic file publication remain unsupported there. Windows paths
+ * must be UTF-8. Other targets return DIFZ_UNSUPPORTED until adapters qualify.
  * Inputs are borrowed pointer/length pairs; NULL is allowed only at length 0.
  * Other pointers must be aligned, valid and live for the complete call.
  * Out parameters are unchanged on error. Rust panics are caught; native
@@ -66,7 +68,7 @@ int32_t difz_directory_apply(const uint8_t *source, size_t source_len,
 /* Atomically publish a new regular child, retaining private file permissions.
  * Data is fully written and synced before no-replace rename; every preexisting
  * destination kind is preserved. Inputs are borrowed and no buffer is returned.
- * Current native support is Linux, matching the directory adapters above. */
+ * Current native support for this publication operation is Linux. */
 int32_t difz_new_file_publish(const uint8_t *parent, size_t parent_len,
     const uint8_t *name, size_t name_len, const uint8_t *bytes, size_t length);
 

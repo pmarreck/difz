@@ -2294,3 +2294,70 @@ admission. Nix prepares the filesystem executables, and the full host phase
 runs them. This does not establish native Windows Job Object enforcement or
 NTFS metadata behavior. Those qualification items remain open, as do the Rust
 Windows directory capture, encode and publication operations.
+
+### Shared Rust Windows tree capture and encoding, 2026-11-26
+
+Tree traversal and patch creation are now shared across Linux and Windows.
+Opened directory capabilities provide private fallible handle duplication for
+metadata queries. Platform metadata limits have one authoritative definition;
+the Linux adapter retains its existing native and transport behavior. Windows
+capture requires every declared metadata family omitted, bounds the empty
+canonical records, and verifies parent and object identities. Each requested
+family returns an explicit unsupported status. Native link targets keep their
+low-level representation; capture converts Windows separators before portable
+validation.
+
+The public Windows C ABI now accepts metadata-free directory encoding with
+UTF-8 path regions. Returned patch buffers retain the existing ownership and
+error-output contract. CLI encoding can stream to stdout. Atomic patch-file
+publication and directory application remain unsupported on Windows, and no
+macOS filesystem scope was enabled by this change.
+
+The new acceptance test first reproduced the actual Rust CLI's unsupported
+result. It now compares complete patch bytes with the qualified original for
+64 KiB binary-prefix edits, Unicode names, native multi-component links, empty
+directories and ordered path selection. A separate capture case checks entry,
+logical-byte and metadata ceilings, pinned roots after rename/replacement,
+traversed-directory identity and every individual requested metadata family.
+The installed Windows C consumer independently exercises binary-tree encoding,
+buffer ownership, invalid regions, omission masks, limits and untouched error
+outputs. Linux installed-consumer checks remain required and pass in the
+focused check. Sixteen Windows platform cases are required for each profile and
+architecture; the AMD64 release focused run passes all sixteen and the real
+zero-selection control. The complete matrix qualification below passes.
+
+The first full preparation run passed the updated C consumers but rejected the
+new bindings' lowercase `kernel32.dll` import. The gate now applies ASCII case
+normalization to the same fifteen explicit bare DLL names. The prior and new
+name sets were independently compared after normalization and are equal.
+Every allowed name is tested in lowercase, uppercase and initial-capital form;
+paths, suffixes, whitespace, empty lists and unknown final records must fail.
+The same function checks actual executable import lists. Windows compares
+mapped module names without case distinctions. See Microsoft's
+[GetModuleHandleW contract](https://learn.microsoft.com/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandlew).
+
+The ARM64 import check also identified the C fixture's `_mkdir` dependency on
+an additional CRT filesystem module. Import inspection confirmed that module
+appeared only in the two C consumers, not either Rust product. The fixture now
+uses `CreateDirectoryW` with checked UTF-8 conversion through the existing
+system imports. Both Windows Nix checks pass with the original fifteen-name
+policy, including case, path, suffix, whitespace and unterminated-record controls.
+
+
+The complete `./test` passes in 187.31 seconds with zero failures: 19.57 seconds
+for Nix preparation and checks, and 167.74 seconds including host admission
+and execution. All sixty-four Windows platform cases pass across both
+architectures and profiles, with required-case receipts and real zero-selection
+controls. The installed C consumers, Linux metadata cases, both CLI suites,
+cross-apply and standalone checks pass. Rust formatting also passes.
+
+An earlier complete run passed the functional matrix but failed the unchanged
+growth gate because sample variation exceeded policy during substantial host
+contention. Its failed measurements are retained. After the linker burst ended,
+a separately recorded run used the supported explicit CPU-affinity setting,
+with a pool fixed before measurement. All four file-growth and sixteen
+structure-growth cases pass on their first attempt, with complete correctness
+checks, unchanged workloads, limits and retry policy. File growth takes 26.31
+seconds and structure growth takes 39.06 seconds. These are declared-growth
+checks with no accepted historical baseline; they establish neither a historical
+speed improvement nor a new approved measurement epoch.

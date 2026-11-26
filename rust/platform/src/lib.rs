@@ -21,6 +21,7 @@ pub enum Error {
 	WrongKind,
 	OutOfMemory,
 	LimitExceeded,
+	UnsupportedMetadata,
 	Metadata(difz_core::metadata::Error),
 	Transport(difz_core::symlink_transport::Error),
 	Snapshot(difz_core::directory::Error),
@@ -32,6 +33,16 @@ impl From<io::Error> for Error {
 	fn from(error: io::Error) -> Self {
 		Self::Io(error)
 	}
+}
+
+#[cfg(any(target_os = "linux", windows))]
+pub(crate) fn owned(bytes: &[u8]) -> Result<Vec<u8>, Error> {
+	let mut result = Vec::new();
+	result
+		.try_reserve_exact(bytes.len())
+		.map_err(|_| Error::OutOfMemory)?;
+	result.extend_from_slice(bytes);
+	Ok(result)
 }
 
 #[derive(Debug)]
@@ -46,6 +57,10 @@ enum Child {
 }
 #[cfg(unix)]
 impl Directory {
+	#[cfg(target_os = "linux")]
+	pub(crate) fn clone_file(&self) -> Result<File, Error> {
+		Ok(self.file.try_clone()?)
+	}
 	/// Open a root without following its final component. The returned handle
 	/// pins directory identity independently of subsequent path renames.
 	pub fn open(path: &Path) -> Result<Self, Error> {
@@ -188,11 +203,9 @@ pub mod linux_times;
 #[cfg(target_os = "linux")]
 pub mod linux_transport;
 #[cfg(target_os = "linux")]
-pub mod linux_tree_capture;
-#[cfg(target_os = "linux")]
-pub mod linux_tree_patch;
-#[cfg(target_os = "linux")]
 pub mod linux_tree_write;
+#[cfg(any(target_os = "linux", windows))]
+pub mod metadata_limits;
 #[cfg(all(test, unix))]
 mod names_tests;
 #[cfg(unix)]
@@ -201,8 +214,14 @@ pub mod new_file;
 pub mod sparse;
 #[cfg(unix)]
 pub mod stage;
+#[cfg(any(target_os = "linux", windows))]
+pub mod tree_capture;
+#[cfg(any(target_os = "linux", windows))]
+pub mod tree_patch;
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+mod windows_snapshot_metadata;
 #[cfg(unix)]
 pub mod write;
 #[cfg(windows)]
