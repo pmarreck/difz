@@ -107,7 +107,7 @@ let
 		expectedTests = 2;
 		receipt = "PASS real Windows Rust ownership and panic boundary";
 	};
-	platformTestCount = 7;
+	platformTestCount = 10;
 	platformRunner = profile: pkgs.writeShellScript "difz-windows-platform-${arch}-${profile}-tests" ''
 		set -uo pipefail
 		# Nix deliberately denies xattr setters. Wine stores reparse points in

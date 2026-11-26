@@ -206,6 +206,6 @@ mod windows;
 #[cfg(unix)]
 pub mod write;
 #[cfg(windows)]
-pub use windows::Directory;
+pub use windows::{Directory, Names};
 #[cfg(target_os = "linux")]
 pub mod xattr;

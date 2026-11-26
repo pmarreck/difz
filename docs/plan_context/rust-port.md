@@ -2136,3 +2136,38 @@ replacement, and enforce entry/name-byte limits without lossy Unicode
 conversion. Native directory readback, multiple batches and malformed-record
 controls must establish the behavior under both Wine routes before integration
 with tree capture.
+
+### Windows bounded directory streams, 2026-11-26
+
+The Windows adapter now exposes owned directory streams. An empty relative NT
+name with `FILE_DIRECTORY_FILE` reopens the actual pinned directory, followed
+by kind and full-identity verification. Child-name validation remains a separate
+exhaustive operation, so public child opens still reject empty names. The
+stream never reconstructs an absolute path or duplicates a shared enumeration
+position. A required rename/replacement case first reproduced Wine's
+`ReOpenFile` rejection: its wrapper always requests `FILE_NON_DIRECTORY_FILE`.
+The directory-specific NT reopen passes the same unmodified controls.
+
+`NtQueryDirectoryFile` fills a fixed 64 KiB aligned, initialized owned batch.
+Only the reported byte extent is parsed. Record offsets must progress on
+four-byte boundaries, headers and UTF-16 name extents must fit their records,
+and decoding rejects unpaired surrogates and embedded NULs. Output allocation
+is fallible and bounded; limits count entries and UTF-8 bytes. Dot entries are
+excluded, and end-of-stream or any failure permanently finishes that iterator.
+
+Three additional cases require forty Windows tests across both architectures
+and profiles. Six hundred long names force multiple NT batches and are compared
+with the standard library's independently implemented native reader. Other
+controls interleave streams after path replacement, verify exact emoji byte
+limits, preserve zero-limit empty directories, reject the first excess entry,
+and query native handle counts and inheritance flags. Pure malformed-record
+controls cover truncation, overflow, invalid offsets, name extents crossing
+records and invalid UTF-16. These streams are a prerequisite for tree capture;
+the public Windows directory patch and publication operations remain open.
+
+The complete `./test` passes in 283.01 seconds with zero failures: 121.77 seconds
+for Nix preparation/checks and 161.24 seconds including host admission and
+execution. Every architecture/profile passes all ten Windows cases, with the
+same mandatory real zero-selection control. Existing native metadata, CLI,
+C ABI, cross-apply, standalone and growth checks also pass. File growth takes
+24.87 seconds under the unchanged measurement policy.
