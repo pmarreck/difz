@@ -2028,3 +2028,14 @@ contracts now require all twenty declared implementation/platform/profile
 combinations to have builders. Selection acceptance separately checks the real
 complete matrix and a disposable matrix with a deliberately unavailable ARM64
 builder, preserving failure coverage as product availability changes.
+
+Commit `ec2c07d` delivered this increment and matched the fetched remote branch.
+Its exact-commit CI passed all twenty-two declared targets in 55 seconds.
+
+The next Windows filesystem increment establishes pinned directory handles and
+bounded, no-follow child file reads. Returned handles must be inspected for
+reparse points and object kind, and relative child access must continue using
+the opened parent after its path is renamed. Independent Windows API readback
+and disposable symlink/replacement controls run under both established Wine
+routes. This is a prerequisite for the directory/metadata port, not a claim that
+those currently unsupported public operations have been completed.
