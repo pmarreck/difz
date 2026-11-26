@@ -2281,3 +2281,16 @@ required for each profile, including the original Debug banner. Existing native
 metadata, both CLI suites, C ABI, cross-apply, standalone and growth checks pass.
 Rustfmt and Zig formatting checks also pass. The unchanged metadata and native
 Windows/NTFS qualification limitations remain in force.
+
+Commit `e4881d5` delivered the directory-oracle increment and matched the
+fetched remote branch. Its exact-commit CI passed all twenty-two declared
+targets in 46 seconds. File growth took 25.61 seconds and structure growth took
+41.19 seconds under the unchanged policy.
+
+The Windows execution-route prerequisite is complete for the approved emulated
+scope: both architectures and profiles run in private Wine state, inside the
+verified Linux filesystem/process boundary and existing aggregate memory/time
+admission. Nix prepares the filesystem executables, and the full host phase
+runs them. This does not establish native Windows Job Object enforcement or
+NTFS metadata behavior. Those qualification items remain open, as do the Rust
+Windows directory capture, encode and publication operations.
