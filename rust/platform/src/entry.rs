@@ -1,34 +1,9 @@
-use super::{Directory, Error, basename};
+use super::{Directory, EntryInfo, Error, Identity, Kind, basename};
 use difz_core::directory::Mode;
 use difz_core::metadata::Time;
 use std::{ffi::CStr, fs::File};
 use std::{io, mem::MaybeUninit, os::fd::AsRawFd};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Kind {
-	File,
-	Directory,
-	Symlink,
-	Other,
-}
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct Identity {
-	pub device: u64,
-	pub inode: u64,
-}
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct EntryInfo {
-	pub kind: Kind,
-	pub mode: Mode,
-	pub length: u64,
-	pub identity: Identity,
-	/// Native modification time, before applying timestamp transport records.
-	pub mtime: Time,
-	/// Absent when the OS/filesystem does not report creation time.
-	pub birth: Option<Time>,
-	/// Raw Darwin flags; zero on Linux, whose Finder data uses transport.
-	pub native_flags: u32,
-}
 impl EntryInfo {
 	/// Inspect the object owned by the handle, independent of its current path.
 	pub fn for_file(file: &File) -> Result<Self, Error> {
@@ -184,7 +159,7 @@ fn from_statx(stat: &libc::statx) -> Result<EntryInfo, Error> {
 		stat.stx_size,
 		Identity {
 			device: libc::makedev(stat.stx_dev_major, stat.stx_dev_minor),
-			inode: stat.stx_ino,
+			inode: u128::from(stat.stx_ino),
 		},
 		stamp(stat.stx_mtime.tv_sec, i64::from(stat.stx_mtime.tv_nsec))?,
 		birth,
@@ -261,7 +236,7 @@ fn query(file: &File, name: Option<&CStr>) -> Result<EntryInfo, Error> {
 		length,
 		Identity {
 			device: stat.st_dev as u64,
-			inode: stat.st_ino,
+			inode: u128::from(stat.st_ino),
 		},
 		stamp(stat.st_mtime, stat.st_mtime_nsec)?,
 		Some(stamp(stat.st_birthtime, stat.st_birthtime_nsec)?),

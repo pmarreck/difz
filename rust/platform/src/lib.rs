@@ -127,8 +127,8 @@ fn basename(name: &[u8]) -> Result<Vec<u8>, Error> {
 
 #[cfg(unix)]
 mod entry;
-#[cfg(unix)]
-pub use entry::{EntryInfo, Identity, Kind};
+mod entry_info;
+pub use entry_info::{EntryInfo, Identity, Kind};
 
 fn read_limited(reader: &mut impl Read, maximum: usize) -> Result<Vec<u8>, Error> {
 	let mut bytes = Vec::new();

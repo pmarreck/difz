@@ -107,6 +107,7 @@ let
 		expectedTests = 2;
 		receipt = "PASS real Windows Rust ownership and panic boundary";
 	};
+	platformTestCount = 7;
 	platformRunner = profile: pkgs.writeShellScript "difz-windows-platform-${arch}-${profile}-tests" ''
 		set -uo pipefail
 		# Nix deliberately denies xattr setters. Wine stores reparse points in
@@ -122,14 +123,14 @@ let
 			cat "$TMPDIR/tests.out" "$TMPDIR/tests.err" >&2; exit 1
 		fi
 		cat "$TMPDIR/tests.out"
-		grep -F 'test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;' "$TMPDIR/tests.out" || exit 1
+		grep -F 'test result: ok. ${toString platformTestCount} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;' "$TMPDIR/tests.out" || exit 1
 		# The real harness succeeds with no selected tests. Its output must fail
 		# the required-case receipt, rather than permitting a vacuous green run.
 		if ! run_tests --exact __difz_absent_test_negative_control > "$TMPDIR/zero.out" 2> "$TMPDIR/zero.err"; then
 			cat "$TMPDIR/zero.out" "$TMPDIR/zero.err" >&2; exit 1
 		fi
-		grep -F 'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out;' "$TMPDIR/zero.out" || exit 1
-		if grep -F 'test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;' "$TMPDIR/zero.out"; then
+		grep -F 'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; ${toString platformTestCount} filtered out;' "$TMPDIR/zero.out" || exit 1
+		if grep -F 'test result: ok. ${toString platformTestCount} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;' "$TMPDIR/zero.out"; then
 			printf 'FAIL zero-test harness satisfied the required-case receipt\n' >&2; exit 1
 		fi
 		printf 'PASS Windows ${arch} ${profile} pinned directory capabilities and zero-test control\n'
@@ -157,8 +158,8 @@ let
 			executable=$(jq -ser '[.[] | select(.reason == "compiler-artifact" and .target.name == "difz_platform" and .profile.test and .executable != null) | .executable] | if length == 1 then .[0] else error("expected one Windows platform test executable") end' artifacts.json)
 			${runWine false} "$executable" --list > test-list.raw
 			tr -d '\r' < test-list.raw > test-list
-			test "$(grep -c '^windows::tests::.*: test$' test-list)" -eq 5
-			grep -Fx '5 tests, 0 benchmarks' test-list
+			test "$(grep -c '^windows::.*: test$' test-list)" -eq ${toString platformTestCount}
+			grep -Fx '${toString platformTestCount} tests, 0 benchmarks' test-list
 			runHook postBuild
 		'';
 		installPhase = ''
@@ -190,7 +191,7 @@ in assert builtins.elem arch [ "amd64" "arm64" ]; {
 		done
 		for prepared in ${pkgs.lib.escapeShellArgs (map toString platformTests)}; do
 			grep -Ex 'PASS prepared Windows ${arch} (release|debug) directory capability tests' "$prepared/nix-support/platform-tests-prepared"
-			grep -Fx '5 tests, 0 benchmarks' "$prepared/nix-support/platform-test-list"
+			grep -Fx '${toString platformTestCount} tests, 0 benchmarks' "$prepared/nix-support/platform-test-list"
 		done
 		for consumer in ${pkgs.lib.escapeShellArgs (map toString abiConsumers)}; do
 			test -x "$consumer/bin/difz-rust-abi-consumer.exe"

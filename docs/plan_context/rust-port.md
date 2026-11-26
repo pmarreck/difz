@@ -2090,3 +2090,39 @@ identity, without narrowing to the Unix inode width. Independent native API
 readback must distinguish hardlink aliases from different objects, preserve
 identity after path replacement, classify reparse tags and verify native
 timestamp conversion. Directory patch/publication operations remain open.
+
+### Windows entry identity and timestamps, 2026-11-26
+
+The Windows platform adapter now inspects roots, opened files and named entries
+through pinned handles. It preserves the complete `FILE_ID_INFO` volume and
+128-bit object identifier. The shared Rust identity type widens Unix inode
+numbers without loss; these internal identities are never serialized into a
+patch. Native reparse tags distinguish symbolic links from other reparse
+objects. Portable modes match the existing Windows implementation's fixed
+file/directory/link modes and do not claim to encode a DACL.
+
+Two additional cases bring the required Windows matrix to twenty-eight actual
+tests, plus the four zero-selection controls. Native hardlinks share identity;
+separate copies differ. An opened file retains its identity after its path is
+renamed and replaced. Independent `SetFileTime` and `GetFileTime` calls establish
+exact modification-time readback one 100 ns tick before the Unix epoch.
+Creation-time capture is checked against the independent getter's actual
+value. An inverse-format property covers epoch/sign/precision boundaries and
+all 128 file-identifier bits, including values the emulated filesystem does
+not produce naturally.
+
+The first fixture failed because Wine 11 accepted a creation-time request but
+did not preserve it. Inspection of the pinned Wine source confirmed that this
+setter path writes access/modification times and attributes without applying
+creation time. The reader contract therefore compares captured creation time
+with actual native readback. It does not assert that the requested value was
+stored. Creation-time restoration remains unqualified and must verify native
+readback or preserve transport metadata when that port is implemented.
+
+The complete `./test` passes in 308.03 seconds with zero failures: 143.65 seconds
+for Nix preparation/checks and 164.38 seconds including host admission and
+execution. Both Windows architectures and profiles pass all seven cases with
+no filtering or ignored tests. The existing 79 native Rust platform cases,
+CLI suites, C ABI consumers, cross-implementation acceptance, standalone
+checks and growth controls also pass. File growth takes 24.74 seconds under
+the unchanged measurement policy.

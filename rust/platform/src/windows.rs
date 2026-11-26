@@ -65,6 +65,12 @@ impl Directory {
 		read_limited(&mut self.open_regular_file(name)?, maximum)
 	}
 	fn open_child(&self, name: &[u8], kind: Child) -> Result<File, Error> {
+		let file = self.open_child_handle(name)?;
+		check_kind(&file, kind)?;
+		Ok(file)
+	}
+	/// Open the entry itself, including a reparse point, for native inspection.
+	fn open_child_handle(&self, name: &[u8]) -> Result<File, Error> {
 		difz_core::directory::validate_basename(name).map_err(|_| Error::InvalidBasename)?;
 		// A colon denotes an alternate data stream in the NT filesystem API.
 		// This operation accepts exactly one ordinary filesystem component.
@@ -127,10 +133,12 @@ impl Directory {
 		// A successful NtCreateFile returned a fresh owned handle. File owns
 		// its close, including every metadata/kind error below.
 		let file = unsafe { File::from_raw_handle(handle) };
-		check_kind(&file, kind)?;
 		Ok(file)
 	}
 }
+
+#[path = "windows_entry.rs"]
+mod entry;
 fn check_kind(file: &File, kind: Child) -> Result<(), Error> {
 	// The API borrows this live handle. Pipes and character devices do not
 	// satisfy this filesystem capability even if another query accepts them.

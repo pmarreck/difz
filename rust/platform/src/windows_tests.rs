@@ -11,9 +11,9 @@ use windows_sys::Win32::{
 	System::Threading::{GetCurrentProcess, GetProcessHandleCount},
 };
 static NEXT: AtomicU64 = AtomicU64::new(0);
-struct Fixture(PathBuf);
+pub(super) struct Fixture(pub(super) PathBuf);
 impl Fixture {
-	fn new() -> Self {
+	pub(super) fn new() -> Self {
 		let path = std::env::temp_dir().join(format!(
 			"difz-windows-capability-{}-{}",
 			std::process::id(),
@@ -116,6 +116,11 @@ fn windows_reparse_points_are_rejected_at_root_and_child_boundaries() {
 		0
 	);
 	let root = Directory::open(&fixture.0).unwrap();
+	assert_eq!(root.inspect(b"link").unwrap().kind, crate::Kind::Symlink);
+	assert_eq!(
+		root.inspect(b"linked-dir").unwrap().kind,
+		crate::Kind::Symlink
+	);
 	assert!(matches!(
 		root.open_regular_file(b"link"),
 		Err(Error::WrongKind)

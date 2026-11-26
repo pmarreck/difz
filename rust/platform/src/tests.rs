@@ -247,7 +247,7 @@ fn no_follow_entry_inspection_matches_independent_kernel_metadata() {
 			actual.identity,
 			Identity {
 				device: expected.dev(),
-				inode: expected.ino()
+				inode: u128::from(expected.ino())
 			}
 		);
 		assert_eq!(
