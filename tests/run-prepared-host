@@ -3,16 +3,20 @@
 set -u
 prefix="${DIFZ_HOST_TESTS:-}"
 [ -n "$prefix" ] || { printf 'FAIL DIFZ_HOST_TESTS is required\n' >&2; exit 1; }
-for executable in bin/difz libexec/difz-unit-tests bin/difz-rust-caller bin/difz-core-consumer bin/difz-platform-tests; do
-	if [ ! -f "$prefix/$executable" ] || [ ! -x "$prefix/$executable" ]; then
-		printf 'FAIL Nix-prepared host artifact is missing: %s\n' "$executable" >&2
-		exit 1
-	fi
-done
-if [ "$(uname -s)" = Linux ] && { [ ! -f "$prefix/libexec/difz-standalone-tests" ] || [ ! -x "$prefix/libexec/difz-standalone-tests" ]; }; then
-	printf 'FAIL Nix-prepared standalone runtime tests are missing\n' >&2
-	exit 1
+source "${BASH_SOURCE[0]%/*}/../scripts/prepared-host-artifacts.bash" || exit 1
+artifacts=(
+	"$prefix/bin/difz"
+	"$prefix/libexec/difz-unit-tests"
+	"$prefix/bin/difz-rust-caller"
+	"$prefix/bin/difz-core-consumer"
+	"$prefix/bin/difz-platform-tests"
+)
+if [ "$(uname -s)" = Linux ]; then
+	artifacts+=(
+		"$prefix/libexec/difz-standalone-tests"
+	)
 fi
+difz_require_prepared_artifacts "${artifacts[@]}" || exit 1
 errors=0
 tick() {
 	read -r uptime _ < /proc/uptime || return 1

@@ -198,3 +198,35 @@ results and passed in 7.44 seconds: 4.50 seconds for preflight/preparation and
 consumer took 520/430/530/20 ms. These observations retain the earlier
 17.17-second result and distinguish cached checks from fresh execution;
 they do not establish full-suite fresh-execution latency conformance.
+
+## Prepared artifact checks, 2026-11-25
+
+The prepared host runner and its controls now share a sourced filesystem-state
+classifier. The finite sweep selects real immutable fixture paths in one Bash
+process instead of constructing a new tree and starting a shell for every case.
+It checks all 4095 invalid combinations across six artifacts, the valid vector
+and an empty declaration. Separate checks exercise the actual entry point with
+each artifact missing, a directory or non-executable while every other artifact
+is valid. A valid-set trace witnesses completion of preflight; recording stubs
+catch premature dispatch, including an attempted recursive Bash invocation.
+
+Previously, the five-artifact sweep did not supply the newly required standalone
+helper. That second missing prerequisite could mask a removed artifact check.
+Six deliberate omission mutants now each fail the entry-point controls for the
+specific omitted path. The Rust consumer and Rust CLI retain all three invalid
+path controls. The fixture selects the Linux runner branch explicitly; this
+source-bounded contract does not qualify native foreign filesystem execution.
+
+The complete Linux suite passed in 171.78 seconds: 17.49 seconds of Nix
+preparation/checks and 154.29 seconds of host admission, environment setup and
+execution. Fresh runner controls took 2.66 seconds, compared with 10.28 seconds
+in the preceding static-musl qualification. An earlier diagnostic observation
+was 2.82 seconds. This is about 74 percent less runner time with broader state
+coverage, not a whole-suite speedup claim. The execution budget remains exceeded.
+
+All 79 Rust platform cases, including 29 mandatory native metadata fixtures,
+both 92-case CLI suites, packaged ABI checks, standalone products and the four
+Windows Zig cross-builds passed. Fresh file growth took 26.53 seconds and
+structure growth 56.59 seconds. Their operations, sizes, core scopes, calibration,
+round count, native oracles and numerical policy are unchanged; historical
+cohorts remain unbaselined. Reducing growth feedback cost remains active.

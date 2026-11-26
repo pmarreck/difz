@@ -44,7 +44,7 @@ in {
 		(builtins.removeAttrs flake.packages [ "aarch64-darwin" ]);
 	testEntryCheck = checks.test-entry.name;
 	testEntrySource = membership checks.test-entry.src
-		[ "test" "big_o" ".mechatron-prime/targets" "tests/integration/test-test-entry.bash" "tests/integration/test_prepared_runners.bash" "tests/run-prepared-host" "tests/run-host-tests" "tests/ffi/test_rust_lib.bash" ]
+		[ "test" "big_o" ".mechatron-prime/targets" "tests/integration/test-test-entry.bash" "tests/integration/test_prepared_runners.bash" "tests/run-prepared-host" "tests/run-host-tests" "tests/ffi/test_rust_lib.bash" "scripts/prepared-host-artifacts.bash" ]
 		[ "rust/src/lib.rs" "rust/cli/src/main.rs" "flake.nix" "tests/cli/test_cli.bash" ];
 	rustCliOutputs = builtins.mapAttrs (_: packages: builtins.hasAttr "rust-cli" packages && builtins.hasAttr "rust-cli-debug" packages) flake.packages;
 	rustProducts = builtins.mapAttrs (_: packages:

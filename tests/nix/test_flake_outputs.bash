@@ -84,7 +84,7 @@ require_json '.runtimeCheck | type == "string" and length > 0' 'standalone runti
 require_json '(.runtimeSource.required | length == 2 and all(.[]; . == true)) and (.runtimeSource.excluded | length == 3 and all(.[]; . == false))' 'standalone checks read actual products without implementation source'
 require_json '.linuxRustLibcs | length == 2 and all(.[]; length == 7 and all(.[]; . == "musl"))' 'both Linux architectures use musl for Rust products, SDKs and test executables'
 require_json '.testEntryCheck | type == "string" and length > 0' 'complete test entry and prepared artifact refusal have a declared check'
-require_json '(.testEntrySource.required | length == 8 and all(.[]; . == true)) and (.testEntrySource.excluded | length == 4 and all(.[]; . == false))' 'test entry check includes only the runner contracts and their actual adapters'
+require_json '(.testEntrySource.required | length == 9 and all(.[]; . == true)) and (.testEntrySource.excluded | length == 4 and all(.[]; . == false))' 'test entry check includes only the runner contracts and their actual adapters'
 require_json '.rustCliOutputs | length == 3 and all(.[]; . == true)' 'Rust release and debug CLI artifacts are declared for every native system'
 require_json '.rustProducts | length == 3 and all(.[]; . == true)' 'complete Rust products assemble the matching release/debug CLI and production library on every native system'
 require_json '.rustCliLibrary == true' 'Rust CLI links the declared packaged public ABI producer'

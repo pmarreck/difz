@@ -6,6 +6,7 @@ pkgs.runCommand "difz-test-entry-check" {
 			../../test ../../big_o ../../.mechatron-prime/targets ../integration/test-test-entry.bash
 			../integration/test_prepared_runners.bash ../run-prepared-host
 			../run-host-tests ../ffi/test_rust_lib.bash
+			../../scripts/prepared-host-artifacts.bash
 		];
 	};
 	nativeBuildInputs = with pkgs; [ bash coreutils gnugrep jq ];

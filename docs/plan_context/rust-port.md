@@ -1687,3 +1687,14 @@ complete build-revision provenance. Infrastructure confirms the CI worker has
 no verified primary-base/count handoff yet. A data-only opt-in contract and its
 source-binding controls are being prepared separately; a collector prototype
 alone is not release provenance.
+
+### Prepared runner feedback checkpoint, 2026-11-25
+
+The full Linux suite passed after batching artifact-state classification and
+strengthening its entry-point controls: 171.78 seconds including preparation
+and host admission, with 2.66 seconds of runner-control execution versus the
+previous 10.28 seconds. All 4095 invalid six-artifact sets and six removed-check
+mutants are covered. Native fixtures, ABI and CLI acceptance, standalone runtime
+checks and growth policy remain required. File/structure growth took 26.53 and
+56.59 seconds and passed; reducing those costs remains open. See
+[test preparation](test-preparation.md#prepared-artifact-checks-2026-11-25).

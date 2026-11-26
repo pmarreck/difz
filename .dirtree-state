@@ -136,6 +136,7 @@ annotate=[
 	scripts/build-selection.bash = Strict data-only selection, scope aliases, host normalization and idempotent canonization.
 	scripts/check-static-linux.bash = Reads actual ELF headers and executable bytes, rejecting loader dependencies and Nix paths
 	scripts/flatten-static-lib = Uses the selected target archiver to merge thin Zig archives and bundled safety runtimes into a complete C SDK archive
+	scripts/prepared-host-artifacts.bash = Shared fail-closed artifact classifier; 4095 filesystem-state combinations and real entry-point omission controls run before behavior
 	scripts/mac-archive-oracle = ditto zip round-trip, codesign, and stapler validate
 	scripts/mac-archive-pair = version-pair dmg and ditto-zip delta, codesign, and stapler
 	scripts/run-tests-isolated = Linux read-only host boundary with private state and cleared inherited shell functions
