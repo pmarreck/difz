@@ -14,6 +14,8 @@ let
 		(builtins.replaceStrings [ "\tReleaseFast\t" ] [ "\tdebug\t" ] source)
 		(builtins.replaceStrings [ "\tmusl\t" ] [ "\tgnu\t" ] source)
 		(builtins.replaceStrings [ "\tmusl\t" ] [ "\t-\t" ] source)
+		(builtins.replaceStrings [ "\tgnu\t" ] [ "\t-\t" ] source)
+		(builtins.replaceStrings [ "\tgnu\t" ] [ "\tmusl\t" ] source)
 		(builtins.replaceStrings [ "packages.x86_64-linux.zig-release" ] [ "packages.bad;command" ] source)
 		(source + "not\tseven\tfields\n")
 	];
@@ -23,7 +25,7 @@ assert lib.all valid [ "zig" "zig\n" "rust" "rust\n" ];
 assert lib.all (rejected source) invalidSelectors;
 assert lib.all (data: rejected data "zig\n") invalidSources;
 assert builtins.length model.rows == 20;
-assert builtins.length (builtins.filter (row: row.output == null) model.rows) == 4;
+assert builtins.length (builtins.filter (row: row.output == null) model.rows) == 2;
 assert lib.all (row: row.implementation != "zig" || row.output != null) model.rows;
 assert builtins.attrNames model.implementations == [ "rust" "zig" ];
 true

@@ -1916,3 +1916,49 @@ they remain unbaselined and the measurement policy is unchanged.
 
 Commit `26da037` delivered this increment and matched the fetched remote branch.
 Its exact-commit CI passed all twenty declared targets in 61 seconds.
+
+### Windows AMD64 Rust product integration, 2026-11-26
+
+Private Nix probes established a working Windows GNU SDK, static Rust library,
+seven affirmative CLI unit tests and an external C ABI consumer that exchanged
+patches with the original executable. The public build now integrates that
+route for both optimized and Debug profiles using the existing pinned Rust
+1.94.1 compiler, Cargo lockfiles and zstdz source. The common zstdz builder
+constructs the Windows static library directly; no extra codec implementation
+or source pin is introduced.
+
+The compiler's `native-static-libs` report accompanies the installed Windows
+archive, so external C consumers use the actual target's link requirements.
+Both separately built consumers discover exports from the archive, match the
+public header and their own undefined references, then require every missing
+export to fail linking. Binary and empty buffers, ownership, limits, malformed
+inputs and original-implementation patch exchange use the existing C fixture.
+Windows directory filesystem entry points retain their explicit unsupported
+result; the filesystem and metadata port remains open.
+
+The required `windows-rust-amd64` check executes both real CLI profiles through
+pinned minimal Wine and runs the six shared file cases against the original
+Linux implementation, with all producer/consumer pairings. The Cargo runner
+requires affirmative test output as well as successful status. Runtime import
+inspection allows only the declared Windows system DLLs and rejects embedded
+Nix store paths. This qualifies the stated Wine/file/ABI scope, not native
+Windows metadata or a minimum supported Windows version.
+
+The build registry now declares GNU variants for all Windows rows, matching
+the actual compiled identity, and selects the two available AMD64 Rust products.
+Both Nix and shell selection reject absent or incorrect Windows variants.
+Foreign Rust SDK validation matches the full Windows target triple and selected
+ABI before publication. Windows ARM64 Rust products remain explicitly unavailable.
+
+The cross-built ABI check executes the check body directly during the build:
+Nix's generic `runPhase checkPhase` still skips a check disabled for a foreign
+target. Installation requires an affirmative execution receipt, and the outer
+gate verifies it for both consumers. The actual artifact from the skipped-check
+control has no receipt and fails that requirement. Both corrected consumers
+execute every discovered-export and missing-export control.
+
+The complete `./test` passed in 321.98 seconds. Nix preparation and sandbox
+checks took 123.77 seconds; host execution, including environment and shared
+admission waiting, took 198.21 seconds. File growth took 32.21 seconds with a
+permitted noisy-sample retry, and structure growth took 39.74 seconds. All
+twenty declared cases pass with unchanged limits and remain unbaselined.

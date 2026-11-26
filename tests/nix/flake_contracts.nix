@@ -22,16 +22,25 @@ in {
 	windowsCheck = checks.windows-gnu.name;
 	windowsProducts = map (name: { inherit (checks.${name}) pf profile; })
 		[ "windows-gnu" "windows-gnu-debug" "windows-arm64-gnu" "windows-arm64-gnu-debug" ];
-	windowsEmulation = let check = checks.windows-amd64-emulated; in {
+	windowsEmulation = let check = flake.checks.x86_64-linux.windows-amd64-emulated; in {
 		inherit (check) execution;
 		products = builtins.length check.products;
 		source = membership check.source [ "tests/acceptance/cross-apply" "scripts/run-arm64-test.bash"
 			"scripts/run-tests-isolated" "tests/integration/test_isolation.bash" "tests/integration/test-arm64-isolation.bash" ]
 			[ "src/difz.c" "src/lib.zig" "rust/src/file.rs" ];
 	};
-	windowsArmEmulation = let check = checks.windows-arm64-emulated; in {
+	windowsArmEmulation = let check = flake.checks.x86_64-linux.windows-arm64-emulated; in {
 		inherit (check) execution;
 		products = builtins.length check.products;
+	};
+	windowsRust = let check = flake.checks.x86_64-linux.windows-rust-amd64; in {
+		inherit (check) execution;
+		target = check.sdk.rustTarget;
+		profiles = map (p: p.profile) check.products;
+		consumers = map (p: membership p.src [ "rust/c-api/tests/caller.c" ]
+			[ "rust/c-api/src/lib.rs" "rust/c-api/include/difz-rust.h" ]) check.abiConsumers;
+		registry = map (row: { inherit (row) variant output; })
+			(builtins.filter (row: row.implementation == "rust" && row.pf == "mswin-amd64") flake.buildContract.rows);
 	};
 	armPackage = flake.packages.aarch64-linux.default.name;
 	armEmulation = let

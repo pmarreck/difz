@@ -112,14 +112,16 @@
 					strictDeps = true;
 					dontConfigure = true;
 					enableParallelBuilding = true;
-					makeFlags = [ "-C" "programs" "zstd" "ZSTD_LEGACY_SUPPORT=0"
+					makeFlags = if targetPkgs.stdenv.hostPlatform.isWindows then
+						[ "-C" "lib" "libzstd.a" "ZSTD_LEGACY_SUPPORT=0" "CPPFLAGS_STATICLIB=-DZSTD_MULTITHREAD" ]
+						else [ "-C" "programs" "zstd" "ZSTD_LEGACY_SUPPORT=0"
 						"HAVE_ZLIB=0" "HAVE_LZMA=0" "HAVE_LZ4=0" ];
-					postBuild = ''
+					postBuild = pkgs.lib.optionalString (!targetPkgs.stdenv.hostPlatform.isWindows) ''
 						make -C lib libzstd.a ZSTD_LEGACY_SUPPORT=0 CPPFLAGS_STATICLIB=-DZSTD_MULTITHREAD
 					'';
 					installPhase = ''
 						runHook preInstall
-						install -Dm755 programs/zstd $out/bin/zstd
+						${pkgs.lib.optionalString (!targetPkgs.stdenv.hostPlatform.isWindows) "install -Dm755 programs/zstd $out/bin/zstd"}
 						install -Dm644 lib/libzstd.a $out/lib/libzstd.a
 						install -Dm644 lib/zstd.h $out/include/zstd.h
 						install -Dm644 lib/zstd_errors.h $out/include/zstd_errors.h
@@ -320,6 +322,11 @@
 				windowsAmd64Debug = windowsProduct { debug = true; };
 				windowsArm64Release = windowsProduct { arch = "arm64"; };
 				windowsArm64Debug = windowsProduct { arch = "arm64"; debug = true; };
+				windowsRust = import ./nix/windows-rust.nix {
+					inherit pkgs buildStamp zstdBuild rustProduct;
+					oracles = [ releaseFast debugTests ];
+					wrongArchControl = windowsArm64Release;
+				};
 				canonicalProducts = implementationProducts.${buildContract.canonical};
 		in
 			{
@@ -342,7 +349,7 @@
 					rust-cli-debug = rustCliDebug;
 					rust-zstdz-sdk = rustZstdzSdk;
 					host-tests = hostTests;
-				} // pkgs.lib.optionalAttrs (system == "x86_64-linux") linuxArm64.packages;
+				} // pkgs.lib.optionalAttrs (system == "x86_64-linux") (linuxArm64.packages // windowsRust.packages);
 
 				checks = {
 					build = canonicalProducts.release;
@@ -430,6 +437,7 @@
 						'';
 				} // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
 					linux-arm64-emulated = linuxArm64.check;
+					windows-rust-amd64 = windowsRust.check;
 					windows-amd64-emulated = import ./nix/windows-emulated.nix {
 						inherit pkgs;
 						products = [ windowsAmd64Release windowsAmd64Debug ];

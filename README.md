@@ -231,8 +231,9 @@ Nix cross builder for both implementations and profiles. The required
 through QEMU user mode, with actual ELF, static-link and target-identity checks.
 `./build --all-impls --pf linux-arm64` prepares both optimized products without
 changing the host command. These tests use the Linux host kernel; they do not
-establish ARM64 hardware or Windows behavior. Windows Rust products still lack builders;
-native macOS/Windows qualification is pending. A declared target or cross-build
+establish ARM64 hardware or Windows behavior. Windows AMD64 Rust file products
+have optimized and Debug Nix builders; Windows ARM64 Rust builders and native
+macOS/Windows qualification remain pending. A declared target or cross-build
 does not establish native support.
 
 The required `windows-amd64-emulated` and `windows-arm64-emulated` checks execute
@@ -245,6 +246,14 @@ Linux Rust implementation across the six shared file cases, including wrong
 sources, corrupt patches, overwrite behavior and input preservation. Compiled
 target/ABI identity and binary stdout are checked separately. This qualifies
 Wine execution for those file operations; native Windows metadata remains open.
+
+The required `windows-rust-amd64` check builds both Rust Windows profiles with
+the same statically linked zstdz source. It executes the CLI unit tests, exchanges
+file patches with the original implementation, and compiles separate C consumers
+against only the installed SDK. Every public export must be referenced, and
+removing any export must break the link. Executable imports are restricted to
+the declared Windows system DLLs, with no embedded Nix store paths. Windows
+Rust directory filesystem operations remain unsupported.
 
 Test preparation requires Nix. Linux host execution requires Bubblewrap and
 user namespaces, supplied and checked by the pinned test environment. Unsupported

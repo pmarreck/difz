@@ -38,6 +38,8 @@ difz_verify_product() {
 		case "$pf" in
 			linux-amd64) [ "$target" = "x86_64-unknown-linux-$variant" ] || { difz_build_fail 'Rust SDK ABI disagrees with selected variant'; return 1; };;
 			linux-arm64) [ "$target" = "aarch64-unknown-linux-$variant" ] || { difz_build_fail 'Rust SDK ABI disagrees with selected variant'; return 1; };;
+			mswin-amd64) [ "$target" = "x86_64-pc-windows-$variant" ] || { difz_build_fail 'Rust SDK ABI disagrees with selected variant'; return 1; };;
+			mswin-arm64) [ "$target" = "aarch64-pc-windows-$variant" ] || { difz_build_fail 'Rust SDK ABI disagrees with selected variant'; return 1; };;
 		esac
 		case "$pf/$target" in
 			linux-amd64/x86_64-unknown-linux-musl|linux-arm64/aarch64-unknown-linux-musl|macos-arm64/aarch64-apple-darwin) :;;

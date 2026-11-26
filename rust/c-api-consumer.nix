@@ -1,5 +1,11 @@
-{ pkgs, library, oracle }:
-(pkgs.stdenv.mkDerivation {
+{ pkgs, library, oracle, runner ? [] }:
+let
+	cross = !(pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform);
+	binary = "abi-consumer${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isWindows ".exe"}";
+	execute = pkgs.lib.escapeShellArgs (runner ++ [ "./${binary}" ]);
+in
+assert pkgs.lib.assertMsg (!cross || runner != []) "foreign ABI acceptance requires an explicit execution runner";
+(pkgs.stdenv.mkDerivation rec {
 	pname = "difz-rust-abi-consumer";
 	version = "0.1.0";
 	# Only consumer source is present. Headers and the matching static library
@@ -10,24 +16,33 @@
 	};
 	strictDeps = true;
 	buildInputs = [ library ];
+	nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isWindows [ pkgs.buildPackages.binutils ];
 	nativeCheckInputs = with pkgs.buildPackages; [ coreutils diffutils gnugrep gnused gawk ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.buildPackages.binutils ];
 	doCheck = true;
 	buildPhase = ''
 		runHook preBuild
-		libs=(-lpthread -lm ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "-ldl -lrt -lutil"} ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin "-liconv -lresolv"})
+		${if pkgs.stdenv.hostPlatform.isWindows then ''
+			read -r -a libs < ${library}/nix-support/native-static-libs
+			test "''${#libs[@]}" -gt 0
+		'' else ''
+			libs=(-lpthread -lm ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "-ldl -lrt -lutil"} ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin "-liconv -lresolv"})
+		''}
 		"$CC" -std=c11 -Wall -Wextra -Werror -UNDEBUG -I${library}/include \
 			-c rust/c-api/tests/caller.c -o caller.o
-		"$CC" caller.o ${library}/lib/libdifz_rust.a "''${libs[@]}" -o abi-consumer
+		"$CC" caller.o ${library}/lib/libdifz_rust.a "''${libs[@]}" -o ${binary}
 		runHook postBuild
 	'';
+	# runPhase would still skip checkPhase after stdenv disables doCheck for
+	# a foreign target. Execute this same body directly during the build.
+	postBuild = pkgs.lib.optionalString cross checkPhase;
 	checkPhase = ''
 		runHook preCheck
 		mkdir "$TMPDIR/cases"
-		./abi-consumer "$TMPDIR/cases"
+		${execute} "$TMPDIR/cases"
 		${oracle}/bin/difz --patch --no-progress "$TMPDIR/cases/source" "$TMPDIR/cases/rust.patch" -o "$TMPDIR/cases/native.output"
 		cmp "$TMPDIR/cases/target" "$TMPDIR/cases/native.output"
 		${oracle}/bin/difz --no-progress "$TMPDIR/cases/source" "$TMPDIR/cases/target" -o "$TMPDIR/cases/native.patch"
-		./abi-consumer --apply-native "$TMPDIR/cases/native.patch"
+		${execute} --apply-native "$TMPDIR/cases/native.patch"
 		${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
 			${oracle}/bin/difz --patch --no-progress "$TMPDIR/cases/tree-source" "$TMPDIR/cases/tree.patch" -o "$TMPDIR/cases/native-applied-rust-tree"
 			cmp "$TMPDIR/cases/tree-target/data" "$TMPDIR/cases/native-applied-rust-tree/data"
@@ -36,7 +51,7 @@
 			cmp "$TMPDIR/cases/tree.patch" "$TMPDIR/cases/native-tree.patch"
 			./abi-consumer --apply-native-tree "$TMPDIR/cases/native-tree.patch" "$TMPDIR/cases"
 		''}
-		${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+		${pkgs.lib.optionalString (pkgs.stdenv.hostPlatform.isLinux || pkgs.stdenv.hostPlatform.isWindows) ''
 			# Discover every public namespaced export, then require matching public
 			# declarations and genuine external references from this consumer.
 			nm --defined-only --extern-only ${library}/lib/libdifz_rust.a 2> "$TMPDIR/nm-errors" |
@@ -62,15 +77,18 @@
 				fi
 				grep -F "__wrap_$symbol" "$TMPDIR/link-output" > /dev/null
 			done < declarations
-			if readelf -d ./abi-consumer | grep NEEDED | grep -Ei 'zstd|difz'; then
+			if ${if pkgs.stdenv.hostPlatform.isWindows then "objdump -p ./${binary} | grep 'DLL Name:'" else "readelf -d ./abi-consumer | grep NEEDED"} | grep -Ei 'zstd|difz'; then
 				printf 'FAIL ABI consumer has a dynamic difz/zstd dependency\n' >&2; exit 1
 			fi
 			printf 'PASS isolated ABI consumer: every discovered export required; missing-export controls fail\n'
 		''}
 		runHook postCheck
+		printf 'PASS packaged C ABI execution and export checks\n' > "$TMPDIR/abi-check-passed"
 	'';
 	installPhase = ''
-		install -Dm755 abi-consumer "$out/bin/difz-rust-abi-consumer"
+		test -s "$TMPDIR/abi-check-passed"
+		install -Dm755 ${binary} "$out/bin/difz-rust-abi-consumer${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isWindows ".exe"}"
+		install -Dm644 "$TMPDIR/abi-check-passed" "$out/nix-support/abi-check-passed"
 	'';
 }).overrideAttrs (old: pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
 	buildInputs = (old.buildInputs or []) ++ (old.propagatedBuildInputs or []);

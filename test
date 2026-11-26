@@ -30,6 +30,7 @@ if [ "$system" = x86_64-linux ]; then
 	emulated_checks+=(".#checks.${system}.linux-arm64-emulated")
 	emulated_checks+=(".#checks.${system}.windows-amd64-emulated")
 	emulated_checks+=(".#checks.${system}.windows-arm64-emulated")
+	emulated_checks+=(".#checks.${system}.windows-rust-amd64")
 fi
 if nix build --no-update-lock-file --out-link "$roots/result" --json -L \
 	".#packages.${system}.host-tests" \
