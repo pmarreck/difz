@@ -70,8 +70,8 @@ in {
 		(map (input: input.drvPath) checks.rust-abi.buildInputs);
 	rustLibraryInputs = names flake.packages.${system}.rust-library.buildInputs;
 	rustLibrarySource = membership flake.packages.${system}.rust-library.src
-		[ "Cargo.toml" "Cargo.lock" "src/lib.rs" "zstdz/src/lib.rs" "c-api/src/lib.rs" "c-api/src/filesystem.rs" "c-api/include/difz-rust.h" "platform/src/lib.rs" ]
-		[ "qa.nix" "library.nix" "cli/src/main.rs" "tests/ffi/rust_caller.rs" "src/lib.zig" ];
+		[ "Cargo.toml" "Cargo.lock" "src/lib.rs" "zstdz/src/lib.rs" "c-api/src/lib.rs" "c-api/src/filesystem.rs" "c-api/include/difz-rust.h" "platform/src/lib.rs" "consumer/Cargo.toml" "consumer/src/main.rs" ]
+		[ "qa.nix" "library.nix" "cli/src/main.rs" "tests/ffi/rust_caller.rs" "src/lib.zig" "src/tests.rs" "src/file_tests.rs" "platform/src/tests.rs" "platform/src/xattr_tests.rs" "consumer/src/measurement.rs" "consumer/src/structure_measurement.rs" "consumer/src/tree_measurement.rs" "consumer/native_params.c" "c-api/tests/caller.c" ];
 	rustAbiSource = membership checks.rust-abi.src
 		[ "rust/c-api/tests/caller.c" ]
 		[ "rust/src/lib.rs" "rust/c-api/src/lib.rs" "rust/c-api/include/difz-rust.h" "rust/Cargo.toml" "src/lib.zig" "src/difz.c" ];

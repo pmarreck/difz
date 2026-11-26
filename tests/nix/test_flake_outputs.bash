@@ -91,7 +91,7 @@ require_json '.rustCliLibrary == true' 'Rust CLI links the declared packaged pub
 require_json '.rustDebugCliLibrary == true and .rustDebugAbiLibrary == true' 'debug CLI and external consumer link the debug production library'
 require_json '.rustAbiLibrary == true' 'external C ABI check links the production library package'
 require_json '.rustLibraryInputs | length == 1 and all(.[]; startswith("difz-zstdz-sdk"))' 'production library has only its target SDK dependency, without test oracles'
-require_json '(.rustLibrarySource.required | length == 8 and all(.[]; . == true)) and (.rustLibrarySource.excluded | length == 5 and all(.[]; . == false))' 'production library source contains the public ABI and excludes test orchestration'
+require_json '(.rustLibrarySource.required | length == 10 and all(.[]; . == true)) and (.rustLibrarySource.excluded | length == 14 and all(.[]; . == false))' 'production library source contains the public ABI and workspace entry points, excluding tests and benchmark modules'
 require_json '(.rustCliSource.required | length == 10 and all(.[]; . == true)) and (.rustCliSource.excluded | length == 6 and all(.[]; . == false))' 'Rust CLI source excludes library implementation and backend source'
 require_json '(.rustCliAcceptanceSource.required | length == 1 and all(.[]; . == true)) and (.rustCliAcceptanceSource.excluded | length == 3 and all(.[]; . == false))' 'Rust CLI acceptance reuses the original test suite with no implementation source'
 require_json '(.rustAbiSource.required | length == 1 and all(.[]; . == true)) and (.rustAbiSource.excluded | length == 6 and all(.[]; . == false))' 'external Rust ABI consumer source excludes implementation and source headers'

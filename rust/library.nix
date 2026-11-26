@@ -6,8 +6,13 @@
 	version = "0.1.0";
 	src = pkgs.lib.fileset.toSource {
 		root = ./.;
-		# Cargo resolves every workspace member even when only c-api is built.
-		fileset = pkgs.lib.fileset.unions [ ./Cargo.toml ./Cargo.lock ./src ./zstdz ./consumer ./c-api ./platform ];
+		# Cargo resolves all workspace manifests and target entry points. It does
+		# not compile the benchmark consumer or cfg(test) modules for this product.
+		# Keep those inputs in qa.nix, so test edits do not rebuild every product.
+		fileset = pkgs.lib.fileset.difference
+			(pkgs.lib.fileset.unions [ ./Cargo.toml ./Cargo.lock ./src ./zstdz ./consumer/Cargo.toml ./consumer/src/main.rs ./c-api ./platform ])
+			(pkgs.lib.fileset.unions [ ./c-api/tests (pkgs.lib.fileset.fileFilter
+				(file: file.name == "tests.rs" || pkgs.lib.hasSuffix "_tests.rs" file.name) ./.) ]);
 	};
 	cargoLock.lockFile = ./Cargo.lock;
 	strictDeps = true;

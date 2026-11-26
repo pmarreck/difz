@@ -158,6 +158,22 @@ impl<'a> Fixture<'a> {
 			| Operation::MetadataNormalize => {
 				let canonical =
 					CanonicalMetadata::normalize(backing.metadata(), Omit::default()).unwrap();
+				// Anchor every field to generated inputs before using typed equality
+				// during sampling. A normalizer that drops work cannot define its
+				// own expected result. Fixed-width names are already lexically sorted.
+				let expected = Metadata {
+					xattrs: backing
+						.names
+						.iter()
+						.map(|name| Xattr {
+							class: XattrClass::Logical,
+							name: Cow::Borrowed(name),
+							value: Cow::Borrowed(&backing.value),
+						})
+						.collect(),
+					..Metadata::default()
+				};
+				assert_eq!(canonical.metadata(), &expected);
 				let wire = canonical.encode().unwrap();
 				assert_eq!(metadata_oracle("14", &wire), wire);
 				let hash: [u8; 32] = metadata_oracle("15", &wire).try_into().unwrap();
@@ -170,6 +186,7 @@ impl<'a> Fixture<'a> {
 			}
 			Operation::DirectoryCanonical | Operation::DirectoryHash => {
 				let canonical = CanonicalSnapshot::new(backing.snapshot()).unwrap();
+				assert_eq!(canonical.snapshot(), &backing.snapshot());
 				// Independent client serializes the documented tree-identity schema
 				// from generated inputs, not from the measured library's output.
 				let empty_wire = CanonicalMetadata::default().encode().unwrap();
@@ -187,6 +204,7 @@ impl<'a> Fixture<'a> {
 					identity.extend_from_slice(&metadata_hash);
 				}
 				let hash = independent_hash(&identity);
+				assert_eq!(canonical.hash(), hash);
 				Self::Directory {
 					backing,
 					canonical,
@@ -254,13 +272,13 @@ impl<'a> Fixture<'a> {
 				matches!(output, Output::Bytes(bytes) if bytes == self.metadata().2)
 			}
 			Operation::MetadataDecode | Operation::MetadataNormalize => {
-				matches!(output, Output::Metadata(metadata) if metadata.encode().unwrap() == self.metadata().2)
+				matches!(output, Output::Metadata(metadata) if metadata == self.metadata().1)
 			}
 			Operation::MetadataHash => {
 				matches!(output, Output::Hash(hash) if *hash == self.metadata().3)
 			}
 			Operation::DirectoryCanonical => {
-				matches!(output, Output::Directory(tree) if tree.hash() == self.directory().2 && tree.snapshot().entries.len() == self.directory().0.names.len())
+				matches!(output, Output::Directory(tree) if tree == self.directory().1)
 			}
 			Operation::DirectoryHash => {
 				matches!(output, Output::Hash(hash) if *hash == self.directory().2)
@@ -327,6 +345,7 @@ pub fn run(args: &[String]) {
 			"axis":operation.axis().name(), "seed":args[2], "rows":rows, "sample_order":order,
 		"fixture":"seeded-binary-values-fixed-width-keys-v1; metadata keys shuffled; required directory paths sorted",
 			"clock":"shared resident interleaved sampler; monotonic wall and process CPU; verification, output destruction, RNG, oracle processes and fixture preparation outside timing",
+			"verification":"complete typed metadata/snapshot equality anchored to input records and native wire/digests per fixture; tree patch verification retains native bytes/digests and every record",
 			"canonicalization_scope":"materialize descriptors borrowing prepared bytes, then canonicalize; no payload copies"
 		})
 	);
@@ -335,6 +354,92 @@ pub fn run(args: &[String]) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn typed_verification_rejects_late_payload_and_descriptor_mutations() {
+		for operation in [Operation::MetadataDecode, Operation::MetadataNormalize] {
+			let backing = Backing::new(operation, 16, "41");
+			let fixture = Fixture::new(operation, &backing);
+			for mutation in 0..5 {
+				let Output::Metadata(metadata) = fixture.execute(operation) else {
+					panic!("metadata workload required")
+				};
+				let mut raw = metadata.into_metadata();
+				match mutation {
+					0 => {
+						*raw.xattrs
+							.last_mut()
+							.unwrap()
+							.value
+							.to_mut()
+							.last_mut()
+							.unwrap() ^= 1
+					}
+					1 => {
+						raw.xattrs.pop().unwrap();
+					}
+					2 => raw.xattrs.last_mut().unwrap().name.to_mut().push(b'z'),
+					3 => raw.xattrs.last_mut().unwrap().class = XattrClass::Raw,
+					4 => raw.finder_flags = 1,
+					_ => unreachable!(),
+				}
+				let corrupted = Output::Metadata(CanonicalMetadata::new(raw).unwrap());
+				assert!(
+					!fixture.correct(operation, &corrupted),
+					"{} mutation {mutation}",
+					operation.name()
+				);
+			}
+		}
+		let operation = Operation::DirectoryCanonical;
+		let backing = Backing::new(operation, 16, "41");
+		let fixture = Fixture::new(operation, &backing);
+		for mutation in 0..6 {
+			let Output::Directory(tree) = fixture.execute(operation) else {
+				panic!("directory workload required")
+			};
+			let mut raw = tree.into_snapshot();
+			match mutation {
+				0 => {
+					let Content::File { bytes, .. } = &mut raw.entries.last_mut().unwrap().content
+					else {
+						panic!("file fixture required")
+					};
+					*bytes.to_mut().last_mut().unwrap() ^= 1;
+				}
+				1 => {
+					raw.entries.pop().unwrap();
+				}
+				2 => raw.entries.last_mut().unwrap().path.to_mut().push(b'z'),
+				3 => {
+					let Content::File { mode, .. } = &mut raw.entries.last_mut().unwrap().content
+					else {
+						panic!("file fixture required")
+					};
+					*mode = Mode::from_bits(0o640).unwrap();
+				}
+				4 => {
+					raw.root = CanonicalMetadata::new(Metadata {
+						finder_flags: 1,
+						..Metadata::default()
+					})
+					.unwrap()
+				}
+				5 => {
+					raw.entries.last_mut().unwrap().metadata = CanonicalMetadata::new(Metadata {
+						finder_flags: 1,
+						..Metadata::default()
+					})
+					.unwrap()
+				}
+				_ => unreachable!(),
+			}
+			let corrupted = Output::Directory(CanonicalSnapshot::new(raw).unwrap());
+			assert!(
+				!fixture.correct(operation, &corrupted),
+				"directory mutation {mutation}"
+			);
+		}
+	}
 	#[test]
 	fn every_compiled_structure_workload_checks_correct_and_corrupted_real_outputs() {
 		for &operation in Operation::ALL {

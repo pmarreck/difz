@@ -1698,3 +1698,58 @@ mutants are covered. Native fixtures, ABI and CLI acceptance, standalone runtime
 checks and growth policy remain required. File/structure growth took 26.53 and
 56.59 seconds and passed; reducing those costs remains open. See
 [test preparation](test-preparation.md#prepared-artifact-checks-2026-11-25).
+
+### Growth verification feedback reduction, 2026-11-25
+
+The structure probe no longer re-encodes metadata or re-hashes a directory after
+every sampled decode, normalization or canonicalization. It compares complete
+values through derived equality instead. Before sampling, every fixture is
+anchored to generated input records and the existing native wire/digest oracles.
+The directory fixture also checks its Rust hash against independently serialized
+identity bytes and external BLAKE3. All native fixture oracles remain required
+at every declared size. Tree apply retains its native target digest and explicit
+record/content checks because equivalent file representations can differ.
+
+The original positive, corrupted and skipped-output controls remain. Sixteen
+additional mutations cover late value bytes, removed descriptors, names, class,
+mode, root metadata and entry metadata. All seven optimized consumer tests pass.
+SIMD was considered: this change removes duplicate verification work outside the
+timing region; production hashing, its dependency settings and CPU target remain
+unchanged. No new intrinsics or dependencies are needed.
+
+Production library source inputs now exclude separate test modules, the C test
+consumer and benchmark modules while retaining every workspace manifest and
+required target entry point. The complete QA source and native fixture inventory
+are unchanged. Nix contracts check ten required and fourteen excluded production
+paths, and actual optimized/Debug ABI consumers and CLIs still build and pass.
+
+Complete `./test` passed in 112.44 seconds, including 32.12 seconds of Nix
+preparation/checks and 80.32 seconds of host admission/setup/execution. Fresh file
+growth took 25.99 seconds and structure growth 40.90 seconds. All four file and
+sixteen structure cases passed on their first attempts. Every operation, four
+sizes, adjacent ratio, one/two-core scope, 100 ms calibration target and five
+interleaved rounds remains required. Historical cohorts remain unbaselined.
+
+The preceding complete run took 56.59 seconds for structure growth and included
+one allowed noisy-sample retry for metadata decode; the earlier static-musl
+qualification took 57.68 seconds. The candidate's 40.90 seconds is an observed
+reduction of about 28 percent against the immediately preceding run, with host
+load variation and the retry preventing a precise isolated attribution.
+
+A separate admitted, confined diagnostic compared the actual before/after musl
+consumer binaries in old/new/new/old order for each affected operation, on one
+CPU with seed 41 and unchanged four-point/five-round sweeps. The shared engine
+validated all twelve measurements without retry. Complete probe times were:
+
+| Operation | Before, two observations | After, two observations |
+| --- | --- | --- |
+| Metadata decode | 2.573, 3.076 s | 1.881, 2.394 s |
+| Metadata normalization | 2.516, 2.513 s | 2.130, 2.338 s |
+| Directory canonicalization | 9.316, 11.186 s | 2.921, 2.646 s |
+
+[All twelve observations](../benchmarks/growth-verification-20261125.csv) retain
+order, elapsed time, measured CPU work, attempts and exact consumer byte hashes.
+The before consumer is the unchanged packaged probe used by `52a6622`; these are
+single-machine diagnostic measurements, not approved historical baselines.
+The five-second complete execution budget remains exceeded and was not widened.
+Native macOS/Windows and verified build provenance remain independent open work.
