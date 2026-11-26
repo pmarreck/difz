@@ -2170,4 +2170,13 @@ for Nix preparation/checks and 161.24 seconds including host admission and
 execution. Every architecture/profile passes all ten Windows cases, with the
 same mandatory real zero-selection control. Existing native metadata, CLI,
 C ABI, cross-apply, standalone and growth checks also pass. File growth takes
-24.87 seconds under the unchanged measurement policy.
+24.87 seconds and structure growth takes 40.77 seconds under the unchanged policy.
+
+Commit `af6b9b7` delivered this increment and matched the fetched remote branch.
+Its exact-commit CI passed all twenty-two declared targets in 43 seconds.
+
+Bounded link-target reads are next. They must use the opened reparse object,
+validate the actual returned buffer and every target offset/length, reject
+lossy Unicode, and preserve the existing implementation's relative and NT/Win32
+path behavior. Known junction handling and unknown reparse tags need explicit
+controls before tree capture can rely on them.
