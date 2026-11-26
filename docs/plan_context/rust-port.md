@@ -2361,3 +2361,12 @@ checks, unchanged workloads, limits and retry policy. File growth takes 26.31
 seconds and structure growth takes 39.06 seconds. These are declared-growth
 checks with no accepted historical baseline; they establish neither a historical
 speed improvement nor a new approved measurement epoch.
+
+
+Commit `8afa38f` delivered shared capture and Windows metadata-free encoding.
+A fresh fetch confirmed the complete local and remote commit identities match.
+Exact-commit CI passed all twenty-two declared targets in 47 seconds. Windows
+filesystem execution is qualified by the complete host phase described above;
+CI prepares those filesystem test executables rather than claiming native
+Windows execution. Atomic Windows patch-file publication is the next bounded
+filesystem operation.
