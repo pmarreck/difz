@@ -62,6 +62,7 @@ annotate=[
 	nix/performance-profile-timeout.patch = Configure long benchmark cases and kill their process groups on timeout
 	nix/provenance-default/record.json = Explicit unavailable metadata for builds without a Git-aware handoff
 	nix/runtime-independence.nix = Actual ELF and embedded-path gates for both backends/profiles, dynamic and corrupted-byte controls, and the retained empty-root host test runner
+	nix/windows-emulated.nix = Pinned Wine acceptance for both Windows AMD64 profiles against Rust file oracles, compiled ABI identity and binary stdout.
 	nix/windows-product.nix = Parameterized baseline Windows AMD64/ARM64 optimized/Debug cross-builds with real PE headers, complete SDK artifacts and binary-mode control.
 	profiling-rust-file.json = Declared stable-regime CPU-growth cases, required 1/2-core checks and extended 12-core history
 	profiling.json = Engine comparison matrix across edit shapes, file sizes, and CPU counts

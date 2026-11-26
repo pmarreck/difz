@@ -235,6 +235,13 @@ establish ARM64 hardware or Windows behavior. Windows Rust products still lack b
 native macOS/Windows qualification is pending. A declared target or cross-build
 does not establish native support.
 
+The required `windows-amd64-emulated` check executes both original Windows
+profiles through pinned Wine on Linux. Both exchange file patches with the
+Linux Rust implementation across the six shared file cases, including wrong
+sources, corrupt patches, overwrite behavior and input preservation. Compiled
+target/ABI identity and binary stdout are checked separately. This qualifies
+Wine execution for those file operations; native Windows metadata remains open.
+
 Test preparation requires Nix. Linux host execution requires Bubblewrap and
 user namespaces, supplied and checked by the pinned test environment. Unsupported
 host isolation fails explicitly; native macOS/Windows execution remains to be

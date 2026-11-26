@@ -150,11 +150,11 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addCMacro("DIFZ_PF", b.fmt("\"{s}-{s}\"", .{ pf_os, pf_arch }));
     exe.root_module.addCMacro("DIFZ_BUILD_REVISION", b.fmt("\"{s}\"", .{revision}));
     exe.root_module.addCMacro("DIFZ_BUILD_DIRTY", b.fmt("\"{s}\"", .{dirty}));
-    if (target.result.os.tag == .linux) {
+    if (target.result.os.tag == .linux or target.result.os.tag == .windows) {
         const variant = switch (target.result.abi) {
             .gnu => "gnu",
-            .musl => "musl",
-            else => @panic("unsupported difz CLI Linux ABI"),
+            .musl => if (target.result.os.tag == .linux) "musl" else @panic("unsupported difz CLI Windows ABI"),
+            else => @panic("unsupported difz CLI ABI"),
         };
         exe.root_module.addCMacro("DIFZ_VARIANT", b.fmt("\"{s}\"", .{variant}));
     }

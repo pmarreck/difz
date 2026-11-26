@@ -428,7 +428,15 @@
 							bash tests/benchmark/test-rust-growth-routing.bash
 							touch $out
 						'';
-				} // pkgs.lib.optionalAttrs (system == "x86_64-linux") { linux-arm64-emulated = linuxArm64.check; };
+				} // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+					linux-arm64-emulated = linuxArm64.check;
+					windows-amd64-emulated = import ./nix/windows-emulated.nix {
+						inherit pkgs;
+						products = [ windowsAmd64Release windowsAmd64Debug ];
+						oracles = [ rustProductRelease rustProductDebug ];
+						armControl = windowsArm64Release;
+					};
+				};
 
 				devShells.default = pkgs.mkShell {
 					packages = with pkgs; [

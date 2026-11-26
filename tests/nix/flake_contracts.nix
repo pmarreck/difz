@@ -22,6 +22,12 @@ in {
 	windowsCheck = checks.windows-gnu.name;
 	windowsProducts = map (name: { inherit (checks.${name}) pf profile; })
 		[ "windows-gnu" "windows-gnu-debug" "windows-arm64-gnu" "windows-arm64-gnu-debug" ];
+	windowsEmulation = let check = checks.windows-amd64-emulated; in {
+		inherit (check) execution;
+		products = builtins.length check.products;
+		source = membership check.source [ "tests/acceptance/cross-apply" ]
+			[ "src/difz.c" "src/lib.zig" "rust/src/file.rs" ];
+	};
 	armPackage = flake.packages.aarch64-linux.default.name;
 	armEmulation = let
 		check = flake.checks.x86_64-linux.linux-arm64-emulated;

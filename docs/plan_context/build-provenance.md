@@ -173,3 +173,22 @@ service, fleet setting or resource limit changed during these experiments.
 macOS enforcement and Windows execution boundaries remain separate dependencies.
 The owner approved emulation where ARM64 hardware is unavailable; that decision
 and the Linux work are recorded in [the port context](rust-port.md).
+
+The combined bounded candidate now passes independent confined retests of
+actual worker interruption while its real preparer is stalled at Git fetch.
+Both lanes retain the hold and claim without allocating a second workspace;
+unrelated peer work succeeds. The old preparation exits by its deadline,
+including its detached descendant. Manual resolution of the exact test-owned
+hold permits a successful real collector retry. Separate controls exercise
+oversize Git history, device scratch escape, bounded record/diagnostic transfer
+and cancellation. A reproduced hold-status defect is repaired: an inaccessible
+lane fails with empty stdout, with accessible positive controls before and after.
+Fake Nix and local Git transport in the lifecycle fixture remain explicit limits.
+
+The current committed difz source also fits the proposed 63 MiB temporary plus
+1 MiB device scratch boundary. Real capture and byte-identical replay agree
+with independently fetched source metadata and a complete history count of 205
+at `2b7dc17`. This supports an initial difz-only opt-in, not general compatibility
+with arbitrary repository sizes. The reviewed integration must still pass its
+complete suite and host-candidate review before authorized activation and actual
+CI provenance qualification. No service or virtual machine was started.

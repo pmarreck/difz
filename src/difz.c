@@ -32,9 +32,9 @@
 #ifndef DIFZ_PF
 #error "The difz build must supply its canonical compilation target"
 #endif
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32) || defined(_WIN64)
 #ifndef DIFZ_VARIANT
-#error "The difz Linux build must supply its compilation ABI"
+#error "The difz build must supply its compilation ABI"
 #endif
 #define DIFZ_ABOUT_VARIANT " VARIANT=" DIFZ_VARIANT
 #else

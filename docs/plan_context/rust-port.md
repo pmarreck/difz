@@ -1847,3 +1847,35 @@ Commit `3dc1a2c` delivered this increment. Exact-commit CI passed all eighteen
 declared targets in 37 seconds, including the ARM64 emulation check. The
 remote branch was verified against the delivered commit. Remaining platform,
 SDK ownership and metadata qualification items stay open.
+
+### Windows AMD64 file acceptance under Wine, 2026-11-26
+
+A confined probe executed the real Windows executable and reproduced a missing
+`VARIANT=gnu` in its `--about` output. The build now supplies the Windows GNU ABI
+macro, and the C frontend includes it in the compiled identity. macOS continues
+to omit the inapplicable variant. The required `windows-amd64-emulated` Nix
+check executes both original Windows profiles through pinned minimal Wine 11.0
+on Linux and verifies identity under contradictory runtime variables. An actual
+ARM64 PE supplies the wrong-architecture control.
+
+Both profiles pass all six shared file acceptance cases against the Linux Rust
+implementation, covering every producer/consumer pair, wrong sources,
+corruptions, existing output replacement and unchanged inputs. The common gate
+has an explicit `--files-only` scope for this increment; its default still
+requires all six file and both tree cases. Gate controls verify the scoped count
+and reject unknown scopes before invoking a product. A separate real Windows
+stdout reconstruction includes NUL, 0xff, CRLF and Ctrl-Z bytes.
+
+Wine state is private and disposable. The diagnostic route uses the existing
+Linux resource admission and preventive filesystem/PID/network boundary; the
+mandatory check executes in the Nix build sandbox. No Windows virtual machine,
+global binary-format registration, service or larger resource budget is needed.
+This increment qualifies the stated Windows API compatibility scope, not native
+Windows or NTFS metadata behavior. Windows Rust products, ARM64 execution and
+foreign filesystem adapters remain separate open work.
+
+The complete `./test` passed in 406.62 seconds for this increment. Nix
+preparation and sandbox checks took 191.39 seconds; the host phase, including
+environment and admission waiting, took 215.23 seconds. File growth took 26.24
+seconds and structure growth 40.51 seconds. All twenty growth cases passed on
+their first attempt and remain unbaselined, with unchanged measurement policy.

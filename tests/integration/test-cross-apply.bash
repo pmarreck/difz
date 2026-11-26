@@ -42,6 +42,15 @@ export DIFZ_CROSS_MODE=pass
 grep -Fxq 'PASS cross-apply: files=6 trees=2 encoder/decoder-pairs=4' "$work/out" || {
 	printf 'FAIL cross-apply case set is incomplete\n' >&2; exit 1;
 }
+"$gate" "$reference" "$candidate" --files-only > "$work/out" 2> "$work/err" || {
+	cat "$work/err" >&2; exit 1;
+}
+grep -Fxq 'PASS cross-apply: files=6 trees=0 encoder/decoder-pairs=4' "$work/out" || exit 1
+: > "$record"
+if "$gate" "$reference" "$candidate" invalid-scope > "$work/out" 2> "$work/err"; then
+	printf 'FAIL invalid acceptance scope was accepted\n' >&2; exit 1
+fi
+[ ! -s "$record" ] && [ -s "$work/err" ] || exit 1
 for mode in no-encode no-apply corrupt-apply corrupt-tree wrong-tree-mode mask-failure abort-status; do
 	DIFZ_CROSS_MODE=$mode "$gate" "$reference" "$candidate" > "$work/out" 2> "$work/err"
 	status=$?
