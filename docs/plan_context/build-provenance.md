@@ -114,6 +114,15 @@ standalone and Windows cross check passed. File growth took 33.92 seconds and
 structure growth 43.59 seconds; sampling, bounds and unbaselined status remain
 unchanged. The feedback budget remains exceeded.
 
+Commit `f051e6c4fa1a832c051c88c349dfa39bff43c219` was pushed and independently
+matched against the fetched remote branch. Its exact CI run passed in 36
+seconds. A subsequent capture from that clean committed source produced
+`r202-f051e6`, count 202, with the same commit as source, primary tip and base.
+The actual release guard accepted the record. Bounded Nix builds of both
+optimized backends retained that exact full record and passed native identity
+verification with `DIRTY=false`, including contradictory runtime variables.
+These controls cover available clean, available dirty and unavailable builds.
+
 ## Infrastructure integration
 
 A validated JSON record alone is not an independent Git-history proof or a

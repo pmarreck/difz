@@ -1763,3 +1763,31 @@ initial lazy-validation gap; both production and check targets now reject bad
 source hashes/revisions and missing metadata. Complete `./test` passes. CLI/SDK
 stamps, the local Git-aware bridge, release-workflow gating and exact-commit CI
 handoff qualification remain open. See [build provenance](build-provenance.md).
+
+### Native control audit and remaining prerequisites, 2026-11-25
+
+The approved infrastructure investigation confirmed command access to native
+macOS ARM64 and Windows AMD64, but neither host has a qualified per-job
+supervisor and preventive filesystem boundary. No remote qualification wave,
+limit change or fleet deployment was performed. Windows ARM64 still lacks an
+identified runner. These are infrastructure blockers, not native test passes.
+The configured builder inventory also does not establish a native Linux ARM64
+route; cross-builds or emulation would not supply that evidence.
+
+Windows needs a supervisor that assigns a suspended child to a Job Object
+before resuming it, limits aggregate job memory and runtime, and independently
+proves descendant cleanup. Filesystem confinement needs its own restricted
+workspace/token/ACL or isolated guest boundary and forbidden-write controls;
+a Job Object alone does not supply it. The macOS host has sandbox and timeout
+primitives but no verified aggregate resident-memory mechanism or qualified
+process-tree/write supervisor. Its address-space limit does not establish the
+required memory contract. A weaker monitored ceiling has not been approved.
+
+Native qualification remains on hold until those controls are implemented and
+their independent canaries pass. The foreign filesystem adapters remain
+incomplete; completing their qualification requires those bounded native oracles.
+The Darwin RSS-limit item also requires that bounded native route. The local
+provenance implementation is separately qualified in commit `f051e6c`; the
+reviewed CI handoff still needs bounded crash/orphan-root recovery before
+activation and exact-commit evidence. The open PLAN items retain these specific
+prerequisites.
