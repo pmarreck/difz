@@ -2180,3 +2180,38 @@ validate the actual returned buffer and every target offset/length, reject
 lossy Unicode, and preserve the existing implementation's relative and NT/Win32
 path behavior. Known junction handling and unknown reparse tags need explicit
 controls before tree capture can rely on them.
+
+### Windows bounded link-target reads, 2026-11-26
+
+The Windows adapter now reads symbolic links and junctions through owned
+no-follow handles, using a fixed aligned 16 KiB reparse buffer. It checks the
+reported byte count, declared data extent, known tag, flags, field sizes and
+both substitute/display-name offsets before decoding. Known junctions share
+the link kind; unknown reparse types remain unsupported. The filesystem's
+substitute target is authoritative even when the display name says something
+different.
+
+Namespace normalization follows the existing pinned Zig implementation:
+relative targets retain their native text, absolute common NT prefixes are
+removed, and UNC prefixes become Win32 separators. Native path reads remain
+separate from DIFZTREE validation, which still requires portable, nonempty
+UTF-8 relative targets and rejects absolute or escaping links. A shared
+fallible UTF-16 decoder preserves existing name-byte limits and rejects
+unpaired surrogates and embedded NULs without replacement characters.
+
+Three additional cases require fifty-two Windows tests across both
+architectures and profiles. Native fixtures cover relative and absolute
+Unicode targets, exact/overflow ceilings, parent-path replacement, ordinary
+file rejection and kernel handle counts. Direct native reparse setters create
+a symbolic link whose substitute and display names intentionally differ and
+a real junction; independent filesystem reads verify their destinations.
+Pure controls cover every truncation of a valid buffer, invalid extents and
+flags, unsupported tags, malformed UTF-16 and golden namespace cases from the
+existing implementation. The directory patch/publication APIs remain open.
+
+The complete `./test` passes in 286.55 seconds with zero failures: 128.86 seconds
+for Nix preparation/checks and 157.69 seconds including host admission and
+execution. Both architectures and profiles pass all thirteen Windows cases
+and their mandatory zero-selection controls. Existing native metadata, CLI,
+C ABI, cross-apply, standalone and growth checks also pass. Structure growth
+takes 39.39 seconds under the unchanged measurement policy.

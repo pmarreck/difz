@@ -9,7 +9,6 @@ use windows_sys::Win32::{
 		FILE_ATTRIBUTE_TAG_INFO, FILE_ID_INFO, FILE_TYPE_DISK, FileAttributeTagInfo, FileIdInfo,
 		GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileType,
 	},
-	System::SystemServices::IO_REPARSE_TAG_SYMLINK,
 };
 
 impl Directory {
@@ -68,7 +67,7 @@ impl EntryInfo {
 					io::Error::new(io::ErrorKind::InvalidData, "entry kind changed").into(),
 				);
 			}
-			if tag.ReparseTag == IO_REPARSE_TAG_SYMLINK {
+			if super::link::kind(tag.ReparseTag).is_some() {
 				Kind::Symlink
 			} else {
 				Kind::Other

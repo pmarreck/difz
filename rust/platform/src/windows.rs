@@ -163,6 +163,10 @@ mod entry;
 #[path = "windows_names.rs"]
 mod names;
 pub use names::Names;
+#[path = "windows_link.rs"]
+mod link;
+#[path = "windows_text.rs"]
+mod text;
 fn check_kind(file: &File, kind: Child) -> Result<(), Error> {
 	// The API borrows this live handle. Pipes and character devices do not
 	// satisfy this filesystem capability even if another query accepts them.
