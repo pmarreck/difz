@@ -3,6 +3,9 @@ let
 	cross = !(pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform);
 	binary = "abi-consumer${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isWindows ".exe"}";
 	execute = pkgs.lib.escapeShellArgs (runner ++ [ "./${binary}" ]);
+	llvmCoff = pkgs.stdenv.hostPlatform.isWindows && pkgs.stdenv.hostPlatform.isAarch64;
+	nm = if llvmCoff then "${pkgs.buildPackages.llvmPackages.llvm}/bin/llvm-nm" else "nm";
+	objdump = if llvmCoff then "${pkgs.buildPackages.llvmPackages.llvm}/bin/llvm-objdump" else "objdump";
 in
 assert pkgs.lib.assertMsg (!cross || runner != []) "foreign ABI acceptance requires an explicit execution runner";
 (pkgs.stdenv.mkDerivation rec {
@@ -16,7 +19,8 @@ assert pkgs.lib.assertMsg (!cross || runner != []) "foreign ABI acceptance requi
 	};
 	strictDeps = true;
 	buildInputs = [ library ];
-	nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isWindows [ pkgs.buildPackages.binutils ];
+	nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isWindows
+		[ (if llvmCoff then pkgs.buildPackages.llvmPackages.llvm else pkgs.buildPackages.binutils) ];
 	nativeCheckInputs = with pkgs.buildPackages; [ coreutils diffutils gnugrep gnused gawk ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.buildPackages.binutils ];
 	doCheck = true;
 	buildPhase = ''
@@ -54,7 +58,7 @@ assert pkgs.lib.assertMsg (!cross || runner != []) "foreign ABI acceptance requi
 		${pkgs.lib.optionalString (pkgs.stdenv.hostPlatform.isLinux || pkgs.stdenv.hostPlatform.isWindows) ''
 			# Discover every public namespaced export, then require matching public
 			# declarations and genuine external references from this consumer.
-			nm --defined-only --extern-only ${library}/lib/libdifz_rust.a 2> "$TMPDIR/nm-errors" |
+			${nm} --defined-only --extern-only ${library}/lib/libdifz_rust.a 2> "$TMPDIR/nm-errors" |
 				awk 'NF == 3 && $2 ~ /^[A-Za-z]$/ && $3 ~ /^difz_/ { print $3 }' | LC_ALL=C sort -u > exports
 			grep -oE 'difz_[a-z_]+[[:space:]]*[(]' ${library}/include/difz-rust.h |
 				sed -E 's/[[:space:]]*[(]$//' | LC_ALL=C sort -u > declarations
@@ -62,11 +66,11 @@ assert pkgs.lib.assertMsg (!cross || runner != []) "foreign ABI acceptance requi
 			if ! diff -u declarations exports; then
 				printf 'FAIL public ABI declarations differ from packaged exports\n' >&2; exit 1
 			fi
-			nm --undefined-only caller.o | awk '$1 == "U" && $2 ~ /^difz_/ { print $2 }' | LC_ALL=C sort -u > references
+			${nm} --undefined-only caller.o | awk '$1 == "U" && $2 ~ /^difz_/ { print $2 }' | LC_ALL=C sort -u > references
 			if ! diff -u declarations references; then
 				printf 'FAIL consumer lacks direct references to every public export\n' >&2; exit 1
 			fi
-			if nm --defined-only --extern-only caller.o | awk 'NF == 3 && $2 ~ /^[A-Za-z]$/ && $3 ~ /^difz_/ { found=1 } END { exit !found }'; then
+			if ${nm} --defined-only --extern-only caller.o | awk 'NF == 3 && $2 ~ /^[A-Za-z]$/ && $3 ~ /^difz_/ { found=1 } END { exit !found }'; then
 				printf 'FAIL consumer defines an implementation export\n' >&2; exit 1
 			fi
 			while IFS= read -r symbol; do
@@ -77,7 +81,7 @@ assert pkgs.lib.assertMsg (!cross || runner != []) "foreign ABI acceptance requi
 				fi
 				grep -F "__wrap_$symbol" "$TMPDIR/link-output" > /dev/null
 			done < declarations
-			if ${if pkgs.stdenv.hostPlatform.isWindows then "objdump -p ./${binary} | grep 'DLL Name:'" else "readelf -d ./abi-consumer | grep NEEDED"} | grep -Ei 'zstd|difz'; then
+			if ${if pkgs.stdenv.hostPlatform.isWindows then "${objdump} -p ./${binary} | grep 'DLL Name:'" else "readelf -d ./abi-consumer | grep NEEDED"} | grep -Ei 'zstd|difz'; then
 				printf 'FAIL ABI consumer has a dynamic difz/zstd dependency\n' >&2; exit 1
 			fi
 			printf 'PASS isolated ABI consumer: every discovered export required; missing-export controls fail\n'

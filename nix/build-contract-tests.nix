@@ -25,7 +25,7 @@ assert lib.all valid [ "zig" "zig\n" "rust" "rust\n" ];
 assert lib.all (rejected source) invalidSelectors;
 assert lib.all (data: rejected data "zig\n") invalidSources;
 assert builtins.length model.rows == 20;
-assert builtins.length (builtins.filter (row: row.output == null) model.rows) == 2;
+assert lib.all (row: row.output != null) model.rows;
 assert lib.all (row: row.implementation != "zig" || row.output != null) model.rows;
 assert builtins.attrNames model.implementations == [ "rust" "zig" ];
 true

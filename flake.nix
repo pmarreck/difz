@@ -327,6 +327,12 @@
 					oracles = [ releaseFast debugTests ];
 					wrongArchControl = windowsArm64Release;
 				};
+				windowsArmRust = import ./nix/windows-rust.nix {
+					inherit pkgs buildStamp zstdBuild rustProduct;
+					arch = "arm64";
+					oracles = [ releaseFast debugTests ];
+					wrongArchControl = windowsAmd64Release;
+				};
 				canonicalProducts = implementationProducts.${buildContract.canonical};
 		in
 			{
@@ -349,7 +355,7 @@
 					rust-cli-debug = rustCliDebug;
 					rust-zstdz-sdk = rustZstdzSdk;
 					host-tests = hostTests;
-				} // pkgs.lib.optionalAttrs (system == "x86_64-linux") (linuxArm64.packages // windowsRust.packages);
+				} // pkgs.lib.optionalAttrs (system == "x86_64-linux") (linuxArm64.packages // windowsRust.packages // windowsArmRust.packages);
 
 				checks = {
 					build = canonicalProducts.release;
@@ -438,6 +444,7 @@
 				} // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
 					linux-arm64-emulated = linuxArm64.check;
 					windows-rust-amd64 = windowsRust.check;
+					windows-rust-arm64 = windowsArmRust.check;
 					windows-amd64-emulated = import ./nix/windows-emulated.nix {
 						inherit pkgs;
 						products = [ windowsAmd64Release windowsAmd64Debug ];

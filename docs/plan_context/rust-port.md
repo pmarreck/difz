@@ -1950,24 +1950,6 @@ Both Nix and shell selection reject absent or incorrect Windows variants.
 Foreign Rust SDK validation matches the full Windows target triple and selected
 ABI before publication. Windows ARM64 Rust products remain explicitly unavailable.
 
-### Windows target binding headers, 2026-11-26
-
-ARM64 toolchain preparation exposed two binding-generation defects: Rust's
-`windows-gnullvm` target spelling is not a Clang triple, and native Linux libc
-headers cannot describe Windows types. Both Windows SDK and CLI binding builders
-now use the target's MinGW headers, Clang's builtin resource headers and the
-corresponding `windows-gnu` Clang spelling. The installed SDK continues recording
-the actual Rust target, including `gnullvm` where applicable.
-
-Resource discovery uses unwrapped Clang. Adding its wrapped compiler as a native
-tool runs a compiler setup hook that can pollute Cargo's native build-script
-linking with Windows libraries; a failed build reproduced that distinction.
-Both AMD64 Windows profiles pass their real CLI units, external C ABI and shared
-file acceptance with the corrected headers. The complete `./test` passes in
-109.31 seconds with zero failures, including fresh file and structure growth
-checks under the existing bounds. This checkpoint fixes binding preparation;
-ARM64 Rust execution and standalone runtime qualification remain open.
-
 The cross-built ABI check executes the check body directly during the build:
 Nix's generic `runPhase checkPhase` still skips a check disabled for a foreign
 target. Installation requires an affirmative execution receipt, and the outer
@@ -1986,3 +1968,63 @@ Its exact-commit CI passed all twenty-one declared targets in 124 seconds.
 The push hook verified the same complete check set with its supported
 sixty-second lookup allowance after the default ten-second lookup timed out;
 no check declaration, coverage or execution limit changed.
+
+### Windows target binding headers, 2026-11-26
+
+ARM64 toolchain preparation exposed two binding-generation defects: Rust's
+`windows-gnullvm` target spelling is not a Clang triple, and native Linux libc
+headers cannot describe Windows types. Both Windows SDK and CLI binding builders
+now use the target's MinGW headers, Clang's builtin resource headers and the
+corresponding `windows-gnu` Clang spelling. The installed SDK continues recording
+the actual Rust target, including `gnullvm` where applicable.
+
+Resource discovery uses unwrapped Clang. Adding its wrapped compiler as a native
+tool runs a compiler setup hook that can pollute Cargo's native build-script
+linking with Windows libraries; a failed build reproduced that distinction.
+Both AMD64 Windows profiles pass their real CLI units, external C ABI and shared
+file acceptance with the corrected headers. The complete `./test` passes in
+109.31 seconds with zero failures, including fresh file and structure growth
+checks under the existing bounds. This checkpoint fixes binding preparation;
+ARM64 Rust execution and standalone runtime qualification remained open.
+Commit `880f244` matched the fetched remote branch; its exact-commit CI passed
+all twenty-one targets in 50 seconds.
+
+### Windows ARM64 Rust product integration, 2026-11-26
+
+Both Windows ARM64 Rust profiles now build through the pinned Rust 1.94.1 and
+GNU LLVM toolchain, with the existing zstdz source statically linked. The SDK
+records `aarch64-pc-windows-gnullvm`; publication explicitly maps that target
+to the GNU ABI variant while rejecting other variants. The build registry
+selects both products, and the required `windows-rust-arm64` check is included
+in the complete test entry point and exact-commit CI manifest.
+
+The pinned provider needed three target-scoped corrections: retain static
+atomic builtins without bootstrapping a separate libatomic DLL, supply the
+MinGW headers to the pthread resource compiler, and build LLVM's unwinder
+statically. Actual PE import inspection caught the original `libunwind.dll`
+dependency. The fix preserves Rust panic unwinding; it does not select aborting
+panics. Native LLVM also explicitly strips CRT debug sections from the ARM64
+executables after the provider's target-prefixed strip left embedded header
+paths behind. Independent whole-file scans still reject Nix store references.
+
+The shared Windows gate runs seven CLI units in each profile, the existing
+external C ownership/limits/grammar fixture, exact discovered-export equality
+and a failing link for every omitted export. LLVM COFF tools inspect ARM64
+objects without dropping those controls. Both architectures and profiles also
+run the existing Rust boundary tests, including a deliberate panic that must
+return the declared status and preserve the caller's output slot.
+
+The ARM64 check uses the already qualified private interpreter namespace and
+pinned QEMU plus Wine. Both profiles pass six shared file cases with all four
+encoder/decoder pairings against the original implementation, compiled identity
+under conflicting environment variables, binary stdout and wrong-architecture
+controls. CLI and external consumer imports contain only the enumerated Windows
+system DLLs, with no dynamic codec, difz or unwinder dependency. This qualifies
+the stated emulated file and ABI scope. Windows filesystem metadata adapters,
+native Windows behavior and a minimum supported Windows release remain open.
+
+The complete `./test` passes in 123.54 seconds with zero failures. The registry
+contracts now require all twenty declared implementation/platform/profile
+combinations to have builders. Selection acceptance separately checks the real
+complete matrix and a disposable matrix with a deliberately unavailable ARM64
+builder, preserving failure coverage as product availability changes.

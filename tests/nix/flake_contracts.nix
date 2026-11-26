@@ -35,12 +35,23 @@ in {
 	};
 	windowsRust = let check = flake.checks.x86_64-linux.windows-rust-amd64; in {
 		inherit (check) execution;
+		boundaries = builtins.length check.boundaryTests;
 		target = check.sdk.rustTarget;
 		profiles = map (p: p.profile) check.products;
 		consumers = map (p: membership p.src [ "rust/c-api/tests/caller.c" ]
 			[ "rust/c-api/src/lib.rs" "rust/c-api/include/difz-rust.h" ]) check.abiConsumers;
 		registry = map (row: { inherit (row) variant output; })
 			(builtins.filter (row: row.implementation == "rust" && row.pf == "mswin-amd64") flake.buildContract.rows);
+	};
+	windowsArmRust = let check = flake.checks.x86_64-linux.windows-rust-arm64; in {
+		inherit (check) execution;
+		boundaries = builtins.length check.boundaryTests;
+		target = check.sdk.rustTarget;
+		profiles = map (p: p.profile) check.products;
+		consumers = map (p: membership p.src [ "rust/c-api/tests/caller.c" ]
+			[ "rust/c-api/src/lib.rs" "rust/c-api/include/difz-rust.h" ]) check.abiConsumers;
+		registry = map (row: { inherit (row) variant output; })
+			(builtins.filter (row: row.implementation == "rust" && row.pf == "mswin-arm64") flake.buildContract.rows);
 	};
 	armPackage = flake.packages.aarch64-linux.default.name;
 	armEmulation = let

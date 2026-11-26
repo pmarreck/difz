@@ -15,6 +15,15 @@ for tool in nix nix-store zig cargo rustc; do
 done
 export PATH="$work/tools:$PATH"
 difz_build_load "$project" || exit 1
+# The production matrix is now complete. Keep unavailable-builder behavior as
+# an explicit disposable fixture so new products cannot erase that coverage.
+difz_build_read_canonical || exit 1
+difz_build_parse --all || exit 1
+difz_build_plan linux-amd64 > "$work/out" 2> "$work/err" || { printf 'FAIL complete production matrix\n' >&2; exit 1; }
+[ "${#DIFZ_BUILD_PLAN[@]}" -eq 10 ] || exit 1
+awk -F '\t' 'BEGIN { OFS="\t" } $1 == "rust" && $3 == "mswin-arm64" { $7="-" } { print }' \
+	"$root/nix/build-targets.tsv" > "$project/nix/build-targets.tsv" || exit 1
+difz_build_load "$project" || exit 1
 for backend in zig rust; do for ending in none lf; do
 	printf '%s' "$backend" > "$project/CANONICAL_IMPL"
 	if [ "$ending" = lf ]; then printf '\n' >> "$project/CANONICAL_IMPL"; fi
@@ -107,4 +116,4 @@ if difz_build_load "$project" > "$work/out" 2> "$work/err"; then printf 'FAIL in
 cp "$root/nix/build-targets.tsv" "$project/nix/build-targets.tsv" || exit 1
 difz_build_load "$project" || exit 1
 [ ! -e "$DIFZ_SELECTION_EXECUTED" ] && [ ! -e "$project/must-not-execute" ] || exit 1
-printf 'PASS build selection: strict/idempotent configuration, all scope aliases, complete unavailable matrix, host aliases and rejected arguments without builds or publication\n'
+printf 'PASS build selection: strict/idempotent configuration, all scope aliases, complete available and unavailable matrices, host aliases and rejected arguments without builds or publication\n'

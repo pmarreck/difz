@@ -17,5 +17,5 @@ rust	rust	macos-arm64	-	release	release	packages.aarch64-darwin.rust-product
 rust	rust	macos-arm64	-	debug	debug	packages.aarch64-darwin.rust-product-debug
 rust	rust	mswin-amd64	gnu	release	release	packages.x86_64-linux.windows-amd64-rust-release
 rust	rust	mswin-amd64	gnu	debug	debug	packages.x86_64-linux.windows-amd64-rust-debug
-rust	rust	mswin-arm64	gnu	release	release	-
-rust	rust	mswin-arm64	gnu	debug	debug	-
+rust	rust	mswin-arm64	gnu	release	release	packages.x86_64-linux.windows-arm64-rust-release
+rust	rust	mswin-arm64	gnu	debug	debug	packages.x86_64-linux.windows-arm64-rust-debug
