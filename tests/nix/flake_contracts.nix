@@ -23,6 +23,19 @@ in {
 	windowsProducts = map (name: { inherit (checks.${name}) pf profile; })
 		[ "windows-gnu" "windows-gnu-debug" "windows-arm64-gnu" "windows-arm64-gnu-debug" ];
 	armPackage = flake.packages.aarch64-linux.default.name;
+	armEmulation = let
+		check = flake.checks.x86_64-linux.linux-arm64-emulated;
+		products = flake.packages.x86_64-linux;
+	in {
+		inherit (check) execution;
+		products = builtins.length check.products;
+		registry = map (row: row.output) (builtins.filter (row: row.pf == "linux-arm64") flake.buildContract.rows);
+		rustTargets = map (p: p.components.library.rustTarget)
+			[ products.linux-arm64-rust-release products.linux-arm64-rust-debug ];
+		source = membership check.source
+			[ "scripts/check-static-linux.bash" "tests/cli/test_cli.bash" "tests/acceptance/cross-apply" ]
+			[ "rust/src/lib.rs" "rust/cli/src/main.rs" "src/lib.zig" ];
+	};
 	rustTools = builtins.sort builtins.lessThan
 		(builtins.filter (name: builtins.elem name [ "cargo" "rustc" ])
 			(map (input: input.meta.mainProgram or (input.pname or input.name or "")) shell.nativeBuildInputs));

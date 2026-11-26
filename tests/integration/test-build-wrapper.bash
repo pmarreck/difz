@@ -93,6 +93,10 @@ case "$operation" in
     "path:$(cat "$DIFZ_TEST_SNAPSHOT")#packages.$DIFZ_TEST_SYSTEM.zig-debug") prefix=$DIFZ_TEST_ZIG_DEBUG;;
     "path:$(cat "$DIFZ_TEST_SNAPSHOT")#packages.$DIFZ_TEST_SYSTEM.rust-product") prefix=$DIFZ_TEST_RUST_RELEASE;;
     "path:$(cat "$DIFZ_TEST_SNAPSHOT")#packages.$DIFZ_TEST_SYSTEM.rust-product-debug") prefix=$DIFZ_TEST_RUST_DEBUG;;
+    "path:$(cat "$DIFZ_TEST_SNAPSHOT")#packages.x86_64-linux.linux-arm64-zig-release") [ "$DIFZ_TEST_SYSTEM" = aarch64-linux ] || exit 73; prefix=$DIFZ_TEST_ZIG_RELEASE;;
+    "path:$(cat "$DIFZ_TEST_SNAPSHOT")#packages.x86_64-linux.linux-arm64-zig-debug") [ "$DIFZ_TEST_SYSTEM" = aarch64-linux ] || exit 73; prefix=$DIFZ_TEST_ZIG_DEBUG;;
+    "path:$(cat "$DIFZ_TEST_SNAPSHOT")#packages.x86_64-linux.linux-arm64-rust-release") [ "$DIFZ_TEST_SYSTEM" = aarch64-linux ] || exit 73; prefix=$DIFZ_TEST_RUST_RELEASE;;
+    "path:$(cat "$DIFZ_TEST_SNAPSHOT")#packages.x86_64-linux.linux-arm64-rust-debug") [ "$DIFZ_TEST_SYSTEM" = aarch64-linux ] || exit 73; prefix=$DIFZ_TEST_RUST_DEBUG;;
     /*) prefix=$target;;
     *) exit 73;;
    esac

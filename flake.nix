@@ -102,7 +102,7 @@
 				zstdPin = builtins.elemAt (pkgs.lib.splitString ".zstdz = .{"
 					(builtins.readFile ./build.zig.zon)) 1;
 				zstdUrl = builtins.elemAt (pkgs.lib.splitString "\"" zstdPin) 1;
-				zstdBenchmark = runtimePkgs.stdenv.mkDerivation {
+				zstdBuild = targetPkgs: targetPkgs.stdenv.mkDerivation {
 					pname = "zstd";
 					version = "1.6.0-zstdz";
 					src = pkgs.fetchzip {
@@ -126,8 +126,9 @@
 						runHook postInstall
 					'';
 				};
+				zstdBenchmark = zstdBuild runtimePkgs;
 
-				zigBuild = { optimize ? "ReleaseFast", doCheck ? false, prepareTests ? false }: runtimePkgs.stdenv.mkDerivation {
+				zigBuild = { optimize ? "ReleaseFast", doCheck ? false, prepareTests ? false, targetPkgs ? runtimePkgs }: targetPkgs.stdenv.mkDerivation {
 					pname = "difz";
 					version = "0.1.0";
 					src = zigSource;
@@ -153,7 +154,7 @@
 							difz_zig_lib_args=(--zig-lib-dir "$TMPDIR/zig-lib")
 						''}
 
-						zig build "''${difz_zig_lib_args[@]}" ${pkgs.lib.optionalString prepareTests "test-artifacts"} -Dtarget=${if pkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-musl" else "x86_64-linux-musl"} -Dcpu=baseline -Doptimize=${optimize} -Dbuild-revision=${buildStamp.revision} -Dbuild-dirty=${buildStamp.dirty} --prefix $out
+						zig build "''${difz_zig_lib_args[@]}" ${pkgs.lib.optionalString prepareTests "test-artifacts"} -Dtarget=${if targetPkgs.stdenv.hostPlatform.isDarwin then "aarch64-macos" else if targetPkgs.stdenv.hostPlatform.isAarch64 then "aarch64-linux-musl" else "x86_64-linux-musl"} -Dcpu=baseline -Doptimize=${optimize} -Dbuild-revision=${buildStamp.revision} -Dbuild-dirty=${buildStamp.dirty} --prefix $out
 						${buildStamp.install}
 					'';
 
@@ -304,6 +305,7 @@
 				};
 				rustProductRelease = rustProduct "release" rustCli rustLibrary;
 				rustProductDebug = rustProduct "debug" rustCliDebug rustLibraryDebug;
+				linuxArm64 = import ./nix/linux-arm64.nix { inherit pkgs buildStamp zigBuild zstdBuild rustProduct; };
 				runtimeIndependence = import ./nix/runtime-independence.nix {
 					inherit pkgs;
 					products = [ releaseFast debugTests rustProductRelease rustProductDebug ];
@@ -321,24 +323,26 @@
 				canonicalProducts = implementationProducts.${buildContract.canonical};
 		in
 			{
-				packages.default = canonicalProducts.release;
-				packages.debug = canonicalProducts.debug;
-				packages.zig-release = releaseFast;
-				packages.zig-debug = debugTests;
-				packages.zstd-benchmark = zstdBenchmark;
-				packages.performance-benchmark = performancePackage;
-				packages.rust-codec-tests = rustCodecTests;
-				packages.rust-core-tests = rustCoreTests;
-				packages.rust-library = rustLibrary;
-				packages.rust-library-debug = rustLibraryDebug;
-				packages.rust-product = rustProductRelease;
-				packages.rust-product-debug = rustProductDebug;
-				packages.rust-abi-consumer = rustAbiConsumer;
-				packages.rust-abi-debug-consumer = rustAbiDebugConsumer;
-				packages.rust-cli = rustCli;
-				packages.rust-cli-debug = rustCliDebug;
-				packages.rust-zstdz-sdk = rustZstdzSdk;
-				packages.host-tests = hostTests;
+				packages = {
+					default = canonicalProducts.release;
+					debug = canonicalProducts.debug;
+					zig-release = releaseFast;
+					zig-debug = debugTests;
+					zstd-benchmark = zstdBenchmark;
+					performance-benchmark = performancePackage;
+					rust-codec-tests = rustCodecTests;
+					rust-core-tests = rustCoreTests;
+					rust-library = rustLibrary;
+					rust-library-debug = rustLibraryDebug;
+					rust-product = rustProductRelease;
+					rust-product-debug = rustProductDebug;
+					rust-abi-consumer = rustAbiConsumer;
+					rust-abi-debug-consumer = rustAbiDebugConsumer;
+					rust-cli = rustCli;
+					rust-cli-debug = rustCliDebug;
+					rust-zstdz-sdk = rustZstdzSdk;
+					host-tests = hostTests;
+				} // pkgs.lib.optionalAttrs (system == "x86_64-linux") linuxArm64.packages;
 
 				checks = {
 					build = canonicalProducts.release;
@@ -424,7 +428,7 @@
 							bash tests/benchmark/test-rust-growth-routing.bash
 							touch $out
 						'';
-				};
+				} // pkgs.lib.optionalAttrs (system == "x86_64-linux") { linux-arm64-emulated = linuxArm64.check; };
 
 				devShells.default = pkgs.mkShell {
 					packages = with pkgs; [

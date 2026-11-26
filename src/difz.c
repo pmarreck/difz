@@ -341,6 +341,27 @@ static void difz_on_alarm(int sig) {
 static int apply_rss_ceiling(size_t max_rss_bytes) {
 	struct rlimit rl;
 	if (max_rss_bytes == 0) return 0;
+#if defined(__linux__)
+	/* Lowering RLIMIT_AS does not revoke existing mappings. Reject a ceiling
+	 * already below this process's VM usage before relying on future failures. */
+	FILE *statm = fopen("/proc/self/statm", "r");
+	unsigned long long pages = 0;
+	long page_size = sysconf(_SC_PAGESIZE);
+	if (!statm) {
+		fprintf(stderr, "difz: cannot inspect virtual memory before applying RSS ceiling\n");
+		return -1;
+	}
+	int fields = fscanf(statm, "%llu", &pages);
+	int close_status = fclose(statm);
+	if (fields != 1 || close_status != 0 || page_size <= 0) {
+		fprintf(stderr, "difz: cannot inspect virtual memory before applying RSS ceiling\n");
+		return -1;
+	}
+	if (pages > max_rss_bytes / (unsigned long long)page_size) {
+		fprintf(stderr, "difz: resource limit exceeded by current virtual memory\n");
+		return -1;
+	}
+#endif
 	rl.rlim_cur = (rlim_t)max_rss_bytes;
 	rl.rlim_max = (rlim_t)max_rss_bytes;
 	if (setrlimit(RLIMIT_AS, &rl) != 0) {

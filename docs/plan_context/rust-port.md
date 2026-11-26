@@ -1791,3 +1791,54 @@ provenance implementation is separately qualified in commit `f051e6c`; the
 reviewed CI handoff still needs bounded crash/orphan-root recovery before
 activation and exact-commit evidence. The open PLAN items retain these specific
 prerequisites.
+
+### ARM64 execution decision, 2026-11-26
+
+The owner confirmed that no additional Linux ARM64 or Windows ARM64 hosts are
+available and authorized emulation and containers instead. Physical ARM64
+hardware is no longer a prerequisite for this qualification work. Results must
+identify the execution mode: a cross-build proves construction, QEMU user mode
+executes the ARM64 ABI against the Linux host kernel, and a Windows guest or API
+emulator has its own filesystem and compatibility scope. A Linux container by
+itself supplies no Windows kernel or filesystem semantics.
+
+The next Linux increment uses the existing pinned Nix toolchain, static musl
+products and QEMU inside the qualified Linux write boundary and resource
+admission. No binfmt registration, Docker daemon, fleet deployment or larger
+budget is needed. Both original and Rust products must pass shared acceptance;
+metadata fixtures and resource behavior retain their independent controls.
+Windows emulation is being investigated separately. Existing macOS enforcement
+and preventive-boundary prerequisites remain unresolved.
+
+### Linux ARM64 shared acceptance, 2026-11-26
+
+Both implementations and both profiles now have Linux AMD64 Nix cross builders
+for static Linux ARM64 products. The build registry selects those outputs,
+retaining the native ARM64 Nix outputs separately. The required
+`linux-arm64-emulated` check runs each exact product through QEMU user mode.
+All four pass the existing 94-case CLI suite, followed by both profile pairs
+passing the shared six-file/two-tree acceptance across every encoder/decoder
+combination. Actual ELF architecture, static headers, absence of Nix paths,
+compiled target identity under conflicting environment variables and a real
+wrong-architecture control are required. Both Rust profiles additionally pass
+their seven CLI unit tests and packaged SDK target/provenance guard controls.
+
+The cross route uses the unchanged Rust 1.94.1 and Zig 0.16.0 pins and zstdz
+source. Bindgen executes natively while reading the target's libc headers.
+Build-time SDK guards execute on the build CPU; native musl builds retain their
+matching compiler. Static executables with no dynamic section no longer enter
+the RPATH edit. The shared CLI suite now accepts an explicit expected profile,
+preserving Debug as the default. The C CLI also rejects an address-space bound
+already below current usage, as detailed in [the memory context](memory-ceiling.md).
+
+Complete `./test` passed in 272.87 seconds: 188.24 seconds for Nix preparation
+and checks, then 84.63 seconds including host admission and execution. This
+includes the new ARM64 check, four Windows cross-builds, native Linux metadata
+fixtures and ABI consumers, both native CLI suites, and the standalone Linux
+gate. Native Linux growth took 24.99 seconds for file growth and 43.56 seconds
+for structure growth, including one permitted noisy-sample retry. Policies are
+unchanged and all twenty cases remain unbaselined.
+
+The ARM64 results exercise the Linux host kernel through QEMU, with the existing sandbox
+timestamp omission and PTY availability rules. They do not qualify native
+ARM64 hardware, every ARM64 metadata fixture or Windows/macOS execution.

@@ -8,6 +8,8 @@ set -u  # catch undefined variables; NO set -e (we test error paths)
 ERRORS=0
 TESTS=0
 DIFZ="${DIFZ:-./zig-out/bin/difz}"
+DIFZ_TEST_PROFILE="${DIFZ_TEST_PROFILE:-debug}"
+case "$DIFZ_TEST_PROFILE" in debug|release) :;; *) printf 'FATAL: expected debug or release test profile\n' >&2; exit 1;; esac
 TEST_DIR="${TMPDIR:-/tmp}/difz_cli_tests_$$"
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -125,7 +127,13 @@ fi
 printf "\n[Debug build detection]\n"
 
 DEBUG_STDERR=$("$DIFZ" --about 2>&1 1>/dev/null)
-if echo "$DEBUG_STDERR" | grep -q "DEBUG BUILD"; then
+if [ "$DIFZ_TEST_PROFILE" = release ]; then
+	if [ -z "$DEBUG_STDERR" ]; then
+		pass "Release build has no debug warning"
+	else
+		fail "Release build has no debug warning" "stderr: $DEBUG_STDERR"
+	fi
+elif echo "$DEBUG_STDERR" | grep -q "DEBUG BUILD"; then
 	pass "Debug build prints DEBUG BUILD to stderr"
 else
 	fail "Debug build prints DEBUG BUILD to stderr" "stderr: $DEBUG_STDERR"
@@ -1004,7 +1012,7 @@ fi
 
 printf "\n[Stderr cleanliness]\n"
 
-# With --no-progress, stderr should only contain DEBUG BUILD (since we built debug)
+# With --no-progress, only a Debug build's already-checked warning is allowed.
 CLEAN_STDERR=$("$DIFZ" --no-progress "$TEST_DIR/a.txt" "$TEST_DIR/b.txt" -o /dev/null 2>&1)
 # Remove the expected DEBUG BUILD line
 CLEAN_STDERR_FILTERED=$(echo "$CLEAN_STDERR" | grep -v "^DEBUG BUILD$" | grep -v "^$")

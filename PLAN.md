@@ -18,16 +18,17 @@ Completed work is retained in docs/PLAN_LOG.md; measurement details live in docs
 		- [x] Port allocation-free native attribute-name mapping for every OS/class, using the untouched pinned xattr_stream source as oracle; byte/length/buffer/inverse controls reject a broken mapper, and the combined complete suite passes. (done 2026-11-06 18:52 EST; context: docs/plan_context/rust-port.md)
 		- [x] Add Linux descriptor-based raw attribute replacement/removal with independent binary/empty/absence/error/path-replacement readback and all five native fixtures required; the combined complete suite passes. (done 2026-11-06 18:52 EST; context: docs/plan_context/rust-port.md)
 - [ ] Conform the build to the cross-platform-project-build-arch skill, including canonical implementation selection where applicable, PF/VARIANT/profile outputs, safe host publication, the five-platform matrix, and Nix/native agreement.
+	- [ ] Build both Linux ARM64 implementations through Nix and qualify their shared acceptance under bounded emulation, recording the execution mode. (context: docs/plan_context/rust-port.md)
 	- [x] Add verified implementation selection, transactional Nix publication, independent SDK checks and all four optimized/Debug Windows Zig cross-builds; native foreign execution remains pending. (done 2026-11-25 18:45 EST; commit ad8584f; context: docs/plan_context/rust-port.md)
 	- [ ] Stamp builds with verified rN-abcdef provenance from the built commit and its recorded yolo base, keeping dirty state separate and rejecting unavailable provenance for releases. (context: docs/plan_context/build-provenance.md)
 		- [x] Capture source-bound local history, stamp both frontends and SDKs, and guard release preparation; the complete suite, exact-commit CI and both clean r202-f051e6 products pass. (done 2026-11-25 23:41 EST; commit f051e6c; context: docs/plan_context/build-provenance.md)
 		- [ ] Activate and qualify the reviewed CI provenance handoff after bounded crash/orphan recovery is verified. (context: docs/plan_context/build-provenance.md)
 	- [x] Use static musl consistently for Linux Rust product, SDK and test builders; qualify Linux AMD64 standalone execution for both backends/profiles with independent header, byte, closure and empty-root controls. (done 2026-11-25 21:54 EST; commit b4962de; context: docs/plan_context/rust-port.md)
 	- [ ] Qualify native macOS and Windows preventive test boundaries before claiming complete native test execution there. (context: docs/plan_context/test-preparation.md)
-- [ ] Qualify metadata capture and restore on native macOS and Windows hosts; cross-builds establish compilation only. (context: docs/plan_context/metadata-v2.md)
+- [ ] Qualify metadata capture and restore on macOS and Windows using available native hosts or approved emulated execution; distinguish those results from cross-builds. (context: docs/plan_context/metadata-v2.md)
 	- [ ] Establish per-job memory/time enforcement for the native macOS runner and verify bounded Windows AMD64/ARM64 routes before remote qualification waves. (context: docs/plan_context/rust-port.md)
 	- [ ] Add native macOS ACL and sparse-file fixtures with independent OS readback before qualifying those metadata families.
-	- [ ] Locate an available Windows runner before claiming native Windows metadata qualification.
+	- [ ] Establish a bounded Windows execution route, including emulation where hardware is unavailable, before claiming Windows metadata qualification.
 - [ ] Enforce `--max-rss-bytes` on Darwin after reproducing its limit rejection against current VM usage. (context: docs/plan_context/memory-ceiling.md)
 
 ## Deferred

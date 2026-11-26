@@ -22,3 +22,17 @@ done
 ```
 
 Next reproduce the same boundary in the difz process and settle the documented quantity to bound. Any eventual fix must preserve fail-closed behavior without silently substituting RSS observation or additional virtual-space headroom for an RSS ceiling.
+
+## Linux preflight, 2026-11-26
+
+The C CLI now rejects a requested address-space ceiling below its existing VM
+usage before installing `RLIMIT_AS`, matching the Rust CLI's existing check.
+Lowering the limit does not revoke mappings already present. ARM64 user-mode
+execution exposed a case where the C CLI accepted a 4 KiB limit and completed a
+tiny create; the unchanged shared regression now rejects that request for both
+implementations. Both still accept an 8 GiB limit for the same tiny input.
+
+The preflight reads the kernel's page count, validates the page size and avoids
+overflow when comparing bytes. Failure to inspect usage fails closed. This
+does not change the documented quantity to RSS or establish native ARM64 kernel
+limit enforcement through QEMU. The Darwin defect remains open.

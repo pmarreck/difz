@@ -225,7 +225,13 @@ The registry covers `linux-amd64`, `linux-arm64`, `macos-arm64`, `mswin-amd64`
 and `mswin-arm64` for both profiles and implementations. Missing builders are
 explicit errors before publication. The original implementation cross-builds
 both Windows architectures in optimized and Debug profiles, with inspected PE
-headers and complete SDK artifacts. Windows Rust products still lack builders;
+headers and complete SDK artifacts. Linux ARM64 products use the Linux AMD64
+Nix cross builder for both implementations and profiles. The required
+`linux-arm64-emulated` check runs their existing CLI and cross-apply suites
+through QEMU user mode, with actual ELF, static-link and target-identity checks.
+`./build --all-impls --pf linux-arm64` prepares both optimized products without
+changing the host command. These tests use the Linux host kernel; they do not
+establish ARM64 hardware or Windows behavior. Windows Rust products still lack builders;
 native macOS/Windows qualification is pending. A declared target or cross-build
 does not establish native support.
 

@@ -25,6 +25,10 @@ started=$(clock_tick)
 printf 'Checking flake contracts and preparing all test artifacts through Nix...\n'
 if ! nix develop --no-update-lock-file -c bash tests/nix/test_flake_outputs.bash; then errors=$((errors + 1)); fi
 system=$(nix eval --impure --raw --expr builtins.currentSystem) || exit 1
+emulated_checks=()
+if [ "$system" = x86_64-linux ]; then
+	emulated_checks+=(".#checks.${system}.linux-arm64-emulated")
+fi
 if nix build --no-update-lock-file --out-link "$roots/result" --json -L \
 	".#packages.${system}.host-tests" \
 	".#checks.${system}.test" \
@@ -42,7 +46,8 @@ if nix build --no-update-lock-file --out-link "$roots/result" --json -L \
 	".#checks.${system}.windows-gnu" \
 	".#checks.${system}.windows-gnu-debug" \
 	".#checks.${system}.windows-arm64-gnu" \
-	".#checks.${system}.windows-arm64-gnu-debug" > "$manifest"; then
+	".#checks.${system}.windows-arm64-gnu-debug" \
+	"${emulated_checks[@]}" > "$manifest"; then
 	prepared=1
 else
 	errors=$((errors + 1)); prepared=0

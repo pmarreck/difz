@@ -142,7 +142,34 @@ Infrastructure activation and end-to-end exact-commit CI evidence remain
 pending. Independent review reproduced destination-symlink publication, missing
 runtime tools, inherited controller leases and a masked shallow-history control.
 All four repairs passed independent tests against an immutable candidate.
-Handled termination now requeues the job and removes its private root; recovery
-after a hard kill or power loss remains a pre-deployment qualification gap.
-Native macOS/Windows runner bounds and preventive write boundaries are separate
-unresolved dependencies.
+The later candidate eliminates persistent per-job input GC roots. Every Nix
+client receives the same hash-constrained metadata input and a full-commit
+source reference constrained by its source NAR. Independent private-daemon
+tests confirm active source/input retention through controller death and
+garbage collection, followed by reclamation after completion. A separate
+private-mount test confirms exact input transfer from a client-only namespace.
+Untrusted local-only dispatch passed paired foreign-builder and native controls;
+this does not qualify remote execution of the opt-in profile.
+
+A durable per-lane hold now preserves the claim after a hard kill or failed
+cleanup. Independent confined fixtures pass repeated starts without new
+preparation, peer execution of unrelated work, signal handling, symlink refusal,
+manual resolution and a reproduced hold-publication/peer-lease race. A further
+runtime inventory exposed an existing undeclared `find` dependency; the
+infrastructure owner added it and a dependency-omission control, with complete
+candidate Nix checks passing. Exact packaged integration is still pending.
+
+Installed boot-cleanup rules passed independent disposable-root controls for
+current versus old boot state, omission of the current-boot guard, repeated
+cleanup and preservation of unrelated files. The first proposed fixture used
+hyphenated boot IDs and was corrected to systemd's normalized representation.
+This is evidence about those rules, not a live service-lifecycle result.
+
+The infrastructure owner is completing a kernel-enforced preparation scratch
+ceiling and actionable hold status/manual resolution. The project reviewer must
+qualify that exact combined candidate before activation and collect actual
+exact-commit CI provenance afterward. Service activation remains on hold; no
+service, fleet setting or resource limit changed during these experiments.
+macOS enforcement and Windows execution boundaries remain separate dependencies.
+The owner approved emulation where ARM64 hardware is unavailable; that decision
+and the Linux work are recorded in [the port context](rust-port.md).
