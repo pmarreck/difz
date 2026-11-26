@@ -2078,5 +2078,15 @@ seconds for Nix preparation/checks and 175.68 seconds including host admission
 and execution. All twenty required Windows filesystem cases pass, together
 with the four real zero-selection controls. The existing native metadata,
 CLI, C ABI, cross-apply and standalone checks also pass. File growth takes
-37.40 seconds, including one permitted noisy-sample retry; measurement policy
-and the unbaselined status remain unchanged.
+37.40 seconds, including one permitted noisy-sample retry; structure growth
+takes 41.29 seconds. Measurement policy and the unbaselined status remain unchanged.
+
+Commit `db78e4e` delivered this increment and matched the fetched remote branch.
+Its exact-commit CI passed all twenty-two declared targets in 60 seconds.
+
+The next increment adds no-follow entry inspection through these pinned handles.
+Windows file identity must retain the complete 128-bit identifier and volume
+identity, without narrowing to the Unix inode width. Independent native API
+readback must distinguish hardlink aliases from different objects, preserve
+identity after path replacement, classify reparse tags and verify native
+timestamp conversion. Directory patch/publication operations remain open.
