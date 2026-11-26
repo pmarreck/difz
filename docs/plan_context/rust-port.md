@@ -2032,10 +2032,51 @@ builder, preserving failure coverage as product availability changes.
 Commit `ec2c07d` delivered this increment and matched the fetched remote branch.
 Its exact-commit CI passed all twenty-two declared targets in 55 seconds.
 
-The next Windows filesystem increment establishes pinned directory handles and
-bounded, no-follow child file reads. Returned handles must be inspected for
-reparse points and object kind, and relative child access must continue using
-the opened parent after its path is renamed. Independent Windows API readback
-and disposable symlink/replacement controls run under both established Wine
-routes. This is a prerequisite for the directory/metadata port, not a claim that
-those currently unsupported public operations have been completed.
+### Windows pinned filesystem reads, 2026-11-26
+
+The Rust platform crate now owns Windows directory handles and opens children
+relative to those handles with `NtCreateFile`. Names use an exact-length UTF-16
+descriptor after the shared basename validation; alternate data streams are
+rejected. Root and child opens preserve the reparse point itself, then reject
+reparse points, non-disk handles and incorrect object kinds before returning
+access. The shared fallible bounded reader enforces the caller's byte ceiling.
+This read-only foundation does not enable the still-unsupported public Windows
+directory patch and publication operations.
+
+Five required tests execute in each architecture and profile. Independent
+`ReadFile` readback verifies binary bytes, `GetHandleInformation` rejects
+inherited handles, and `GetProcessHandleCount` checks ownership after repeated
+successful and failed opens. Other cases rename and replace an opened parent,
+require actual Windows symlink/reparse fixtures, check UTF-8/UTF-16 names and
+exercise exact, empty and overflowing byte limits. A real zero-selection run
+must fail the required five-test receipt despite the Rust harness returning
+success. Fixture creation and unsupported extended attributes are failures,
+never skipped acceptance cases.
+
+Nix compiles the four executables and runs their actual test listings, requiring
+five declarations in each. Wine stores reparse points in extended attributes,
+whose creation Nix intentionally blocks. A confined host probe can create
+them, while the Nix build cannot, including on a separately mounted tmpfs.
+The complete `./test` therefore executes these filesystem cases in its existing
+admitted Linux host phase, under the same preventive write/process boundary as
+the native extended-attribute tests. Each Windows run has its own private
+scratch and Wine prefix, with a UTF-8 host locale. ARM64 retains the qualified
+private QEMU interpreter registry. No host-wide registration or sandbox
+override is introduced.
+
+All eight executable/wrapper prerequisites are mandatory on Linux AMD64. The
+prepared-runner control checks every one in missing, directory and
+non-executable states, plus a separate omission mutation for each requirement.
+The original exhaustive 4,096 core artifact-state combinations remain intact.
+The Nix-only CI checks prove preparation and continue executing CLI, C ABI and
+file acceptance; the reparse-point runtime evidence comes from the confined
+host phase of `./test`. These results qualify the stated Wine compatibility
+scope, not native Windows or NTFS metadata.
+
+The complete `./test` passes in 305.15 seconds with zero failures: 129.47
+seconds for Nix preparation/checks and 175.68 seconds including host admission
+and execution. All twenty required Windows filesystem cases pass, together
+with the four real zero-selection controls. The existing native metadata,
+CLI, C ABI, cross-apply and standalone checks also pass. File growth takes
+37.40 seconds, including one permitted noisy-sample retry; measurement policy
+and the unbaselined status remain unchanged.

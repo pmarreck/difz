@@ -43,6 +43,11 @@ let
 	runWine = receipt: pkgs.writeShellScript "difz-windows-rust-runner" ''
 		set -uo pipefail
 		export WINEPREFIX="$TMPDIR/wine-prefix" WINEARCH=win64 WINEDEBUG=-all
+		# Wine derives the Unix filename encoding from the host locale. Keep
+		# Windows scratch on the caller's declared filesystem, not a prefix default.
+		export LANG=C.UTF-8 LC_ALL=C.UTF-8
+		export WINETEMP="Z:$TMPDIR/windows-temp" WINETMP="Z:$TMPDIR/windows-temp"
+		mkdir -p "$TMPDIR/windows-temp" || exit 1
 		export WINEDLLOVERRIDES='mscoree,mshtml=' DISPLAY= WAYLAND_DISPLAY= DBUS_SESSION_BUS_ADDRESS=
 		output=$(mktemp "$TMPDIR/wine-output.XXXXXXXX") || exit 1
 		errors=$(mktemp "$TMPDIR/wine-errors.XXXXXXXX") || exit 1
@@ -73,19 +78,99 @@ let
 	})) [ releaseLibrary debugLibrary ];
 	# Exercise the real panic boundary on each Windows runtime. A library that
 	# links successfully could still have a broken platform unwind path.
-	boundaryTests = map (lib: qualifyTarget (lib.overrideAttrs (old: {
-		pname = "difz-windows-${arch}-boundary-tests";
+	unitTests = { name, package, receipt, expectedTests }: map (lib: qualifyTarget (lib.overrideAttrs (old: {
+		pname = "difz-windows-${arch}-${name}-tests";
 		"CARGO_TARGET_${pkgs.lib.toUpper (pkgs.lib.replaceStrings [ "-" ] [ "_" ] sdk.rustTarget)}_RUNNER" = "${runWine true}";
 		buildPhase = ''
 			runHook preBuild
 			cmp ${buildStamp.json} ${sdk}/nix-support/build-provenance.json
 			export CC=false CXX=false AR=false
-			cargo test --color never --locked --offline --target ${sdk.rustTarget} \
-				${pkgs.lib.optionalString (lib.rustProfile == "release") "--release"} -p difz-c-api --lib
+			run_tests() {
+				cargo test --color never --locked --offline --target ${sdk.rustTarget} \
+					${pkgs.lib.optionalString (lib.rustProfile == "release") "--release"} -p ${package} --lib -- "$@"
+			}
+			status=0
+			run_tests > "$TMPDIR/unit-output" 2> "$TMPDIR/unit-errors" || status=$?
+			cat "$TMPDIR/unit-output"
+			cat "$TMPDIR/unit-errors" >&2
+			test "$status" -eq 0
+			# A cfg mistake that discovers zero tests must not mint a receipt.
+			grep -F 'test result: ok. ${toString expectedTests} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;' "$TMPDIR/unit-output"
 			runHook postBuild
 		'';
 		installPhase = ''
-			printf 'PASS real Windows Rust ownership and panic boundary\n' > "$out"
+			printf '%s\n' ${pkgs.lib.escapeShellArg receipt} > "$out"
+		'';
+	}))) [ releaseLibrary debugLibrary ];
+	boundaryTests = unitTests {
+		name = "boundary"; package = "difz-c-api";
+		expectedTests = 2;
+		receipt = "PASS real Windows Rust ownership and panic boundary";
+	};
+	platformRunner = profile: pkgs.writeShellScript "difz-windows-platform-${arch}-${profile}-tests" ''
+		set -uo pipefail
+		# Nix deliberately denies xattr setters. Wine stores reparse points in
+		# xattrs, so ./test executes these prepared binaries in host confinement.
+		[[ $# == 0 ]] || { printf 'FAIL unexpected Windows test arguments\n' >&2; exit 1; }
+		scratch=$(mktemp -d "''${TMPDIR:?}/difz-windows-${arch}-${profile}.XXXXXXXX") || exit 1
+		export TMPDIR="$scratch"
+		probe=$(mktemp "$TMPDIR/xattr-probe.XXXXXXXX") || exit 1
+		${pkgs.attr}/bin/setfattr -n user.difz-wine-probe -v retained "$probe" || exit 1
+		test "$(${pkgs.attr}/bin/getfattr --only-values -n user.difz-wine-probe "$probe")" = retained || exit 1
+		run_tests() { ${runWine true} @EXECUTABLE@ --test-threads=1 "$@"; }
+		if ! run_tests > "$TMPDIR/tests.out" 2> "$TMPDIR/tests.err"; then
+			cat "$TMPDIR/tests.out" "$TMPDIR/tests.err" >&2; exit 1
+		fi
+		cat "$TMPDIR/tests.out"
+		grep -F 'test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;' "$TMPDIR/tests.out" || exit 1
+		# The real harness succeeds with no selected tests. Its output must fail
+		# the required-case receipt, rather than permitting a vacuous green run.
+		if ! run_tests --exact __difz_absent_test_negative_control > "$TMPDIR/zero.out" 2> "$TMPDIR/zero.err"; then
+			cat "$TMPDIR/zero.out" "$TMPDIR/zero.err" >&2; exit 1
+		fi
+		grep -F 'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out;' "$TMPDIR/zero.out" || exit 1
+		if grep -F 'test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;' "$TMPDIR/zero.out"; then
+			printf 'FAIL zero-test harness satisfied the required-case receipt\n' >&2; exit 1
+		fi
+		printf 'PASS Windows ${arch} ${profile} pinned directory capabilities and zero-test control\n'
+	'';
+	platformTests = map (lib: qualifyTarget (lib.overrideAttrs (old: {
+		pname = "difz-windows-${arch}-platform-tests";
+		# QA wrappers intentionally reference pinned host runtimes. Production
+		# executables and archives retain their independent no-store guards.
+		allowedReferences = null;
+		src = pkgs.lib.fileset.toSource {
+			root = ../rust;
+			fileset = pkgs.lib.fileset.unions [
+				../rust/Cargo.toml ../rust/Cargo.lock ../rust/src ../rust/zstdz
+				../rust/consumer ../rust/c-api ../rust/platform
+			];
+		};
+		buildPhase = ''
+			runHook preBuild
+			cmp ${buildStamp.json} ${sdk}/nix-support/build-provenance.json
+			export CC=false CXX=false AR=false
+			if ! cargo test --color never --locked --offline --target ${sdk.rustTarget} \
+				${pkgs.lib.optionalString (lib.rustProfile == "release") "--release"} -p difz-platform --lib --no-run --message-format=json > artifacts.json; then
+				jq -r 'select(.reason == "compiler-message") | .message.rendered // empty' artifacts.json >&2; exit 1
+			fi
+			executable=$(jq -ser '[.[] | select(.reason == "compiler-artifact" and .target.name == "difz_platform" and .profile.test and .executable != null) | .executable] | if length == 1 then .[0] else error("expected one Windows platform test executable") end' artifacts.json)
+			${runWine false} "$executable" --list > test-list.raw
+			tr -d '\r' < test-list.raw > test-list
+			test "$(grep -c '^windows::tests::.*: test$' test-list)" -eq 5
+			grep -Fx '5 tests, 0 benchmarks' test-list
+			runHook postBuild
+		'';
+		installPhase = ''
+			runHook preInstall
+			name=difz-windows-platform-${arch}-${lib.rustProfile}
+			install -Dm755 "$executable" "$out/libexec/$name.exe"
+			substitute ${platformRunner lib.rustProfile} "$out/libexec/$name-tests" \
+				--replace-fail '@EXECUTABLE@' "$out/libexec/$name.exe"
+			chmod +x "$out/libexec/$name-tests"
+			install -Dm644 test-list "$out/nix-support/platform-test-list"
+			printf 'PASS prepared Windows ${arch} ${lib.rustProfile} directory capability tests\n' > "$out/nix-support/platform-tests-prepared"
+			runHook postInstall
 		'';
 	}))) [ releaseLibrary debugLibrary ];
 	fileCheck = import ./windows-emulated.nix { inherit pkgs products oracles wrongArchControl arch; };
@@ -97,11 +182,15 @@ in assert builtins.elem arch [ "amd64" "arm64" ]; {
 	packages = { "windows-${arch}-rust-release" = release; "windows-${arch}-rust-debug" = debug; };
 	check = pkgs.runCommand "difz-windows-rust-${arch}-check" {
 		nativeBuildInputs = with pkgs; [ bash coreutils gnugrep gnused binutils llvmPackages.llvm file jq ];
-		passthru = { inherit products abiConsumers boundaryTests sdk; inherit (fileCheck) source execution; };
+		passthru = { inherit products abiConsumers boundaryTests platformTests sdk; inherit (fileCheck) source execution; };
 	} ''
 		test -f ${fileCheck}
 		for receipt in ${pkgs.lib.escapeShellArgs (map toString boundaryTests)}; do
 			grep -Fx 'PASS real Windows Rust ownership and panic boundary' "$receipt"
+		done
+		for prepared in ${pkgs.lib.escapeShellArgs (map toString platformTests)}; do
+			grep -Ex 'PASS prepared Windows ${arch} (release|debug) directory capability tests' "$prepared/nix-support/platform-tests-prepared"
+			grep -Fx '5 tests, 0 benchmarks' "$prepared/nix-support/platform-test-list"
 		done
 		for consumer in ${pkgs.lib.escapeShellArgs (map toString abiConsumers)}; do
 			test -x "$consumer/bin/difz-rust-abi-consumer.exe"

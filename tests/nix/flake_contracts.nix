@@ -36,6 +36,7 @@ in {
 	windowsRust = let check = flake.checks.x86_64-linux.windows-rust-amd64; in {
 		inherit (check) execution;
 		boundaries = builtins.length check.boundaryTests;
+		platforms = builtins.length check.platformTests;
 		target = check.sdk.rustTarget;
 		profiles = map (p: p.profile) check.products;
 		consumers = map (p: membership p.src [ "rust/c-api/tests/caller.c" ]
@@ -46,6 +47,7 @@ in {
 	windowsArmRust = let check = flake.checks.x86_64-linux.windows-rust-arm64; in {
 		inherit (check) execution;
 		boundaries = builtins.length check.boundaryTests;
+		platforms = builtins.length check.platformTests;
 		target = check.sdk.rustTarget;
 		profiles = map (p: p.profile) check.products;
 		consumers = map (p: membership p.src [ "rust/c-api/tests/caller.c" ]

@@ -211,7 +211,9 @@
 				hostTests = pkgs.symlinkJoin {
 					name = "difz-host-tests";
 					paths = [ debugTests rustFfiTests rustCoreTests ]
-						++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ runtimeIndependence ];
+						++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ runtimeIndependence ]
+						++ pkgs.lib.optionals (system == "x86_64-linux")
+							(windowsRust.check.platformTests ++ windowsArmRust.check.platformTests);
 					postBuild = ''
 						ln -s ${rustProductDebug}/bin/difz "$out/bin/difz-rust"
 					'';

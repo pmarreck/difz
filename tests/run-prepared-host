@@ -16,6 +16,18 @@ if [ "$(uname -s)" = Linux ]; then
 		"$prefix/libexec/difz-standalone-tests"
 	)
 fi
+if [ "$(uname -s):$(uname -m)" = Linux:x86_64 ]; then
+	artifacts+=(
+		"$prefix/libexec/difz-windows-platform-amd64-release.exe"
+		"$prefix/libexec/difz-windows-platform-amd64-release-tests"
+		"$prefix/libexec/difz-windows-platform-amd64-debug.exe"
+		"$prefix/libexec/difz-windows-platform-amd64-debug-tests"
+		"$prefix/libexec/difz-windows-platform-arm64-release.exe"
+		"$prefix/libexec/difz-windows-platform-arm64-release-tests"
+		"$prefix/libexec/difz-windows-platform-arm64-debug.exe"
+		"$prefix/libexec/difz-windows-platform-arm64-debug-tests"
+	)
+fi
 difz_require_prepared_artifacts "${artifacts[@]}" || exit 1
 errors=0
 tick() {
@@ -54,6 +66,13 @@ run_platform() {
 	"$prefix/bin/difz-platform-tests" --test-threads=1 --include-ignored
 }
 if ! run_suite rust-platform run_platform; then errors=$((errors + 1)); fi
+if [ "$(uname -s):$(uname -m)" = Linux:x86_64 ]; then
+	for arch in amd64 arm64; do
+		for profile in release debug; do
+			if ! run_suite "windows-platform-$arch-$profile" "$prefix/libexec/difz-windows-platform-$arch-$profile-tests"; then errors=$((errors + 1)); fi
+		done
+	done
+fi
 if ! run_suite cli env -u DIFZ_TEST_DIRECTORY_OMIT DIFZ="$prefix/bin/difz" bash tests/cli/test_cli.bash; then errors=$((errors + 1)); fi
 if ! run_suite cross-apply env DIFZ="$prefix/bin/difz" bash tests/integration/test-cross-apply.bash; then errors=$((errors + 1)); fi
 if ! run_suite rust-ffi env DIFZ_RUST_CALLER="$prefix/bin/difz-rust-caller" bash tests/ffi/test_rust_lib.bash; then errors=$((errors + 1)); fi

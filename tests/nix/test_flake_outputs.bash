@@ -78,6 +78,7 @@ require_json '.windowsArmRust.execution == "wine-arm64-qemu-user" and .windowsAr
 require_json '.windowsArmRust.consumers | length == 2 and all(.[]; (.required | all(.[]; . == true)) and (.excluded | all(.[]; . == false)))' 'both Windows ARM64 Rust ABI consumers build only external caller source'
 require_json '.windowsArmRust.registry | length == 2 and all(.[]; .variant == "gnu" and .output != null)' 'Windows ARM64 Rust products are available in the ABI-qualified build registry'
 require_json '.windowsRust.boundaries == 2 and .windowsArmRust.boundaries == 2' 'both Windows architectures exercise real ownership and panic recovery in each profile'
+require_json '.windowsRust.platforms == 2 and .windowsArmRust.platforms == 2' 'both Windows architectures prepare directory capability tests for each profile'
 require_json '.armPackage | type == "string" and length > 0' 'aarch64-linux package evaluates'
 require_json '.armEmulation.execution == "qemu-user-aarch64" and .armEmulation.products == 4 and .armEmulation.rustTargets == ["aarch64-unknown-linux-musl","aarch64-unknown-linux-musl"]' 'ARM64 emulation uses four target products with matching Rust SDKs'
 require_json '.armEmulation.registry | length == 4 and all(.[]; startswith("packages.x86_64-linux.linux-arm64-"))' 'every Linux ARM64 registry row selects the local cross builder'

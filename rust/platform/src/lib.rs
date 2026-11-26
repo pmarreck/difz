@@ -1,10 +1,11 @@
-//! Filesystem capabilities for Linux and macOS. Windows is not implemented yet.
-#![cfg(any(target_os = "linux", target_os = "macos"))]
+//! Filesystem capabilities. Windows currently supplies pinned read-only access.
+#![cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 #![deny(unsafe_op_in_unsafe_fn)]
+use std::io;
 use std::io::Read;
+#[cfg(unix)]
 use std::{
 	fs::{File, OpenOptions},
-	io,
 	os::{
 		fd::{AsRawFd, FromRawFd},
 		unix::fs::OpenOptionsExt,
@@ -34,13 +35,16 @@ impl From<io::Error> for Error {
 }
 
 #[derive(Debug)]
+#[cfg(unix)]
 pub struct Directory {
 	file: File,
 }
+#[cfg(unix)]
 enum Child {
 	Directory,
 	RegularFile,
 }
+#[cfg(unix)]
 impl Directory {
 	/// Open a root without following its final component. The returned handle
 	/// pins directory identity independently of subsequent path renames.
@@ -109,6 +113,7 @@ impl Directory {
 	}
 }
 
+#[cfg(unix)]
 fn basename(name: &[u8]) -> Result<Vec<u8>, Error> {
 	difz_core::directory::validate_basename(name).map_err(|_| Error::InvalidBasename)?;
 	let mut terminated = Vec::new();
@@ -120,7 +125,9 @@ fn basename(name: &[u8]) -> Result<Vec<u8>, Error> {
 	Ok(terminated)
 }
 
+#[cfg(unix)]
 mod entry;
+#[cfg(unix)]
 pub use entry::{EntryInfo, Identity, Kind};
 
 fn read_limited(reader: &mut impl Read, maximum: usize) -> Result<Vec<u8>, Error> {
@@ -151,10 +158,12 @@ fn read_limited(reader: &mut impl Read, maximum: usize) -> Result<Vec<u8>, Error
 		bytes.extend_from_slice(&buffer[..count]);
 	}
 }
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;
 
+#[cfg(unix)]
 mod names;
+#[cfg(unix)]
 pub use names::Names;
 #[cfg(target_os = "linux")]
 pub mod linux_acl_restore;
@@ -184,11 +193,19 @@ pub mod linux_tree_capture;
 pub mod linux_tree_patch;
 #[cfg(target_os = "linux")]
 pub mod linux_tree_write;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod names_tests;
+#[cfg(unix)]
 pub mod new_file;
+#[cfg(unix)]
 pub mod sparse;
+#[cfg(unix)]
 pub mod stage;
+#[cfg(windows)]
+mod windows;
+#[cfg(unix)]
 pub mod write;
+#[cfg(windows)]
+pub use windows::Directory;
 #[cfg(target_os = "linux")]
 pub mod xattr;

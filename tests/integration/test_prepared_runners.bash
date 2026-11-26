@@ -16,11 +16,17 @@ for tool in bash zig rustc cargo env luajit; do
 done
 # This is the Linux prepared-runner contract even when its source-bounded Nix
 # check executes on another build host; native foreign adapters have separate gates.
-printf '#!%s\nprintf "Linux\\n"\n' "$BASH" > "$work/tools/uname" || exit 1
+printf '#!%s\nif [ "${1:-}" = -m ]; then printf "x86_64\\n"; else printf "Linux\\n"; fi\n' "$BASH" > "$work/tools/uname" || exit 1
 chmod +x "$work/tools/uname" || exit 1
 export DIFZ_RUNNER_RECORD="$record"
 export PATH="$work/tools:$PATH"
 slots=(bin/difz libexec/difz-unit-tests bin/difz-rust-caller bin/difz-core-consumer bin/difz-platform-tests libexec/difz-standalone-tests)
+entry_slots=("${slots[@]}")
+for arch in amd64 arm64; do
+	for profile in release debug; do
+		entry_slots+=("libexec/difz-windows-platform-$arch-$profile.exe" "libexec/difz-windows-platform-$arch-$profile-tests")
+	done
+done
 states=(valid missing directory non-executable)
 combinations=1
 # Each state has a distinct real filesystem fixture for every artifact. Select
@@ -54,7 +60,7 @@ fi
 check_entrypoint() {
 	local entry=$1 prefix=$2 omitted shape slot status
 	mkdir -p "$prefix/bin" "$prefix/libexec" || return 1
-	for slot in "${slots[@]}"; do ln -s "$work/tools/zig" "$prefix/$slot" || return 1; done
+	for slot in "${entry_slots[@]}"; do ln -s "$work/tools/zig" "$prefix/$slot" || return 1; done
 	# Trace the boundary before Linux-only clocks are used. This classifier check
 	# is portable; it does not claim native behavioral execution on other hosts.
 	DIFZ_HOST_TESTS="$prefix" TMPDIR="$work" TEST_WORKSPACE="$work" \
@@ -64,7 +70,7 @@ check_entrypoint() {
 	fi
 	# Only remove owned fixture links/markers; never change a prepared artifact.
 	[ ! -e "$record" ] || rm -- "$record" || return 1
-	for omitted in "${slots[@]}"; do
+	for omitted in "${entry_slots[@]}"; do
 		rm -- "$prefix/$omitted" || return 1
 		for shape in missing directory non-executable; do
 			case "$shape" in
@@ -93,13 +99,13 @@ check_entrypoint "$root/tests/run-prepared-host" "$work/prefix with spaces" || e
 # In particular, another missing prerequisite cannot mask a removed slot check.
 mkdir -p "$work/mutants/tests" "$work/mutants/scripts" || exit 1
 cp "$root/scripts/prepared-host-artifacts.bash" "$work/mutants/scripts/" || exit 1
-for ((index=0; index<${#slots[@]}; index++)); do
-	sed "\|\"\$prefix/${slots[$index]}\"|d" "$root/tests/run-prepared-host" > "$work/mutants/tests/runner-$index" || exit 1
+for ((index=0; index<${#entry_slots[@]}; index++)); do
+	sed "\|\"\$prefix/${entry_slots[$index]}\"|d" "$root/tests/run-prepared-host" > "$work/mutants/tests/runner-$index" || exit 1
 	if check_entrypoint "$work/mutants/tests/runner-$index" "$work/mutant-prefix-$index" > "$work/mutant-out" 2> "$work/mutant-err"; then
-		printf 'FAIL omitted artifact check survived: %s\n' "${slots[$index]}" >&2; exit 1
+		printf 'FAIL omitted artifact check survived: %s\n' "${entry_slots[$index]}" >&2; exit 1
 	fi
-	if ! grep -Fxq "FAIL prepared entry-point preflight: ${slots[$index]} missing" "$work/mutant-err"; then
-		printf 'FAIL omission control failed for an unrelated reason: %s\n' "${slots[$index]}" >&2; exit 1
+	if ! grep -Fxq "FAIL prepared entry-point preflight: ${entry_slots[$index]} missing" "$work/mutant-err"; then
+		printf 'FAIL omission control failed for an unrelated reason: %s\n' "${entry_slots[$index]}" >&2; exit 1
 	fi
 	[ ! -e "$record" ] || rm -- "$record" || exit 1
 done
@@ -132,4 +138,4 @@ for shape in missing directory non-executable; do
 		printf 'FAIL Rust CLI preflight did not reject before other checks: %s\n' "$shape" >&2; exit 1
 	fi
 done
-printf 'PASS prepared runners reject %d invalid artifact sets, all 18 entry-point paths, six omission mutants, and three invalid paths each for the Rust consumer and Rust CLI without execution\n' "$((combinations - 1))"
+printf 'PASS prepared runners reject %d invalid artifact sets, all %d entry-point paths, %d omission mutants, and three invalid paths each for the Rust consumer and Rust CLI without execution\n' "$((combinations - 1))" "$((3 * ${#entry_slots[@]}))" "${#entry_slots[@]}"
