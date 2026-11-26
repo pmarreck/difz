@@ -26,7 +26,7 @@ in (pkgs.rustPlatform.buildRustPackage ({
 		${bindgen.command} ${library}/include/difz-rust.h --use-core --no-layout-tests \
 			--formatter none --no-prepend-enum-name \
 			--allowlist-function 'difz_.*' --allowlist-type 'difz_.*' --allowlist-var 'DIFZ_.*' \
-			-- ${bindgen.flags} --target=${pkgs.stdenv.hostPlatform.rust.rustcTarget} > "$DIFZ_C_API_BINDINGS"
+			-- ${bindgen.flags} --target=${bindgen.target} > "$DIFZ_C_API_BINDINGS"
 	'';
 	doCheck = true;
 	# stdenv disables the normal check phase for a foreign CPU. Cargo knows

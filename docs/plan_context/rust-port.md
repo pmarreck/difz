@@ -1950,6 +1950,24 @@ Both Nix and shell selection reject absent or incorrect Windows variants.
 Foreign Rust SDK validation matches the full Windows target triple and selected
 ABI before publication. Windows ARM64 Rust products remain explicitly unavailable.
 
+### Windows target binding headers, 2026-11-26
+
+ARM64 toolchain preparation exposed two binding-generation defects: Rust's
+`windows-gnullvm` target spelling is not a Clang triple, and native Linux libc
+headers cannot describe Windows types. Both Windows SDK and CLI binding builders
+now use the target's MinGW headers, Clang's builtin resource headers and the
+corresponding `windows-gnu` Clang spelling. The installed SDK continues recording
+the actual Rust target, including `gnullvm` where applicable.
+
+Resource discovery uses unwrapped Clang. Adding its wrapped compiler as a native
+tool runs a compiler setup hook that can pollute Cargo's native build-script
+linking with Windows libraries; a failed build reproduced that distinction.
+Both AMD64 Windows profiles pass their real CLI units, external C ABI and shared
+file acceptance with the corrected headers. The complete `./test` passes in
+109.31 seconds with zero failures, including fresh file and structure growth
+checks under the existing bounds. This checkpoint fixes binding preparation;
+ARM64 Rust execution and standalone runtime qualification remain open.
+
 The cross-built ABI check executes the check body directly during the build:
 Nix's generic `runPhase checkPhase` still skips a check disabled for a foreign
 target. Installation requires an affirmative execution receipt, and the outer

@@ -15,7 +15,7 @@ in pkgs.stdenv.mkDerivation {
 		${bindgen.command} bindings.h --use-core --no-layout-tests --formatter none \
 			--allowlist-function 'ZSTD_(getCParams|isError|compressBound|createCCtx|freeCCtx|CCtx_setParameter|CCtx_refPrefix|compress2|createDCtx|freeDCtx|DCtx_setMaxWindowSize|DCtx_refPrefix|decompressDCtx)' \
 			--allowlist-var 'ZSTD_(c_.*|btlazy2|WINDOWLOG_.*)|DIFZ_ZSTD_WINDOWLOG_MAX' --no-prepend-enum-name \
-			-- ${bindgen.flags} -I${zstdz}/include --target=${target} > bindings.rs
+			-- ${bindgen.flags} -I${zstdz}/include --target=${bindgen.target} > bindings.rs
 		runHook postBuild
 	'';
 	installPhase = ''
